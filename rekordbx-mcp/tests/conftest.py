@@ -60,6 +60,11 @@ def playable_snapshot(encrypted_database, tmp_path):
     second = music / "Second track.mp3"
     first.write_bytes(b"synthetic audio one")
     second.write_bytes(b"synthetic audio two")
+    ambiguous = music / "Duplicate.mp3"
+    deleted = music / "Deleted.mp3"
+    ambiguous.write_bytes(b"synthetic duplicate reference")
+    deleted.write_bytes(b"synthetic deleted track")
+    (music / "Not in collection.mp3").write_bytes(b"synthetic unregistered audio")
     connection = dbapi2.connect(encrypted_database)
     try:
         connection.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
@@ -73,6 +78,9 @@ def playable_snapshot(encrypted_database, tmp_path):
                 ("5", "Unsafe", str(music / "bad\n#EXTINF:0,injected.mp3"), 0),
                 ("6", "Relative", "relative.mp3", 0),
                 ("7", "Directory", str(music), 0),
+                ("8", "Duplicate one", str(ambiguous), 0),
+                ("9", "Duplicate two", str(ambiguous), 0),
+                ("10", "Deleted only", str(deleted), 1),
             ],
         )
         connection.commit()

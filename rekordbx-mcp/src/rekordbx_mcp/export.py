@@ -14,8 +14,10 @@ OUTPUT_DIRECTORY = Path(__file__).resolve().parents[3] / "output"
 def export_playlist(
     database: SnapshotMasterDatabase,
     name: str,
-    track_ids: list[str],
+    track_ids: list[str] | None,
     output_directory: Path,
+    *,
+    file_paths: list[str] | None = None,
 ) -> dict:
     name = name.strip()
     if (
@@ -23,6 +25,25 @@ def export_playlist(
         or any(character in name for character in "/\\") or not name.isprintable()
     ):
         raise ValueError("Use a playlist name of up to 200 UTF-8 bytes without path separators or control characters.")
+    if (track_ids is None) == (file_paths is None):
+        raise ValueError("Supply exactly one of track_ids or file_paths.")
+    if file_paths is not None:
+        if not file_paths or len(file_paths) > 1000:
+            raise ValueError("Select 1–1000 file locations.")
+        track_ids = []
+        for position, location in enumerate(file_paths, 1):
+            if (
+                not isinstance(location, str) or not Path(location).is_absolute()
+                or any(character in location for character in "\r\n\x00\x85\u2028\u2029")
+            ):
+                raise ValueError(f"Invalid file location at position {position}; use an absolute local path.")
+            matches = [
+                track for track in database.get_content().filter_by(FolderPath=location)
+                if not track.rb_local_deleted
+            ]
+            if len(matches) != 1:
+                raise ValueError(f"File location at position {position} must match exactly one active snapshot track.")
+            track_ids.append(str(matches[0].ID))
     if not track_ids:
         raise ValueError("Select at least one track ID.")
     if len(track_ids) > 1000 or any(not isinstance(item, str) or not item for item in track_ids):

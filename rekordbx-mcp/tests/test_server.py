@@ -43,6 +43,47 @@ async def test_export_tool_creates_local_artifacts_without_returning_audio_paths
         assert str(playable_snapshot / "music") not in error.content[0].text
 
 
+async def test_export_tool_accepts_file_paths_as_an_alternative(playable_snapshot):
+    output = playable_snapshot / "output"
+    locations = [str(playable_snapshot / "music/Second track.mp3"), str(playable_snapshot / "music/Été #1.mp3")]
+    async with Client(build_server(playable_snapshot, output_directory=output)) as client:
+        result = await client.call_tool("export_playlist", {"name": "Locations", "file_paths": locations})
+        exported = json.loads(result.content[0].text)
+        assert exported["track_count"] == 2
+        assert (output / "Locations.m3u8").read_text(encoding="utf-8").splitlines() == ["#EXTM3U", *locations]
+        assert json.loads((output / "Locations.json").read_text())["track_ids"] == ["2", "1"]
+        assert str(playable_snapshot / "music") not in result.content[0].text
+        for arguments in [
+            {"name": "Both", "track_ids": ["1"], "file_paths": locations},
+            {"name": "Neither"},
+            {"name": "Unknown", "file_paths": [str(playable_snapshot / "music/Not in collection.mp3")]},
+        ]:
+            error = await client.call_tool("export_playlist", arguments, raise_on_error=False)
+            assert error.is_error
+            assert str(playable_snapshot / "music") not in error.content[0].text
+        assert {path.name for path in output.iterdir()} == {"Locations.m3u8", "Locations.json"}
+
+
+@pytest.mark.parametrize("malformed", ["string_list", "element_type", "missing_name", "extra_argument"])
+async def test_export_validation_errors_do_not_echo_file_locations(playable_snapshot, malformed):
+    output = playable_snapshot / "output"
+    location = "/private/music/private-input-track.mp3"
+    arguments = {"name": "Invalid", "file_paths": [location]}
+    if malformed == "string_list":
+        arguments["file_paths"] = location
+    elif malformed == "element_type":
+        arguments["file_paths"] = [{"path": location}]
+    elif malformed == "missing_name":
+        del arguments["name"]
+    else:
+        arguments["destination"] = location
+    async with Client(build_server(playable_snapshot, output_directory=output)) as client:
+        error = await client.call_tool("export_playlist", arguments, raise_on_error=False)
+        assert error.is_error
+        assert "private-input-track.mp3" not in error.content[0].text
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("name,arguments", [
     ("create_playlist", {"name": "Forbidden"}),
     ("delete_playlist", {"playlist_id": "1"}),

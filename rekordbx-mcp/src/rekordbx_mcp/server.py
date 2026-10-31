@@ -9,7 +9,9 @@ from pathlib import Path
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import Middleware
 from loguru import logger
+from pydantic import ValidationError
 from rekordbox_mcp import server as upstream
 
 from .database import SnapshotDatabase
@@ -26,6 +28,19 @@ READ_TOOLS = (
     "get_recent_sessions", "get_history_stats", "search_history_sessions",
 )
 _upstream_lock = asyncio.Lock()
+
+
+class ExportInputPrivacy(Middleware):
+    async def on_call_tool(self, context, call_next):
+        try:
+            return await call_next(context)
+        except ValidationError:
+            if context.message.name != "export_playlist":
+                raise
+            # Framework validation errors otherwise echo supplied file locations.
+            raise ToolError(
+                "Invalid export arguments; provide a name and exactly one list: track_ids or file_paths."
+            ) from None
 
 
 def redact_paths(value):
@@ -55,6 +70,7 @@ def build_server(snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY) -
             await database.disconnect()
 
     server = FastMCP("Rekordbox snapshot (read-only)", lifespan=lifespan)
+    server.add_middleware(ExportInputPrivacy())
 
     def wrap(original):
         @wraps(original)
@@ -76,18 +92,26 @@ def build_server(snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY) -
         )(wrap(original))
 
     @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
-    async def export_playlist(name: str, track_ids: list[str]) -> dict:
-        """Export ordered existing track IDs to new M3U8 and JSON files in output/.
+    async def export_playlist(
+        name: str, track_ids: list[str] | None = None,
+        file_paths: list[str] | None = None,
+    ) -> dict:
+        """Export existing collection tracks to new M3U8 and JSON files in output/.
 
         Use a filename-safe name without an extension. Preserves order and repeats.
+        Supply exactly one of track_ids or file_paths, with 1–1000 entries.
+        File paths must be absolute and match exactly one active snapshot track.
         Rejects unknown/deleted IDs, missing audio and existing output filenames.
-        Returns artifact paths only; audio paths stay local in the M3U8 file.
+        Returns artifact paths only; JSON saves resolved IDs, not audio paths.
+        Prefer track_ids to avoid sending audio paths in tool arguments.
         Creates external files only; never imports or edits Rekordbox data.
         """
         async with _upstream_lock:
             await ensure_connected()
             try:
-                return write_playlist(database.db, name, track_ids, output_directory)
+                return write_playlist(
+                    database.db, name, track_ids, output_directory, file_paths=file_paths,
+                )
             except ValueError as error:
                 raise ToolError(str(error)) from None
             except FileExistsError:

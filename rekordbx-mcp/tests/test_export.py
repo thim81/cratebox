@@ -116,3 +116,49 @@ def test_write_failure_removes_incomplete_artifacts(collection, playable_snapsho
     with pytest.raises(OSError, match="synthetic disk failure"):
         export_playlist(collection, "House", ["1"], output)
     assert list(output.iterdir()) == []
+
+
+def test_file_locations_resolve_to_ids_and_preserve_order(collection, playable_snapshot):
+    from rekordbx_mcp.export import export_playlist
+    output = playable_snapshot / "output"
+    audio = [playable_snapshot / "music/Second track.mp3", playable_snapshot / "music/Été #1.mp3"]
+    originals = [playable_snapshot / "master.db", *audio]
+    before = [sha256(path) for path in originals]
+    locations = [str(audio[0]), str(audio[1]), str(audio[0])]
+    result = export_playlist(collection, "From locations", None, output, file_paths=locations)
+    assert Path(result["playlist_path"]).read_text(encoding="utf-8").splitlines() == ["#EXTM3U", *locations]
+    plan = json.loads(Path(result["plan_path"]).read_text(encoding="utf-8"))
+    assert plan["track_ids"] == ["2", "1", "2"]
+    assert result["track_count"] == 3
+    assert str(playable_snapshot / "music") not in json.dumps(result)
+    assert str(playable_snapshot / "music") not in json.dumps(plan)
+    assert [sha256(path) for path in originals] == before
+
+
+@pytest.mark.parametrize("filename", ["Not in collection.mp3", "Duplicate.mp3", "Deleted.mp3", "missing.mp3"])
+def test_invalid_file_locations_fail_without_echoing_paths(collection, playable_snapshot, filename):
+    from rekordbx_mcp.export import export_playlist
+    output = playable_snapshot / "output"
+    locations = [str(playable_snapshot / "music/Second track.mp3"), str(playable_snapshot / "music" / filename)]
+    with pytest.raises(ValueError) as error:
+        export_playlist(collection, "Invalid location", None, output, file_paths=locations)
+    assert str(playable_snapshot / "music") not in str(error.value)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("locations", [[], [None], [""], ["relative.mp3"], ["file:///private/music/test.mp3"], ["/private/music/bad\nfile.mp3"], ["/private/music/track.mp3"] * 1001])
+def test_invalid_location_inputs_never_write(collection, playable_snapshot, locations):
+    from rekordbx_mcp.export import export_playlist
+    output = playable_snapshot / "output"
+    with pytest.raises(ValueError):
+        export_playlist(collection, "Bad input", None, output, file_paths=locations)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("ids,locations", [(None, None), (["1"], []), ([], []), ([], None)])
+def test_selection_requires_exactly_one_nonempty_input(collection, playable_snapshot, ids, locations):
+    from rekordbx_mcp.export import export_playlist
+    output = playable_snapshot / "output"
+    with pytest.raises(ValueError):
+        export_playlist(collection, "Bad selection", ids, output, file_paths=locations)
+    assert not output.exists()
