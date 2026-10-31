@@ -205,9 +205,30 @@ Once you have agreed on a selection in chat, ask:
 > Use `export_playlist` to export the final track IDs in the agreed order.
 > Name it "House warm-up" and give me links to both generated files.
 
-The tool accepts `name` and an ordered `track_ids` array. It uses the running
-session's verified snapshot; it does not read the live database. Audio paths
-are resolved locally and are not returned to the model.
+The tool accepts `name` and exactly one ordered array: `track_ids` or `file_paths`.
+It uses the running session's verified snapshot; it does not read the live
+database. With IDs, audio paths are resolved locally. With file locations, each
+path must match exactly one active track in that snapshot, and is resolved to
+its track ID. Files outside the collection, deleted-only matches, and ambiguous
+matches are refused. Paths must be absolute local filenames, not `file://` URLs,
+relative paths or folders, and must match the stored path exactly.
+
+For example, these are alternative tool arguments:
+
+```json
+{"name": "House warm-up", "track_ids": ["123", "456", "789"]}
+```
+
+```json
+{"name": "House warm-up", "file_paths": ["/Volumes/Music/Artist/Opening.mp3", "/Volumes/Music/Artist/Finale.mp3"]}
+```
+
+Both inputs preserve the supplied order and intentional repeats exactly. No
+sorting or deduplication happens. The JSON record always saves the resolved
+track IDs. File locations you supply become part of the tool input and may be
+visible in your Codex conversation; prefer IDs to keep paths local. Neither
+success nor error responses return audio paths. Unmatched or ambiguous file
+locations are reported by their position in the supplied list.
 
 Exports are created under `/Users/thim/Sites/rekordbx/output/`:
 
@@ -217,8 +238,8 @@ Exports are created under `/Users/thim/Sites/rekordbx/output/`:
   IDs, validate them against the current snapshot, and export with a new name.
 
 Track order and intentional repeated IDs are preserved. An export accepts
-1–1000 IDs. Every ID must exist and not be marked deleted, and every referenced
-audio file must be present. Errors report affected IDs without revealing audio
+1–1000 tracks via either input. Every ID must exist and not be marked deleted,
+and every referenced audio file must be present. Errors report affected IDs without revealing audio
 paths. Nothing is silently skipped and validation failures create no artifacts.
 
 Names must be a single filename stem without slashes or control characters,

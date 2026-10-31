@@ -44,6 +44,7 @@ def test_export_preserves_order_unicode_and_inputs(collection, playable_snapshot
     ([], "at least one"),
     ([""], "string track IDs"),
     ([None], "string track IDs"),
+    (["/private/music/private-input-track.mp3"], "string track IDs"),
     (["1"] * 1001, "1000"),
     (["1", "999"], "999"),
     (["1", "3"], "3"),

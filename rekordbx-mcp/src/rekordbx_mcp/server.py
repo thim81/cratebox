@@ -107,8 +107,8 @@ def build_server(snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY) -
         Creates external files only; never imports or edits Rekordbox data.
         """
         async with _upstream_lock:
-            await ensure_connected()
             try:
+                await ensure_connected()
                 return write_playlist(
                     database.db, name, track_ids, output_directory, file_paths=file_paths,
                 )
@@ -118,6 +118,9 @@ def build_server(snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY) -
                 raise ToolError("Export files already exist; choose a different playlist name.") from None
             except OSError:
                 raise ToolError("Cannot write export files; check the local output directory and permissions.") from None
+            except Exception:
+                logger.exception("Playlist export failed")
+                raise ToolError("Playlist export failed; check the local server logs.") from None
 
     @server.resource("snapshot://status")
     def status() -> str:

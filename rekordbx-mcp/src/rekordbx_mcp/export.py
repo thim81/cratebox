@@ -46,7 +46,10 @@ def export_playlist(
             track_ids.append(str(matches[0].ID))
     if not track_ids:
         raise ValueError("Select at least one track ID.")
-    if len(track_ids) > 1000 or any(not isinstance(item, str) or not item for item in track_ids):
+    if len(track_ids) > 1000 or any(
+        not isinstance(item, str) or not item or not item.isprintable()
+        or "/" in item or "\\" in item for item in track_ids
+    ):
         raise ValueError("Select up to 1000 nonempty string track IDs.")
 
     paths = []

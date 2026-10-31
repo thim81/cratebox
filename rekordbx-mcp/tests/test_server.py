@@ -84,6 +84,23 @@ async def test_export_validation_errors_do_not_echo_file_locations(playable_snap
     assert not output.exists()
 
 
+async def test_export_database_errors_do_not_echo_file_locations(playable_snapshot, monkeypatch):
+    from sqlalchemy.exc import DatabaseError
+
+    output = playable_snapshot / "output"
+    location = "/private/music/private-input-track.mp3"
+
+    def failing_query(*args, **kwargs):
+        raise DatabaseError("SELECT FolderPath", {"FolderPath": location}, Exception("synthetic database error"))
+
+    monkeypatch.setattr("rekordbx_mcp.database.SnapshotMasterDatabase.get_content", failing_query)
+    async with Client(build_server(playable_snapshot, output_directory=output)) as client:
+        error = await client.call_tool("export_playlist", {"name": "Error", "file_paths": [location]}, raise_on_error=False)
+        assert error.is_error
+        assert "private-input-track.mp3" not in error.content[0].text
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("name,arguments", [
     ("create_playlist", {"name": "Forbidden"}),
     ("delete_playlist", {"playlist_id": "1"}),

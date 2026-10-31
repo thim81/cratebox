@@ -116,6 +116,12 @@ audio paths locally from the current snapshot and checks that every selected
 file exists. Unknown/deleted IDs, missing files, unsafe names, and existing
 export filenames stop the export. Choose a new name for each revision.
 
+Use either an ordered `track_ids` list or an ordered `file_paths` list. File
+locations must be absolute local paths matching exactly one active track in the
+snapshot. Both options preserve your order and intentional repeats. JSON always
+saves the resolved IDs. Prefer IDs when you want to keep audio paths out of tool
+inputs; neither option returns audio paths in the tool response.
+
 If you configured Codex before this feature was added, add `"export_playlist"`
 to `enabled_tools` in `.codex/config.toml`, then restart the MCP with Rekordbox
 closed. The updated [template](rekordbx-mcp/codex-mcp.example.toml) includes it.

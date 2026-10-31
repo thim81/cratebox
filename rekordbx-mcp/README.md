@@ -128,10 +128,15 @@ After restarting the configured MCP connection, try:
 
 The MCP supplies search and metadata; Codex makes the conversational proposal.
 Once the selection is final, ask Codex to call `export_playlist` with a name
-and the ordered track IDs. The custom tool writes new `.m3u8` and `.json` files
-into the repository's `output/` directory. It checks every ID and audio file,
+and exactly one ordered list: `track_ids` or `file_paths`. File locations must
+be absolute local paths matching exactly one active snapshot track. The custom
+tool writes new `.m3u8` and `.json` files into the repository's `output/`
+directory. It checks every ID and audio file,
 preserves order and repeats, and refuses existing filenames or symlink output
 directories. Errors identify problematic IDs without returning audio paths.
+Unknown or ambiguous locations are identified by input position. Order and
+intentional repeats are preserved, and JSON always saves resolved track IDs.
+Supplying file paths makes them visible in tool inputs; IDs keep paths local.
 
 The JSON saves the name, ordered IDs, format version and creation time. The
 M3U8 contains absolute audio paths for manual import, so treat it as private.
@@ -156,8 +161,10 @@ tool allowlist and restart the MCP to make the new tool available.
   `readOnlyHint = false`; it cannot change collection data.
 - **Privacy:** ordinary tool responses omit file paths and database paths.
   The upstream `get_track_file_path` and `get_genre_filepaths` tools are not
-  exposed. The local exporter resolves IDs to paths without returning those
-  paths to the model. Only artifact paths and a track count are returned.
+  exposed. The local exporter resolves IDs or file locations through the
+  snapshot without returning audio paths to the model. Supplying file locations
+  does send those paths as tool input; prefer IDs for privacy. Only artifact
+  paths and a track count are returned.
 
 `enabled_tools` is an additional client restriction; it does not open the
 database read-only or enforce filesystem permissions. Use the snapshot
