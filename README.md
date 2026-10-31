@@ -3,12 +3,14 @@
 **Your Rekordbox collection, in conversation.**
 
 Search the music you own, rediscover tracks in your library, and build playlist
-proposals with Codex. Rekordbx connects your existing Rekordbox collection to
-AI through a local, read-only MCP server.
+proposals with Codex, then export them for manual import. Rekordbx connects your
+existing Rekordbox collection to AI through a local MCP server that keeps
+collection data read-only.
 
-**macOS · Python 3.12 · uv · 18 collection tools**
+**macOS · Python 3.12 · uv · 18 collection tools + playlist export**
 
 [Quick start](#quick-start) · [User guide](docs/user-guide.md) ·
+[Starting the server](#3-start-through-codex) ·
 [Configuration](rekordbx-mcp/codex-mcp.example.toml) ·
 [Technical details](rekordbx-mcp/README.md)
 
@@ -22,11 +24,13 @@ AI through a local, read-only MCP server.
 - **Shape a set in conversation.** Ask Codex to select tracks, explain the order,
   estimate duration, and refine the proposal.
 - **Keep selections grounded.** Validate proposed track IDs against your collection snapshot.
+- **Export your set.** Create an M3U8 playlist and a JSON record of its ordered
+  track IDs in `output/`, ready for you to import manually.
 - **Stay current.** Create a fresh collection copy at startup and update the
   upstream MCP with one command.
 
-Playlist proposals currently live in the Codex conversation. A built-in
-workflow for saving and exporting arbitrary proposals is still in development.
+Refine proposals in chat, then ask Codex to export the final selection.
+The adapter never imports playlists into Rekordbox automatically.
 
 ## Quick start
 
@@ -58,20 +62,38 @@ If the configuration file already exists, merge the template's server table
 into it; the command above leaves existing files untouched. Check that the
 template's absolute project path and uv executable path match your machine.
 
-**Quit Rekordbox and its background agents**, then restart Codex or the MCP
-connection. Codex launches the server and prepares a fresh snapshot automatically.
-You can reopen Rekordbox once the connection is ready.
-
 See the [setup guide](docs/user-guide.md#2-configure-codex) for the complete
 configuration and troubleshooting.
 
-### 3. Ask for your first playlist
+### 3. Start through Codex
 
-First, confirm the connection:
+**Codex starts the server automatically when it initializes the configured MCP
+connection. You do not need to run a separate server in Terminal.**
+
+1. Quit Rekordbox and its background agents.
+2. Restart Codex or restart the Rekordbox MCP connection with this project open.
+3. Codex runs `rekordbx-mcp start`, checks that Rekordbox is closed, creates a
+   fresh verified read-only copy, and starts the MCP worker.
+4. Confirm that the connection is working by asking:
 
 > Use the Rekordbox MCP to show my library statistics.
 
-Then try:
+Once the connection is ready, you may reopen Rekordbox. To refresh the copied
+collection later, quit Rekordbox and restart the MCP connection.
+
+**Manual startup is only needed for diagnostics.** From the repository root:
+
+```sh
+uv --directory rekordbx-mcp run --locked rekordbx-mcp start
+```
+
+This terminal process waits for an MCP client over stdin/stdout; it does not
+open an interactive playlist prompt. Press Ctrl+C to stop it. The configured
+Codex connection launches its own process rather than attaching to this one.
+
+### 4. Ask for your first playlist
+
+In the connected Codex chat, try:
 
 > Search my collection for house tracks between 120 and 128 BPM.
 > Propose a 60-minute playlist using only returned track IDs, validate
@@ -83,6 +105,24 @@ Keep refining in the same chat:
 > toward a more energetic finish.
 
 More examples are in the [playlist guide](docs/user-guide.md#4-ask-for-playlists).
+
+### 5. Export your playlist
+
+> Export the final selection with `export_playlist`, named "House warm-up",
+> preserving the agreed track order. Give me links to the M3U8 and JSON files.
+
+The files appear in the repository's `output/` directory. The exporter resolves
+audio paths locally from the current snapshot and checks that every selected
+file exists. Unknown/deleted IDs, missing files, unsafe names, and existing
+export filenames stop the export. Choose a new name for each revision.
+
+If you configured Codex before this feature was added, add `"export_playlist"`
+to `enabled_tools` in `.codex/config.toml`, then restart the MCP with Rekordbox
+closed. The updated [template](rekordbx-mcp/codex-mcp.example.toml) includes it.
+
+Import the M3U8 yourself in Rekordbox when ready. This manual import changes your
+collection; duplicate-free reuse of existing tracks still needs verification.
+See the [export and import guide](docs/user-guide.md#5-export-and-import-playlists).
 
 ## Your library stays yours
 
@@ -96,6 +136,7 @@ SQLCipher connection. Database mutation and import tools are excluded.
 If checking or copying fails, startup stops. A running session keeps its fixed
 snapshot; quit Rekordbox and restart the MCP whenever you want to refresh it.
 The adapter does not edit existing playlists, analysis files, audio, or tags.
+Its export tool creates only new files in the project's `output/` directory.
 
 The database reader runs locally. Returned metadata becomes part of your Codex
 conversation; the AI conversation is not fully offline. The worker uses your
@@ -107,21 +148,55 @@ and [privacy limits](docs/user-guide.md#privacy-and-limits).
 
 ## Updates
 
-Check for a newer upstream MCP revision:
+Upgrades are explicit: Codex startup uses the pinned dependency and does not
+automatically install upstream changes. The updater installs the latest commit
+from the upstream repository's default branch.
+
+### 1. Check for an update
+
+Open a separate Terminal window in this repository's root directory and run:
 
 ```sh
 uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream --check
 ```
 
-Install it and run compatibility tests:
+This reports either the current commit or an available update without changing
+your installation. Network access is required.
+
+### 2. Install and test
+
+Stop the Rekordbox MCP connection, or close Codex, before installing. Keep
+the separate Terminal window open and run:
 
 ```sh
 uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream
 ```
 
-Failed updates restore the previous dependency files and attempt to restore the
-previous environment. Routine MCP startup remains pinned and offline.
-See the [update guide](docs/user-guide.md#6-update-the-upstream-mcp) for details.
+The updater refreshes the commit pin, lockfile, and Python environment, then
+runs the full compatibility test suite. Wait for the success message before
+reconnecting. If already up to date, it leaves the installation unchanged.
+
+### 3. Restart and verify
+
+Quit Rekordbox and its background agents, then reopen Codex or restart the MCP
+connection. Codex automatically creates a fresh collection copy and launches
+the updated MCP. Confirm it works by asking:
+
+> Use the Rekordbox MCP to show my library statistics.
+
+After a successful upgrade, commit the changed `rekordbx-mcp/pyproject.toml`
+and `rekordbx-mcp/uv.lock` if you want the repository to retain the tested revision.
+
+If an upgrade fails, the updater restores the previous dependency files and
+attempts to restore the previous environment. If that recovery also fails, run:
+
+```sh
+uv --directory rekordbx-mcp sync --locked
+```
+
+The updater changes project dependencies; it does not open or modify your
+original Rekordbox data. See the
+[update guide](docs/user-guide.md#6-update-the-upstream-mcp) for details.
 
 ## Project status
 
@@ -130,9 +205,10 @@ conversational playlist proposals. Energy and mood are musical judgments,
 not measured audio features. A valid track ID does not guarantee its audio
 file is currently available.
 
-Built-in playlist persistence and M3U8 export for arbitrary proposals are
-planned. Duplicate-free Rekordbox import remains unverified.
-[Import verification requirements](docs/user-guide.md#5-m3u8-import-test).
+Ordered selections can be saved as JSON and exported as M3U8. The JSON contains
+track IDs, not audio paths; the M3U8 necessarily contains local audio paths.
+Keep exports private. Duplicate-free Rekordbox import remains unverified.
+[Import verification requirements](docs/user-guide.md#5-export-and-import-playlists).
 
 ## Development
 

@@ -8,10 +8,12 @@ from functools import wraps
 from pathlib import Path
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from loguru import logger
 from rekordbox_mcp import server as upstream
 
 from .database import SnapshotDatabase
+from .export import OUTPUT_DIRECTORY, export_playlist as write_playlist
 from .snapshot import verify_snapshot
 
 
@@ -37,7 +39,7 @@ def redact_paths(value):
     return value
 
 
-def build_server(snapshot: Path) -> FastMCP:
+def build_server(snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY) -> FastMCP:
     verify_snapshot(snapshot)
     database = SnapshotDatabase(snapshot)
 
@@ -72,6 +74,26 @@ def build_server(snapshot: Path) -> FastMCP:
         server.tool(
             name=name, annotations={"readOnlyHint": True, "destructiveHint": False},
         )(wrap(original))
+
+    @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
+    async def export_playlist(name: str, track_ids: list[str]) -> dict:
+        """Export ordered existing track IDs to new M3U8 and JSON files in output/.
+
+        Use a filename-safe name without an extension. Preserves order and repeats.
+        Rejects unknown/deleted IDs, missing audio and existing output filenames.
+        Returns artifact paths only; audio paths stay local in the M3U8 file.
+        Creates external files only; never imports or edits Rekordbox data.
+        """
+        async with _upstream_lock:
+            await ensure_connected()
+            try:
+                return write_playlist(database.db, name, track_ids, output_directory)
+            except ValueError as error:
+                raise ToolError(str(error)) from None
+            except FileExistsError:
+                raise ToolError("Export files already exist; choose a different playlist name.") from None
+            except OSError:
+                raise ToolError("Cannot write export files; check the local output directory and permissions.") from None
 
     @server.resource("snapshot://status")
     def status() -> str:

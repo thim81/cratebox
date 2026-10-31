@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from sqlalchemy import MetaData, create_engine
 
@@ -33,3 +35,50 @@ def encrypted_database(tmp_path):
         ))
     engine.dispose()
     return path
+
+
+@pytest.fixture
+def snapshot(encrypted_database):
+    from rekordbx_mcp.snapshot import sha256
+    directory = encrypted_database.parent
+    (directory / "manifest.json").write_text(json.dumps({
+        "format": 1, "sha256": sha256(encrypted_database),
+    }))
+    return directory
+
+
+@pytest.fixture
+def playable_snapshot(encrypted_database, tmp_path):
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    from sqlcipher3 import dbapi2
+    from rekordbx_mcp.snapshot import sha256
+
+    music = tmp_path / "music"
+    music.mkdir()
+    first = music / "Été #1.mp3"
+    second = music / "Second track.mp3"
+    first.write_bytes(b"synthetic audio one")
+    second.write_bytes(b"synthetic audio two")
+    connection = dbapi2.connect(encrypted_database)
+    try:
+        connection.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+        connection.execute("UPDATE djmdContent SET FolderPath=? WHERE ID='1'", (str(first),))
+        connection.executemany(
+            "INSERT INTO djmdContent (ID, Title, FolderPath, rb_local_deleted) VALUES (?, ?, ?, ?)",
+            [
+                ("2", "Second", str(second), 0),
+                ("3", "Missing", str(music / "missing.mp3"), 0),
+                ("4", "Deleted", str(first), 1),
+                ("5", "Unsafe", str(music / "bad\n#EXTINF:0,injected.mp3"), 0),
+                ("6", "Relative", "relative.mp3", 0),
+                ("7", "Directory", str(music), 0),
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "format": 1, "sha256": sha256(encrypted_database),
+    }))
+    return tmp_path

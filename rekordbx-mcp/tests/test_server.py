@@ -9,15 +9,6 @@ from rekordbx_mcp.server import build_server
 from rekordbx_mcp.snapshot import sha256
 
 
-@pytest.fixture
-def snapshot(encrypted_database):
-    directory = encrypted_database.parent
-    (directory / "manifest.json").write_text(json.dumps({
-        "format": 1, "sha256": sha256(encrypted_database),
-    }))
-    return directory
-
-
 async def test_search_uses_snapshot_and_omits_audio_paths(snapshot):
     before = sha256(snapshot / "master.db")
     async with Client(build_server(snapshot)) as client:
@@ -34,6 +25,22 @@ async def test_search_uses_snapshot_and_omits_audio_paths(snapshot):
         assert result["valid"] == ["1"]
         assert result["invalid"] == ["999"]
     assert sha256(snapshot / "master.db") == before
+
+
+async def test_export_tool_creates_local_artifacts_without_returning_audio_paths(playable_snapshot):
+    output = playable_snapshot / "output"
+    async with Client(build_server(playable_snapshot, output_directory=output)) as client:
+        tool = next(tool for tool in await client.list_tools() if tool.name == "export_playlist")
+        assert tool.annotations.readOnlyHint is False
+        result = await client.call_tool("export_playlist", {"name": "House", "track_ids": ["2", "1"]})
+        exported = json.loads(result.content[0].text)
+        assert exported["track_count"] == 2
+        assert str(playable_snapshot / "music") not in result.content[0].text
+        assert (output / "House.m3u8").is_file()
+        assert json.loads((output / "House.json").read_text())["track_ids"] == ["2", "1"]
+        error = await client.call_tool("export_playlist", {"name": "Bad", "track_ids": ["3"]}, raise_on_error=False)
+        assert error.is_error
+        assert str(playable_snapshot / "music") not in error.content[0].text
 
 
 @pytest.mark.parametrize("name,arguments", [

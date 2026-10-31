@@ -6,7 +6,8 @@ For a product overview and quick start, see [Rekordbx](../README.md).
 
 A native macOS adapter for the upstream
 [rekordbox-mcp](https://github.com/davehenke/rekordbox-mcp), managed with uv.
-It exposes 18 reading tools against a verified copy of the collection.
+It exposes 18 reading tools against a verified copy of the collection, plus a
+local playlist exporter.
 The original Rekordbox database, playlists, analysis files and audio remain
 read-only source data. Docker is not used.
 
@@ -26,13 +27,14 @@ without editing the installed upstream files. Run our `rekordbx-mcp` command.
 
 ## Update upstream
 
-Check for an update:
+From `rekordbx-mcp/`, check for an update without changing the installation:
 
 ```sh
 uv run --locked rekordbx-mcp update-upstream --check
 ```
 
-Install the latest commit from the upstream repository's default branch:
+Stop the current MCP connection or close Codex. In a separate Terminal window,
+install the latest commit from the upstream repository's default branch:
 
 ```sh
 uv run --locked rekordbx-mcp update-upstream
@@ -46,13 +48,22 @@ restore the previous environment. An environment recovery failure is reported
 explicitly with the command to retry.
 
 Updates require network access. Restart the MCP connection after an accepted update.
+Quit Rekordbox and its agents before reconnecting so startup can create a fresh
+verified copy. Ask Codex to show your library statistics to verify the connection.
+After a successful upgrade, review and commit `pyproject.toml` and `uv.lock`
+to preserve the tested revision. The existing Codex configuration remains valid.
 An incompatible upstream release is rejected until the adapter is adjusted;
 new upstream tools are never automatically added to the read allowlist.
 Startup stays pinned and offline; it does not perform upgrades.
+See the [step-by-step upgrade guide](../docs/user-guide.md#6-update-the-upstream-mcp).
 
 ## Start with a fresh safe copy
 
-Quit Rekordbox and its background agents cleanly, then run:
+Once the Codex configuration is installed, quit Rekordbox and its background
+agents, then restart Codex or the MCP connection. Codex automatically runs the
+startup command; a separate Terminal process is not required.
+
+For manual diagnostics, run this from `rekordbx-mcp/`:
 
 ```sh
 uv run --locked rekordbx-mcp start
@@ -116,7 +127,18 @@ After restarting the configured MCP connection, try:
 > choices. Flag uncertainty about energy or mood.
 
 The MCP supplies search and metadata; Codex makes the conversational proposal.
-JSON playlist persistence and a track-ID-based M3U8 exporter are future work.
+Once the selection is final, ask Codex to call `export_playlist` with a name
+and the ordered track IDs. The custom tool writes new `.m3u8` and `.json` files
+into the repository's `output/` directory. It checks every ID and audio file,
+preserves order and repeats, and refuses existing filenames or symlink output
+directories. Errors identify problematic IDs without returning audio paths.
+
+The JSON saves the name, ordered IDs, format version and creation time. The
+M3U8 contains absolute audio paths for manual import, so treat it as private.
+The output directory is fixed relative to this repository's source layout;
+run the adapter using the documented uv project installation. No export path
+argument is exposed to the model. Add `export_playlist` to an existing client's
+tool allowlist and restart the MCP to make the new tool available.
 
 ## Protection boundaries
 
@@ -128,12 +150,14 @@ JSON playlist persistence and a track-ID-based M3U8 exporter are future work.
   sidecars and verifying the snapshot.
 - **MCP registry:** a separate, fixed allowlist registers only the reviewed
   upstream reading functions. New upstream tools are excluded automatically.
-  Creation, deletion, imports, cleanup and arbitrary reconnection are absent,
-  including when called by name.
+  Collection creation, deletion, imports, cleanup and arbitrary reconnection
+  are absent, including when called by name. The separately reviewed local
+  `export_playlist` tool creates external artifacts and is annotated with
+  `readOnlyHint = false`; it cannot change collection data.
 - **Privacy:** ordinary tool responses omit file paths and database paths.
   The upstream `get_track_file_path` and `get_genre_filepaths` tools are not
-  exposed. A future local exporter can resolve IDs to paths without sending
-  those paths to the model.
+  exposed. The local exporter resolves IDs to paths without returning those
+  paths to the model. Only artifact paths and a track count are returned.
 
 `enabled_tools` is an additional client restriction; it does not open the
 database read-only or enforce filesystem permissions. Use the snapshot
@@ -159,9 +183,9 @@ connection refuses mutations independently of file permission bits.
 
 Upstream compatibility limitations are retained: smart playlist membership and
 the completeness of metadata follow the upstream implementation. This adapter
-does not infer energy, popularity or danceability, and does not currently verify
-missing audio files.
+does not infer energy, popularity or danceability. Reading tools do not verify
+audio availability; the export tool checks selected files before writing.
 
-M3U8 export is future work, and verification that Rekordbox reuses existing
-entries is still pending. See the
-[import verification requirements](../docs/user-guide.md#5-m3u8-import-test).
+M3U8 export is implemented; verification that manual Rekordbox import reuses
+existing entries is still pending. The adapter never imports automatically. See the
+[import verification requirements](../docs/user-guide.md#5-export-and-import-playlists).
