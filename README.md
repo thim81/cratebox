@@ -32,7 +32,7 @@ workflow for saving and exporting arbitrary proposals is still in development.
 
 ### 1. Install
 
-You need macOS with `sandbox-exec`, Git, [uv](https://docs.astral.sh/uv/),
+You need macOS, Git, [uv](https://docs.astral.sh/uv/),
 and Codex. Run these commands from the repository root:
 
 ```sh
@@ -90,16 +90,17 @@ More examples are in the [playlist guide](docs/user-guide.md#4-ask-for-playlists
 
 Before serving a collection, it checks that Rekordbox is closed, creates an
 independent copy of `master.db`, verifies the copy, and marks it read-only.
-The MCP worker runs inside a native macOS sandbox against that snapshot.
-Database mutation and import tools are excluded.
+The MCP worker opens only that verified snapshot through the adapter's read-only
+SQLCipher connection. Database mutation and import tools are excluded.
 
 If checking or copying fails, startup stops. A running session keeps its fixed
 snapshot; quit Rekordbox and restart the MCP whenever you want to refresh it.
 The adapter does not edit existing playlists, analysis files, audio, or tags.
 
 The database reader runs locally. Returned metadata becomes part of your Codex
-conversation; the AI conversation is not fully offline. The worker's network
-access is blocked, and no audio upload feature is implemented.
+conversation; the AI conversation is not fully offline. The worker uses your
+normal user permissions, without OS filesystem or network isolation.
+No audio upload feature is implemented.
 
 Read about the [protection boundaries](rekordbx-mcp/README.md#protection-boundaries)
 and [privacy limits](docs/user-guide.md#privacy-and-limits).
@@ -130,9 +131,8 @@ not measured audio features. A valid track ID does not guarantee its audio
 file is currently available.
 
 Built-in playlist persistence and M3U8 export for arbitrary proposals are
-planned. A separate three-track XML import test is available; duplicate-free
-Rekordbox import remains unverified.
-[Import test instructions](docs/user-guide.md#5-m3u8-import-test).
+planned. Duplicate-free Rekordbox import remains unverified.
+[Import verification requirements](docs/user-guide.md#5-m3u8-import-test).
 
 ## Development
 
@@ -144,7 +144,7 @@ uv --directory rekordbx-mcp run --locked pytest -q
 ```
 
 Tests use synthetic encrypted collections and cover startup, write restrictions,
-MCP tool access, the native sandbox, and update recovery. See the
+MCP tool access, database connection restrictions, and update recovery. See the
 [adapter documentation](rekordbx-mcp/README.md) for implementation details.
 
 ## Built on

@@ -22,13 +22,11 @@ It runs natively on macOS with uv; Docker is not used.
 
 Playlist proposals are currently made in the Codex conversation. There is no
 built-in command yet to save, adjust or export an arbitrary generated playlist.
-The included XML scanner can produce a small M3U8 import test; it is not the
-finished playlist exporter. Duplicate-free import into Rekordbox remains
-unverified.
+Duplicate-free import into Rekordbox remains unverified.
 
 ## 1. Install the dependencies
 
-You need macOS with `/usr/bin/sandbox-exec`, Git, uv, Python 3.12, and Codex
+You need macOS, Git, uv, Python 3.12, and Codex
 with access to this local project. Network access is needed for installation
 and updates.
 
@@ -99,7 +97,7 @@ or reopen Codex. See the official
 [MCP configuration guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
 
 The tool allowlist limits what Codex can call. Actual read-only access is
-enforced separately by the database connection and the macOS sandbox.
+enforced by the snapshot's read-only database connection and SQL authorizer.
 Always launch `rekordbx-mcp start` rather than the upstream
 `rekordbox-mcp` command.
 
@@ -117,7 +115,7 @@ At each startup the launcher:
 2. Refuses to copy a database with WAL, SHM or journal sidecars present.
 3. Creates a new independent copy of the current `master.db`.
 4. Rechecks processes, source metadata and hashes after copying.
-5. Marks the copy read-only and starts the MCP inside the native sandbox.
+5. Marks the copy read-only and starts the MCP against that verified snapshot.
 
 If any check fails, the MCP does not start. It never closes Rekordbox for you,
 deletes source sidecars, or silently falls back to an older copy.
@@ -186,35 +184,21 @@ mixed-set length. Energy, mood, popularity and singalong suitability are not
 measured audio features here; ask Codex to distinguish musical judgment from
 stored metadata. The upstream tool models do not expose every database field.
 
-The copied catalog can contain references to missing audio files. The restricted
-MCP cannot check your audio folders, so a valid track ID does not guarantee that
+The copied catalog can contain references to missing audio files. The MCP does
+not currently check your audio folders, so a valid track ID does not guarantee that
 the file is currently available for playback.
 
 ## 5. M3U8 import test
 
-The existing [three-track test playlist](../output/phase1/three-track-test.m3u8)
-was generated during Phase 1. Before using it, confirm that its file paths
-still exist.
+Playlist export is not implemented yet. The old Phase 1 XML scanner and its
+generated test playlist have been removed.
 
-To generate a separate test file from your existing XML export:
-
-```sh
-uv --directory rekordbx-mcp run --locked python scripts/phase1_scan.py \
-  --xml /Users/thim/Library/Pioneer/rekordbox/rekordbox.xml \
-  --output /Users/thim/Sites/rekordbx/output/phase1/readme-test.m3u8 \
-  --limit 3
-```
-
-This selects the first three XML entries whose files exist. It does not use
-your musical prompt or the current database snapshot. The inspected XML export
-is older than the live collection, so it is only a fallback for this test.
-Choose a new output filename if you want to preserve a previous export.
-
-If you choose to import the test manually in Rekordbox, record the collection
-count first. After importing, confirm that existing entries were reused, no
-duplicates appeared, and BPM, key, cue points and beat grids are intact.
-The application does not perform that import. Full instructions and the
-unresolved result are in [Phase 1 findings](phase1-findings.md).
+Before a future M3U8 exporter is considered verified, test it manually with
+three existing tracks: record the collection count and their metadata, import
+the generated playlist, then confirm that existing entries were reused, no
+duplicates appeared, and BPM, key, cue points and beat grids remain intact.
+The application must not perform that import automatically. Duplicate-free
+import remains unresolved.
 
 ## 6. Update the upstream MCP
 
@@ -239,8 +223,7 @@ restore the previous environment. If environment recovery also fails, retry:
 uv --directory rekordbx-mcp sync --locked
 ```
 
-Use a normal macOS terminal where native sandboxing is available. Installation
-and updates require network access. An incompatible upstream revision is
+Installation and updates require network access. An incompatible upstream revision is
 rejected; newly added tools are not automatically exposed.
 
 After updating, quit Rekordbox and restart the MCP connection. Routine startup
@@ -255,7 +238,6 @@ uses the locked dependencies and does not automatically upgrade them.
 | “Database transaction sidecar exists” | Let Rekordbox finish and quit normally. Do not delete original WAL, SHM or journal files. If they remain, investigate before retrying. |
 | Database not found | Check the default source path or supply `--source` after `start`. |
 | Offline dependency or interpreter error | Run the setup command with network access before starting the offline MCP connection. |
-| “sandbox_apply: Operation not permitted” | The current execution environment may prevent nested sandboxing. Diagnose from a normal macOS terminal; do not switch to an unprotected worker. |
 | Snapshot hash invalid | Close Rekordbox and use `start` to create a fresh verified copy. Do not edit the snapshot or its manifest. |
 | MCP tools do not appear | Check project trust, the uv and project paths, and the TOML configuration. Restart the connection after saving. |
 | Collection results look old | Quit Rekordbox and restart the MCP to refresh its snapshot. |
@@ -269,17 +251,15 @@ uv --directory rekordbx-mcp run --locked pytest -q
 
 Tests use synthetic encrypted collections. They cover safe startup, copying,
 write restrictions, forbidden tools, updates and rollback, and an actual
-MCP conversation through the native sandbox. Native sandbox tests may skip
-inside an outer sandbox; run them from a normal macOS terminal to verify them.
+MCP conversation through the snapshot launcher.
 
 | Location | Purpose |
 | --- | --- |
-| `rekordbx-mcp/src/rekordbx_mcp/` | Custom adapter, startup, sandbox and updater |
+| `rekordbx-mcp/src/rekordbx_mcp/` | Custom adapter, startup, launcher and updater |
 | `rekordbx-mcp/tests/` | Automated tests |
 | `rekordbx-mcp/codex-mcp.example.toml` | Codex connection template |
 | `rekordbx-mcp/.cache/rekordbox-snapshots/` | Generated collection copies |
 | `output/` | Generated exports |
-| `docs/phase1-findings.md` | Original inspection and manual import procedure |
 | `AGENTS.md` | Repository rules, including original-data protection |
 
 More implementation details are in the
@@ -287,9 +267,10 @@ More implementation details are in the
 
 ## Privacy and limits
 
-The MCP worker cannot access the original library or audio contents through its
-normal sandbox permissions, and its network access is blocked. Dedicated
-`file_path` and `database_path` fields are omitted from ordinary responses.
+The adapter opens only verified snapshots through a read-only SQLCipher
+connection and exposes only the approved reading tools. The worker runs with
+normal user filesystem and network permissions; there is no OS isolation.
+Dedicated `file_path` and `database_path` fields are omitted from ordinary responses.
 The upstream filepath-returning tools are not exposed.
 
 Returned track metadata becomes part of the Codex conversation. Running the
@@ -298,6 +279,6 @@ No audio upload feature is implemented.
 
 The project does not yet provide a standalone playlist-generation CLI,
 validated playlist persistence, or an exporter for arbitrary proposals.
-M3U8 duplicate-free import is still an unresolved manual check. The sandbox
-and read-only connection provide practical protections, not a formal guarantee
-against operating-system or dependency vulnerabilities.
+M3U8 duplicate-free import is still an unresolved manual check. The snapshot
+and connection controls are application-level protections, not an OS boundary
+against arbitrary filesystem access by dependencies.

@@ -40,13 +40,12 @@ uv run --locked rekordbx-mcp update-upstream
 
 Run these from the project directory. The updater resolves upstream HEAD to an
 exact commit, changes the revision pin, updates the uv lockfile, synchronizes
-dependencies and runs the full test suite, including the native sandbox checks.
+dependencies and runs the full test suite, including the read-only connection checks.
 If a step fails, it restores the previous dependency files and attempts to
 restore the previous environment. An environment recovery failure is reported
 explicitly with the command to retry.
 
-Updates require network access and a normal macOS terminal where native
-sandboxing works. Restart the MCP connection after an accepted update.
+Updates require network access. Restart the MCP connection after an accepted update.
 An incompatible upstream release is rejected until the adapter is adjusted;
 new upstream tools are never automatically added to the read allowlist.
 Startup stays pinned and offline; it does not perform upgrades.
@@ -61,7 +60,7 @@ uv run --locked rekordbx-mcp start
 
 Every start checks that Rekordbox is closed, creates a new copy of the current
 `master.db`, checks again after copying, verifies the hashes, marks the copy
-read-only, and starts the sandboxed MCP against that copy. If a check fails or
+read-only, and starts the MCP against that copy. If a check fails or
 Rekordbox reopens during copying, startup exits with an error. It never falls
 back to an older snapshot or closes Rekordbox for you.
 
@@ -98,7 +97,7 @@ installed. For project scope, place the configuration in the repository-root
 `.codex/config.toml`; the template's `--directory` points to `rekordbx-mcp/`.
 
 The command uses `uv run --locked --offline rekordbx-mcp start` to prepare
-the copy and launch the MCP worker inside the macOS sandbox. Its startup timeout
+the copy and launch the MCP worker against the verified snapshot. Its startup timeout
 is 120 seconds to allow copying and verification. Quit Rekordbox before Codex
 starts or restarts this MCP; if it was open, close it and retry the connection.
 
@@ -118,15 +117,11 @@ After restarting the configured MCP connection, try:
 
 The MCP supplies search and metadata; Codex makes the conversational proposal.
 JSON playlist persistence and a track-ID-based M3U8 exporter are future work.
-The Phase 1 scanner exports only its small XML test selection.
 
 ## Protection boundaries
 
 - **Source copier:** ordinary binary reads of the original, outside the worker.
   Its only writes are newly created snapshot files outside the source folder.
-- **Native worker sandbox:** permits reads of runtime dependencies and the two
-  specific snapshot files, writes only within a temporary runtime directory,
-  and denies network access. User library and audio contents are not granted.
 - **Database connection:** SQLCipher uses an explicit file URI with
   `mode=ro&immutable=1`, query-only mode, and an authorizer blocking attachments
   and PRAGMA changes. Immutable mode is only used after rejecting transaction
@@ -141,13 +136,14 @@ The Phase 1 scanner exports only its small XML test selection.
   those paths to the model.
 
 `enabled_tools` is an additional client restriction; it does not open the
-database read-only or enforce filesystem permissions. Use the protected
+database read-only or enforce filesystem permissions. Use the snapshot
 launcher even when a client allowlist is present.
 
-The sandbox is macOS-specific and depends on Apple's `sandbox-exec` utility.
-There is no unsandboxed fallback. It is not a formal guarantee against OS or
-dependency vulnerabilities. Do not directly run the internal worker module as
-your MCP configuration.
+The worker uses normal user filesystem and network permissions. Snapshot
+validation, SQLCipher read-only mode, the SQL authorizer and the tool registry
+provide application-level protection; they are not OS isolation.
+Keep the configured `start` command so source checks and copying happen before
+the worker is launched.
 
 ## Tests
 
@@ -158,15 +154,14 @@ uv run --locked pytest -q
 Tests use an encrypted synthetic collection. They cover source preservation,
 sidecar rejection, tampered copies, database write restrictions, reconnects,
 direct calls to forbidden tools, and an actual MCP stdio conversation through
-the native launcher. Tests for the macOS sandbox are skipped inside an outer
-sandbox that forbids nested sandboxing; run them from a normal macOS terminal
-to verify that boundary.
+the snapshot launcher. Direct SQL and ORM-write tests verify that the database
+connection refuses mutations independently of file permission bits.
 
 Upstream compatibility limitations are retained: smart playlist membership and
 the completeness of metadata follow the upstream implementation. This adapter
-does not infer energy, popularity or danceability, and cannot verify missing
-audio files from inside its restricted worker.
+does not infer energy, popularity or danceability, and does not currently verify
+missing audio files.
 
-Manual import of the Phase 1 M3U8 and verification that Rekordbox reuses the
-existing entries are still pending. See
-[Phase 1 findings](../docs/phase1-findings.md).
+M3U8 export is future work, and verification that Rekordbox reuses existing
+entries is still pending. See the
+[import verification requirements](../docs/user-guide.md#5-m3u8-import-test).
