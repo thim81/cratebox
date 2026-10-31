@@ -1,0 +1,31 @@
+[project]
+name = "rekordbx-mcp"
+version = "0.1.0"
+description = "Snapshot-only, read-only access to the upstream Rekordbox MCP"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "rekordbox-mcp",
+    "pyrekordbox==0.5.0",
+    "fastmcp>=2.14,<3",
+]
+
+[project.scripts]
+rekordbx-mcp = "rekordbx_mcp.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
+
+[tool.uv.sources]
+rekordbox-mcp = { git = "https://github.com/davehenke/rekordbox-mcp", rev = "d8dce67700911b6bef84b25c5f93ae07f200a1c5" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rekordbx_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

@@ -1,0 +1,31 @@
+# Project-scoped configuration: merge into .codex/config.toml.
+# Every startup checks Rekordbox is closed and creates a fresh verified copy.
+[mcp_servers.rekordbox]
+command = "/opt/homebrew/bin/uv"
+args = [
+  "--directory", "/Users/thim/Sites/rekordbx/rekordbx-mcp",
+  "run", "--locked", "--offline",
+  "rekordbx-mcp", "start"
+]
+startup_timeout_sec = 120
+tool_timeout_sec = 120
+enabled_tools = [
+  "search_tracks",
+  "get_track_details",
+  "get_playlists",
+  "get_playlist_tracks",
+  "get_library_stats",
+  "get_tracks_by_bpm_range",
+  "get_tracks_by_key",
+  "get_most_played_tracks",
+  "get_top_rated_tracks",
+  "get_unplayed_tracks",
+  "search_tracks_by_filename",
+  "analyze_library",
+  "validate_track_ids",
+  "get_history_sessions",
+  "get_session_tracks",
+  "get_recent_sessions",
+  "get_history_stats",
+  "search_history_sessions"
+]

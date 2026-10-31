@@ -1,1 +1,13 @@
 /.agents/
+sockseek/sockseek
+sockseek/sockseek.conf
+.venv/
+__pycache__/
+.pytest_cache/
+.cache/
+*.egg-info/
+/input/
+
+/.codex/config.toml
+/output/
+/.idea/
