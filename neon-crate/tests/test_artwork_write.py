@@ -172,6 +172,35 @@ def test_download_cover_art_pins_public_address_and_returns_validated_png(monkey
     assert requested == [("images.example", "93.184.216.34", "/covers/one.png?size=large")]
 
 
+def test_download_cover_art_follows_validated_cover_art_archive_redirect(monkeypatch):
+    monkeypatch.setattr(
+        artwork_write.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (artwork_write.socket.AF_INET, artwork_write.socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+        ],
+    )
+    requested = []
+
+    def fetch(host, _ip, target):
+        requested.append((host, target))
+        if host == "coverartarchive.org":
+            return 307, {"location": "https://ia800.archive.org/download/cover/front.jpg"}, b""
+        return 200, {"content-type": "image/png"}, png(b"\x01\x02\x03")
+
+    monkeypatch.setattr(artwork_write, "_fetch_https", fetch)
+
+    data, mime = artwork_write.download_cover_image(
+        "https://coverartarchive.org/release/12345678-1234-4234-8234-123456789abc/front"
+    )
+
+    assert (data, mime) == (png(b"\x01\x02\x03"), "image/png")
+    assert requested == [
+        ("coverartarchive.org", "/release/12345678-1234-4234-8234-123456789abc/front"),
+        ("ia800.archive.org", "/download/cover/front.jpg"),
+    ]
+
+
 @pytest.mark.parametrize(
     ("status", "content_type", "body"),
     [
@@ -313,6 +342,35 @@ def test_embed_endpoint_writes_only_selected_mp3_and_clears_old_override(tmp_pat
     assert next(frame.data for frame in MP3(source).tags.getall("APIC") if frame.type == 3) == selected
     assert artwork_data.read_artwork_overrides()["tracks"] == {}
     assert len(list((output / "audio-backups").glob("*.mp3"))) == 1
+
+
+def test_embed_endpoint_returns_a_fresh_artwork_url_for_each_update(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import app as api_app
+
+    source = tmp_path / "music" / "track.mp3"
+    source.parent.mkdir()
+    synthetic_mp3(source)
+    playlist_fixture(tmp_path, monkeypatch, source)
+    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
+    selected_images = [png(b"\x00\xff\x00"), png(b"\x00\x00\xff")]
+    monkeypatch.setattr(
+        artwork_write,
+        "download_cover_image",
+        lambda _url: (selected_images.pop(0), "image/png"),
+    )
+    request = {
+        "playlist_id": "Set",
+        "track_id": "42-1",
+        "image_url": "https://images.example/cover.png",
+    }
+
+    with TestClient(api_app) as client:
+        first = client.put("/api/artwork/embed", json=request, headers={"Origin": "http://localhost:8080"})
+        second = client.put("/api/artwork/embed", json=request, headers={"Origin": "http://localhost:8080"})
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["artwork_url"] != second.json()["artwork_url"]
 
 
 def test_embed_endpoint_rejects_untrusted_origin_without_downloading_or_writing(tmp_path, monkeypatch):

@@ -9,6 +9,7 @@ from .collection import collection_mcp, router as collection_router
 from .playlists import router as playlists_router
 from .artwork import router as artwork_router
 from .streaming import router as streaming_router
+from .rekordbox_playlists import router as rekordbox_playlists_router
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -28,3 +29,4 @@ app.include_router(collection_router)
 app.include_router(playlists_router)
 app.include_router(artwork_router)
 app.include_router(streaming_router)
+app.include_router(rekordbox_playlists_router)

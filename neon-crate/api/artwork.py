@@ -2,6 +2,7 @@
 
 import asyncio
 from urllib.parse import quote, urlsplit
+from uuid import uuid4
 
 from ddgs import DDGS
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -9,12 +10,17 @@ from pydantic import BaseModel
 
 from .artwork_data import embedded_artwork, is_http_url, read_artwork_overrides, write_artwork_overrides
 from . import artwork_write
+from . import music_artwork
 from .playlists import find_playlist, parse_playlist, playlist_entries, playlist_files, read_plan_ids
 
 router = APIRouter()
 
 class ImageSearch(BaseModel):
     query: str
+    artist: str = ""
+    album: str = ""
+    track: str = ""
+    cover_art: bool = True
 
 class ArtworkUpdate(BaseModel):
     playlist_id: str
@@ -32,15 +38,65 @@ async def search_images(request: ImageSearch):
     if not query or len(query) > 200:
         raise HTTPException(400, "Enter a search query up to 200 characters")
     try:
-        results = await asyncio.to_thread(lambda: DDGS().images(query, max_results=24, safesearch="moderate"))
+        results = await asyncio.to_thread(
+            search_image_results,
+            query,
+            artist=request.artist[:200],
+            album=request.album[:200],
+            track=request.track[:200],
+            cover_art=request.cover_art,
+        )
     except Exception:
         raise HTTPException(502, "Image search is temporarily unavailable. Try again later.") from None
-    return [{
-        "title": item.get("title", "")[:300],
-        "image_url": item.get("image", ""),
-        "thumbnail_url": item.get("thumbnail", "") if is_http_url(item.get("thumbnail", "")) else item.get("image", ""),
-        "source_url": item.get("url", ""),
-    } for item in results if is_http_url(item.get("image", "")) and is_http_url(item.get("url", ""))]
+    return results
+
+
+def search_image_results(
+    query: str, *, artist: str = "", album: str = "", track: str = "", cover_art: bool = True
+):
+    catalogue_results = []
+    seen_urls = set()
+    if cover_art:
+        for item in music_artwork.search_music_artwork(query, artist=artist, album=album, track=track):
+            if not isinstance(item, dict):
+                continue
+            image_url = item.get("image_url", "")
+            if not is_http_url(image_url) or image_url in seen_urls:
+                continue
+            catalogue_results.append(item)
+            seen_urls.add(image_url)
+            if len(catalogue_results) == 24:
+                break
+        if len(catalogue_results) == 24:
+            return catalogue_results
+        query = f"{query[:180]} album cover artwork"
+    try:
+        results = DDGS().images(query, max_results=24, safesearch="moderate")
+    except Exception:
+        if catalogue_results:
+            return catalogue_results
+        raise
+
+    combined = list(catalogue_results)
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        image_url = item.get("image", "")
+        source_url = item.get("url", "")
+        if not is_http_url(image_url) or not is_http_url(source_url) or image_url in seen_urls:
+            continue
+        thumbnail_url = item.get("thumbnail", "")
+        combined.append({
+            "title": item.get("title", "")[:300] if isinstance(item.get("title"), str) else "",
+            "image_url": image_url,
+            "thumbnail_url": thumbnail_url if is_http_url(thumbnail_url) else image_url,
+            "source_url": source_url,
+            "source": "DuckDuckGo",
+        })
+        seen_urls.add(image_url)
+        if len(combined) == 24:
+            break
+    return combined
 
 @router.put("/api/artwork")
 def save_artwork(request: ArtworkUpdate):
@@ -117,7 +173,7 @@ def embed_artwork(request: ArtworkEmbed, http_request: Request):
 
     artwork_url = (
         f"/api/playlists/{quote(request.playlist_id, safe='')}/tracks/"
-        f"{quote(request.track_id, safe='')}/artwork?v={source.stat().st_mtime_ns}"
+        f"{quote(request.track_id, safe='')}/artwork?v={uuid4().hex}"
     )
     return {"backup_id": backup.name, "artwork_url": artwork_url}
 

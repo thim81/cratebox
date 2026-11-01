@@ -27,7 +27,9 @@ Then set the app's API URL to `http://localhost:8000`.
 The server provides `GET /api/playlists`, `GET /api/playlists/{playlist_id}`,
 `GET /api/stream?playlist_id=...&track_id=...`, `GET /api/collection/status`,
 `GET /api/collection/stream/{track_id}`, `POST /api/collection/lookup`,
-`POST /api/images/search`, `PUT /api/artwork`, `PUT /api/artwork/embed`, and
+`GET /api/rekordbox/playlists`, `GET /api/rekordbox/playlists/{playlist_id}/tracks`,
+`POST /api/rekordbox/playlists/{playlist_id}/copy`, `POST /api/images/search`,
+`PUT /api/artwork`, `PUT /api/artwork/embed`, and
 `POST /api/playlists/{playlist_id}/tracks/swap`.
 Export JSON contains an ordered `tracks`
 array with each Rekordbox track ID and its absolute file path together. The API
@@ -35,9 +37,14 @@ validates those entries against the M3U8; older ID-only plans still pair with
 M3U8 entries by order.
 The active deck displays embedded audio cover art, with a music-note placeholder
 when no supported artwork is available.
-Use Search Image beside a crate name or active track to search keyless DuckDuckGo
-image results. Crate artwork stores the selected image URL in
-`output/cratedeck-artwork.json`. Track artwork is downloaded only when the user
+Use Search Image beside a crate name or active track to search music catalogues
+first. iTunes helps identify track and album metadata; MusicBrainz/Cover Art
+Archive supplies matching cover images. CrateDeck supplements a short catalogue
+result set with distinct DuckDuckGo images, keeping curated covers first and
+filling up to 24 results when available. Each result is labeled with its source;
+catalogue results remain visible if DuckDuckGo is unavailable. Crate artwork
+stores the selected image URL in `output/cratedeck-artwork.json`. Track artwork
+is downloaded only when the user
 chooses **Embed into MP3**; CrateDeck accepts public HTTPS JPEG/PNG files up to
 8 MiB, makes a byte-for-byte backup in `output/audio-backups/`, stages and checks
 the ID3 update, then atomically replaces the selected MP3. This operation works
@@ -54,6 +61,10 @@ resolves only active snapshot track IDs. Track removal uses
 updates both playlist and plan files; it only works with the repository's
 `playlists/` folder. Swapping a track also requires confirmation and updates its
 M3U8 entry and matching JSON plan when one exists.
+The sidebar's Rekordbox tab browses snapshot playlists as read-only. Copying a
+playlist uses the exporter to create an editable CrateDeck M3U8/JSON pair;
+updating an existing local copy requires confirmation. Rekordbox items start at
+level 0, follow Rekordbox's sibling sequence, and folders open to their children.
 
 Each track row has a Lookup action that expands inline results: it returns the
 exact Rekordbox record when a plan ID is available, including its rating and
@@ -62,9 +73,9 @@ Play loads the collection track into the main deck. Swap replaces the source
 track in the selected playlist after confirmation. The local API uses collection
 file locations internally for playback and playlist updates without sending
 paths to the browser.
-The MCP worker starts on the first lookup, so
-CrateDeck can browse and play playlists without it. Close Rekordbox and its
-background agents before the first lookup; the worker creates a fresh verified
+The MCP worker starts on the first lookup or Rekordbox playlist browse, so
+CrateDeck can browse local playlists without it. Close Rekordbox and its
+background agents before the first collection action; the worker creates a fresh verified
 snapshot, stays connected while the API runs, and stops with the API. The header
 shows whether the MCP worker is idle, connecting, connected, or in an error
 state. A lookup startup failure does not interrupt playlist browsing or playback.

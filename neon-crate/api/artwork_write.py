@@ -11,7 +11,7 @@ import ssl
 import stat
 import struct
 import tempfile
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 import uuid
 import zlib
 
@@ -184,46 +184,76 @@ def _fetch_https(host: str, ip_address: str, target: str):
 
 
 def download_cover_image(url: str) -> tuple[bytes, str]:
-    """Fetch one small HTTPS image while pinning its validated public address."""
-    try:
-        parsed = urlsplit(url)
-        host = parsed.hostname
-        port = parsed.port
-    except (TypeError, ValueError):
-        raise ArtworkWriteError("The selected image URL is invalid") from None
-    if (
-        not isinstance(url, str)
-        or len(url) > 2048
-        or parsed.scheme != "https"
-        or not host
-        or parsed.username
-        or parsed.password
-        or parsed.fragment
-        or port not in (None, 443)
-    ):
-        raise ArtworkWriteError("Only public HTTPS image URLs are supported")
-    try:
-        addresses = {
-            info[4][0]
-            for info in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-        }
-        if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
-            raise ArtworkWriteError("The selected image host is not publicly reachable")
-    except (OSError, ValueError):
-        raise ArtworkWriteError("The selected image host could not be validated") from None
-
-    target = parsed.path or "/"
-    if parsed.query:
-        target += "?" + parsed.query
-    last_error = None
-    for address in sorted(addresses):
+    """Fetch a small HTTPS image with pinned public DNS; follow only CAA image redirects."""
+    if not isinstance(url, str) or len(url) > 2048:
+        raise ArtworkWriteError("The selected image URL is invalid")
+    current_url = url
+    initial_host = None
+    response = None
+    for redirect_count in range(3):
         try:
-            status, headers, data = _fetch_https(host, address, target)
+            parsed = urlsplit(current_url)
+            host = parsed.hostname
+            port = parsed.port
+        except ValueError:
+            raise ArtworkWriteError("The selected image URL is invalid") from None
+        if (
+            parsed.scheme != "https"
+            or not host
+            or parsed.username
+            or parsed.password
+            or parsed.fragment
+            or port not in (None, 443)
+        ):
+            raise ArtworkWriteError("Only public HTTPS image URLs are supported")
+        host = host.lower()
+        if initial_host is None:
+            initial_host = host
+        is_caa_source = initial_host == "coverartarchive.org" or initial_host.endswith(".coverartarchive.org")
+        if redirect_count and (
+            not is_caa_source
+            or host != "archive.org" and not host.endswith(".archive.org")
+        ):
+            raise ArtworkWriteError("The selected image host returned an untrusted redirect")
+        try:
+            addresses = {
+                info[4][0]
+                for info in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+            }
+            if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
+                raise ArtworkWriteError("The selected image host is not publicly reachable")
+        except (OSError, ValueError):
+            raise ArtworkWriteError("The selected image host could not be validated") from None
+
+        target = parsed.path or "/"
+        if parsed.query:
+            target += "?" + parsed.query
+        last_error = None
+        for address in sorted(addresses):
+            try:
+                response = _fetch_https(host, address, target)
+                break
+            except (OSError, ssl.SSLError, http.client.HTTPException, ValueError) as exc:
+                last_error = exc
+        else:
+            raise ArtworkWriteError("The selected image could not be downloaded") from last_error
+        status, headers, data = response
+        if status == 200:
             break
-        except (OSError, ssl.SSLError, http.client.HTTPException, ValueError) as exc:
-            last_error = exc
+        location = headers.get("location", "")
+        redirect_url = urljoin(current_url, location) if location else ""
+        if (
+            status not in {301, 302, 303, 307, 308}
+            or redirect_count >= 2
+            or not is_caa_source
+            or not redirect_url
+        ):
+            raise ArtworkWriteError("The selected image host returned an error or redirect")
+        current_url = redirect_url
     else:
-        raise ArtworkWriteError("The selected image could not be downloaded") from last_error
+        raise ArtworkWriteError("The selected image host returned too many redirects")
+
+    status, headers, data = response
     if status != 200:
         raise ArtworkWriteError("The selected image host returned an error or redirect")
     try:

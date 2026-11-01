@@ -16,6 +16,9 @@ interface Props {
   apiUrl: string;
   open: boolean;
   query: string;
+  artist?: string;
+  album?: string;
+  track?: string;
   currentImageUrl?: string;
   embedIntoMp3?: boolean;
   onOpenChange: (open: boolean) => void;
@@ -26,6 +29,9 @@ export function ImageSearchDialog({
   apiUrl,
   open,
   query: initialQuery,
+  artist = "",
+  album = "",
+  track = "",
   currentImageUrl,
   embedIntoMp3 = false,
   onOpenChange,
@@ -49,7 +55,7 @@ export function ImageSearchDialog({
       setSearched(false);
       setCoverArt(true);
     }
-  }, [open, initialQuery]);
+  }, [open, initialQuery, artist, album, track]);
 
   async function search(event: FormEvent) {
     event.preventDefault();
@@ -58,9 +64,7 @@ export function ImageSearchDialog({
     setError(null);
     setPreview(null);
     try {
-      setResults(
-        await searchImages(apiUrl, coverArt ? `${query.slice(0, 180)} album cover artwork` : query),
-      );
+      setResults(await searchImages(apiUrl, query, { artist, album, track, coverArt }));
     } catch (cause) {
       setResults([]);
       setError(cause instanceof Error ? cause.message : "Image search failed.");
@@ -173,7 +177,10 @@ export function ImageSearchDialog({
                   />
                 </div>
                 <div className="flex flex-col justify-between gap-3">
-                  <p className="max-w-48 text-xs">{preview.title || "Image preview"}</p>
+                  <div className="max-w-48 space-y-1">
+                    <p className="text-[10px] font-medium text-muted-foreground">{preview.source}</p>
+                    <p className="text-xs">{preview.title || "Image preview"}</p>
+                  </div>
                   <div className="flex flex-col gap-2">
                     <Button onClick={() => void choose(preview)} disabled={saving}>
                       {saving ? "Saving…" : embedIntoMp3 ? "Embed into MP3" : "Use this image"}
@@ -208,7 +215,10 @@ export function ImageSearchDialog({
                         event.currentTarget.style.visibility = "hidden";
                       }}
                     />
-                    <span className="block truncate px-2 py-1 text-[10px] text-muted-foreground">
+                    <span className="block truncate px-2 pt-1 text-[9px] font-medium text-primary">
+                      {image.source}
+                    </span>
+                    <span className="block truncate px-2 pb-1 text-[10px] text-muted-foreground">
                       {image.title || "Image result"}
                     </span>
                   </button>
