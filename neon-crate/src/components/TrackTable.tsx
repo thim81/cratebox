@@ -11,6 +11,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { CollectionLookupResults } from "@/components/CollectionLookupResults";
+import { SeparatorSwapChoices } from "@/components/SeparatorSwapChoices";
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
 import { PLAYLIST_SEPARATORS, type SeparatorType } from "@/lib/cratedeck-api";
@@ -27,6 +28,7 @@ interface TrackTableProps {
   loadedTrackId: string | null;
   playing: boolean;
   expandedLookupTrackId: string | null;
+  expandedSeparatorTrackId: string | null;
   lookupTrack: Track | null;
   lookupMatches: CollectionMatch[];
   lookupLoading: boolean;
@@ -40,8 +42,11 @@ interface TrackTableProps {
   onSwapCollectionMatch: (sourceTrack: Track, match: CollectionMatch) => void;
   onCollapseLookup: () => void;
   onInsertSeparator: (type: SeparatorType, track: Track) => void;
+  onSelectSeparator: (track: Track) => void;
+  onReplaceSeparator: (track: Track, type: SeparatorType) => void;
   separatorType: SeparatorType;
   separatorInserting: boolean;
+  separatorSwapping?: boolean;
   onAppendToPlaylist?: (track: Track) => void;
   appendDisabled?: boolean;
   appendPlaylistName?: string;
@@ -58,6 +63,7 @@ export function TrackTable({
   loadedTrackId,
   playing,
   expandedLookupTrackId,
+  expandedSeparatorTrackId,
   lookupTrack,
   lookupMatches,
   lookupLoading,
@@ -71,8 +77,11 @@ export function TrackTable({
   onSwapCollectionMatch,
   onCollapseLookup,
   onInsertSeparator,
+  onSelectSeparator,
+  onReplaceSeparator,
   separatorType,
   separatorInserting,
+  separatorSwapping = false,
   onAppendToPlaylist,
   appendDisabled = true,
   appendPlaylistName,
@@ -132,6 +141,9 @@ export function TrackTable({
           {tracks.map((track, index) => {
             const isLoaded = loadedTrackId === track.id;
             const isRangeSelected = selectedIds.has(track.id);
+            const isSeparator = PLAYLIST_SEPARATORS.some(
+              (separator) => separator.trackId === track.rekordbox_id,
+            );
             const mp3Bitrate = /\bMP3\s+(\d+)\s*kbps/i.exec(track.quality)?.[1];
             const bitrate = Number(mp3Bitrate);
             const qualityClass = mp3Bitrate
@@ -155,32 +167,20 @@ export function TrackTable({
                     rowRefs.current[index] = element;
                   }}
                   onClick={() => onSelect(index)}
-                  onDoubleClick={readOnly ? undefined : () => onLoad(track)}
+                  onDoubleClick={
+                    readOnly
+                      ? undefined
+                      : () => (isSeparator ? onSelectSeparator(track) : onLoad(track))
+                  }
                   aria-selected={index === selectedIndex || isRangeSelected}
                   className={`group relative cursor-default border-b border-border/40 ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
                 >
                   <td className="w-10 px-1 py-1 text-center">
-                    {!readOnly && index > 0 && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className={`absolute bottom-0 left-1/2 z-20 size-5 -translate-x-1/2 translate-y-1/2 rounded-full border border-border bg-card p-0 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-primary group-hover:opacity-100 focus-visible:opacity-100 ${separatorInserting ? "pointer-events-none" : ""}`}
-                        disabled={separatorInserting}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onInsertSeparator(separatorType, track);
-                        }}
-                        aria-label={`Insert ${PLAYLIST_SEPARATORS.find((item) => item.type === separatorType)?.label ?? "Generic"} separator before ${track.title}`}
-                        title={`Insert ${separatorType} separator before this track`}
-                      >
-                        <Plus size={12} />
-                      </Button>
-                    )}
                     {!readOnly && (
                       <Button
                         size="icon"
                         variant="ghost"
-                        className={`size-7 text-muted-foreground transition-opacity hover:bg-primary hover:text-primary-foreground ${index > 0 ? "group-hover:opacity-0 group-focus-within:opacity-0" : ""}`}
+                        className="size-7 text-muted-foreground transition-opacity hover:bg-primary hover:text-primary-foreground"
                         onClick={(event) => {
                           event.stopPropagation();
                           onLookup(track);
@@ -200,7 +200,23 @@ export function TrackTable({
                   <td className="px-2 py-1 font-mono text-muted-foreground">
                     {trackNumbers.get(track.id)}
                   </td>
-                  <td className="w-6 px-1 py-1">
+                  <td className="relative w-6 px-1 py-1">
+                    {!readOnly && index > 0 && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className={`absolute bottom-0 left-1/2 z-20 size-5 -translate-x-1/2 translate-y-1/2 rounded-full border border-border bg-card p-0 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-primary group-hover:opacity-100 focus-visible:opacity-100 ${separatorInserting ? "pointer-events-none" : ""}`}
+                        disabled={separatorInserting}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onInsertSeparator(separatorType, track);
+                        }}
+                        aria-label={`Insert ${PLAYLIST_SEPARATORS.find((item) => item.type === separatorType)?.label ?? "Generic"} separator before ${track.title}`}
+                        title={`Insert ${separatorType} separator before this track`}
+                      >
+                        <Plus size={12} />
+                      </Button>
+                    )}
                     <span className="flex h-4 w-4 items-center justify-center">
                       {isLoaded &&
                         (playing ? (
@@ -291,6 +307,18 @@ export function TrackTable({
                         onPlay={onPlayCollectionMatch}
                         onSwap={onSwapCollectionMatch}
                         onCollapse={onCollapseLookup}
+                      />
+                    </td>
+                  </tr>
+                )}
+                {!readOnly && isSeparator && expandedSeparatorTrackId === track.id && (
+                  <tr>
+                    <td colSpan={12} className="px-3 py-2">
+                      <SeparatorSwapChoices
+                        track={track}
+                        onReplace={(type) => onReplaceSeparator(track, type)}
+                        onCollapse={() => onSelectSeparator(track)}
+                        disabled={separatorSwapping}
                       />
                     </td>
                   </tr>

@@ -1,6 +1,7 @@
 """Read-only Rekordbox playlist browsing and local playlist operations."""
 
 import json
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -31,7 +32,7 @@ class InsertSeparatorRequest(BaseModel):
 
 class ReplaceSeparatorRequest(BaseModel):
     type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
-    separator_track_id: str
+    separator_row_id: str
     confirm_update: bool = False
 
 
@@ -243,8 +244,8 @@ async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRe
 async def replace_playlist_separator(playlist_id: str, request: ReplaceSeparatorRequest):
     if not request.confirm_update:
         raise HTTPException(400, "Confirm updating this playlist before replacing a separator.")
-    if not request.separator_track_id:
-        raise HTTPException(400, "A separator track ID is required.")
+    if not request.separator_row_id:
+        raise HTTPException(400, "A separator row ID is required.")
 
     async with playlist_mutation_lock(playlist_id):
         path, plan, _ = local_playlist_with_plan(playlist_id)
@@ -259,10 +260,10 @@ async def replace_playlist_separator(playlist_id: str, request: ReplaceSeparator
                 separator_occurrences[track_id] = occurrence
                 row_id = f"{track_id}-{occurrence}"
                 separator_type = (
-                    request.type if row_id == request.separator_track_id
+                    request.type if row_id == request.separator_row_id
                     else SEPARATOR_TRACK_TYPES[track_id]
                 )
-                if row_id == request.separator_track_id:
+                if row_id == request.separator_row_id:
                     replacement_position = len(regular_track_ids) + 1
                 separators.append({
                     "type": separator_type,

@@ -234,7 +234,7 @@ export async function insertPlaylistSeparator(
 export async function replacePlaylistSeparator(
   apiUrl: string,
   playlistId: string,
-  separatorTrackId: string,
+  separatorRowId: string,
   type: SeparatorType,
 ): Promise<void> {
   await requestJson(
@@ -244,7 +244,7 @@ export async function replacePlaylistSeparator(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        separator_track_id: separatorTrackId,
+        separator_row_id: separatorRowId,
         type,
         confirm_update: true,
       }),
