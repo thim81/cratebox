@@ -49,7 +49,6 @@ interface TrackTableProps {
   separatorSwapping?: boolean;
   onAppendToPlaylist?: (track: Track) => void;
   appendDisabled?: boolean;
-  appendPlaylistName?: string;
   appendingTrackId?: string | null;
   readOnly?: boolean;
   reorderEnabled?: boolean;
@@ -87,7 +86,6 @@ export function TrackTable({
   separatorSwapping = false,
   onAppendToPlaylist,
   appendDisabled = true,
-  appendPlaylistName,
   appendingTrackId,
   readOnly = false,
   reorderEnabled = false,
@@ -206,10 +204,8 @@ export function TrackTable({
                     setDropTarget(null);
                   }}
                   onClick={() => onSelect(index)}
-                  onDoubleClick={
-                    readOnly
-                      ? undefined
-                      : () => (isSeparator ? onSelectSeparator(track) : onLoad(track))
+                  onDoubleClick={() =>
+                    readOnly || !isSeparator ? onLoad(track) : onSelectSeparator(track)
                   }
                   aria-selected={index === selectedIndex || isRangeSelected}
                   className={`group relative cursor-default border-b border-border/40 ${reorderEnabled && !reordering ? "cursor-grab active:cursor-grabbing" : ""} ${dropTarget?.trackId === track.id ? (dropTarget.before ? "border-t-2 border-t-primary" : "border-b-2 border-b-primary") : ""} ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
@@ -313,12 +309,8 @@ export function TrackTable({
                           event.stopPropagation();
                           onAppendToPlaylist(track);
                         }}
-                        aria-label={`Insert ${track.title} into ${appendPlaylistName || "a CrateDeck playlist"}`}
-                        title={
-                          appendPlaylistName
-                            ? `Insert into ${appendPlaylistName}`
-                            : "Select a CrateDeck playlist first"
-                        }
+                        aria-label={`Add ${track.title} to a CrateDeck playlist`}
+                        title={appendDisabled ? "No CrateDeck playlist available" : "Choose a CrateDeck playlist"}
                       >
                         {appendingTrackId === track.id ? (
                           <LoaderCircle size={14} className="animate-spin" />

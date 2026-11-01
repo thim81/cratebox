@@ -145,7 +145,7 @@ export function CrateSidebar({
         </Button>
       </div>
       <div className="flex-1 overflow-y-auto">
-        {source === "crate" && apiError && (
+        {apiError && (
           <div className="m-2 rounded border border-destructive/50 p-2 text-xs text-destructive">
             {apiError}
           </div>

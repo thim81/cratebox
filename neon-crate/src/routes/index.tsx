@@ -124,8 +124,9 @@ function Index() {
     type: SeparatorType;
   } | null>(null);
   const [separatorType, setSeparatorType] = useState<SeparatorType>("generic");
-  const [appendPlaylistId, setAppendPlaylistId] = useState("");
   const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
+  const [appendNotice, setAppendNotice] = useState<string | null>(null);
+  const [pendingAppendTrack, setPendingAppendTrack] = useState<Track | null>(null);
   const [crateQ, setCrateQ] = useState("");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortState>({ k: null, dir: 1 });
@@ -216,6 +217,8 @@ function Index() {
 
   const changePlaylistSource = (source: "crate" | "rekordbox") => {
     setPlaylistSource(source);
+    setApiError(null);
+    setAppendNotice(null);
     if (source === "rekordbox" && !rekordboxLoaded) void refreshRekordboxPlaylists();
   };
 
@@ -332,7 +335,6 @@ function Index() {
   }, [activeId, apiUrl, playlistSource]);
 
   const activePl = playlists.find((p) => p.id === activeId);
-  const appendDestination = playlists.find((p) => p.id === appendPlaylistId);
   const activeRekordboxPlaylist = rekordboxPlaylists.find(
     (playlist) => playlist.id === activeRekordboxId,
   );
@@ -404,16 +406,19 @@ function Index() {
   }, [activeRekordboxPlaylist, apiUrl, rekordboxTracks.length, refreshPlaylists]);
 
   const appendTrackToPlaylist = useCallback(
-    async (track: Track) => {
-      const destination = playlists.find((playlist) => playlist.id === appendPlaylistId);
+    async (track: Track, destinationId: string) => {
+      const destination = playlists.find((playlist) => playlist.id === destinationId);
       const trackId = track.rekordbox_id;
       if (playlistSource !== "rekordbox" || !destination || !trackId) return;
 
       const generation = ++playlistTracksGeneration.current;
       setAppendingTrackId(track.id);
+      setApiError(null);
+      setAppendNotice(null);
       try {
         await appendRekordboxTrack(apiUrl, destination.id, trackId);
         await refreshPlaylists();
+        setAppendNotice(`Added “${track.title}” to ${destination.name}.`);
         if (
           generation === playlistTracksGeneration.current &&
           activePlaylistContext.current.source === "crate" &&
@@ -433,6 +438,7 @@ function Index() {
           }
         }
       } catch (error) {
+        setAppendNotice(null);
         setApiError(
           `Couldn't insert ${track.title} into ${destination.name} (${error instanceof Error ? error.message : "request failed"})`,
         );
@@ -440,7 +446,7 @@ function Index() {
         setAppendingTrackId(null);
       }
     },
-    [apiUrl, appendPlaylistId, playlistSource, playlists, refreshPlaylists],
+    [apiUrl, playlistSource, playlists, refreshPlaylists],
   );
   const editLoadedArtwork = (track: Track) => {
     const playlist = playlists.find((item) => item.name === loaded?.playlist);
@@ -762,30 +768,43 @@ function Index() {
           : "MCP error";
 
   const load = useCallback(
-    (t: Track | undefined, play = true, fromDeckNavigation = false) => {
-      if (!t || (playlistSource === "rekordbox" && !fromDeckNavigation)) return;
+    (t: Track | undefined, play = true) => {
+      if (!t) return;
+      let track = t;
+      let playlist = activePl?.name ?? "";
+      if (playlistSource === "rekordbox") {
+        if (!t.rekordbox_id) return;
+        track = {
+          ...t,
+          url: collectionStreamUrl(apiUrl, t.rekordbox_id),
+          artwork_url: collectionArtworkUrl(apiUrl, t.rekordbox_id),
+        };
+        playlist = activeRekordboxPlaylist?.name ?? "Rekordbox collection";
+      }
       setAutoPlay(play);
-      setLoaded({ track: t, playlist: activePl?.name ?? "" });
+      setLoaded({ track, playlist });
     },
-    [activePl?.name, playlistSource],
+    [activePl?.name, activeRekordboxPlaylist?.name, apiUrl, playlistSource],
   );
 
   const step = (d: number) => {
     if (!loaded) return;
-    const stepTracks = playlistSource === "rekordbox" ? tracks : view;
-    const i = stepTracks.findIndex((t) => t.id === loaded.track.id);
+    const stepTracks = view;
+    const i = stepTracks.findIndex(
+      (t) => t.id === loaded.track.id || (t.rekordbox_id && t.rekordbox_id === loaded.track.rekordbox_id),
+    );
     if (i < 0) {
       const targetIndex = d > 0 ? 0 : stepTracks.length - 1;
       if (stepTracks[targetIndex]) {
-        load(stepTracks[targetIndex], true, playlistSource === "rekordbox");
-        if (playlistSource === "crate") setSel(targetIndex);
+        load(stepTracks[targetIndex], true);
+        setSel(targetIndex);
       }
       return;
     }
     const n = stepTracks[i + d];
     if (n) {
-      load(n, true, playlistSource === "rekordbox");
-      if (playlistSource === "crate") setSel(i + d);
+      load(n, true);
+      setSel(i + d);
     }
   };
 
@@ -1085,27 +1104,11 @@ function Index() {
                   </select>
                 </label>
               )}
-              {playlistSource === "rekordbox" &&
-                activeRekordboxPlaylist &&
-                !activeRekordboxPlaylist.is_folder && (
-                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    Insert into CrateDeck playlist
-                    <select
-                      aria-label="Local CrateDeck playlist to insert into"
-                      className="h-8 max-w-56 rounded border border-input bg-background px-2 text-xs text-foreground"
-                      value={appendPlaylistId}
-                      disabled={playlists.length === 0 || appendingTrackId !== null}
-                      onChange={(event) => setAppendPlaylistId(event.currentTarget.value)}
-                    >
-                      <option value="">Select CrateDeck playlist</option>
-                      {playlists.map((playlist) => (
-                        <option key={playlist.id} value={playlist.id}>
-                          {playlist.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
+              {playlistSource === "rekordbox" && appendNotice && (
+                <span className="text-xs text-accent" role="status">
+                  {appendNotice}
+                </span>
+              )}
               <div className="relative w-72">
                 <Search
                   size={14}
@@ -1155,9 +1158,12 @@ function Index() {
             separatorType={separatorType}
             separatorInserting={separatorInserting}
             separatorSwapping={separatorInserting}
-            onAppendToPlaylist={(track) => void appendTrackToPlaylist(track)}
-            appendDisabled={!appendDestination || appendingTrackId !== null}
-            appendPlaylistName={appendDestination?.name}
+            onAppendToPlaylist={(track) => {
+              setApiError(null);
+              setAppendNotice(null);
+              setPendingAppendTrack(track);
+            }}
+            appendDisabled={playlists.length === 0 || appendingTrackId !== null}
             appendingTrackId={appendingTrackId}
             readOnly={playlistSource === "rekordbox"}
             reorderEnabled={playlistSource === "crate" && sort.k === null && !q}
@@ -1168,6 +1174,39 @@ function Index() {
           />
         </main>
       </div>
+
+      <Dialog
+        open={pendingAppendTrack !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingAppendTrack(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add to CrateDeck playlist</DialogTitle>
+            <DialogDescription>
+              Choose a destination for “{pendingAppendTrack?.title ?? "this track"}”.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+            {playlists.map((playlist) => (
+              <Button
+                key={playlist.id}
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => {
+                  const track = pendingAppendTrack;
+                  if (!track) return;
+                  setPendingAppendTrack(null);
+                  void appendTrackToPlaylist(track, playlist.id);
+                }}
+              >
+                {playlist.name}
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={pendingSeparatorReplacement !== null}

@@ -146,7 +146,6 @@ async def collection_lookup(request: CollectionLookup):
             matches = await result_value(result)
         if not isinstance(matches, list):
             raise ValueError("Unexpected collection lookup response.")
-        collection_mcp.track_paths.clear()
         public_matches = []
         for match in matches:
             if not isinstance(match, dict):

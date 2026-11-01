@@ -162,6 +162,21 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
         raise HTTPException(502, "Unexpected Rekordbox playlist tracks.")
     occurrences: dict[str, int] = {}
     tracks = []
+    track_ids = [str(record["id"]) for record in records if record.get("id") is not None]
+    locations = await call_tool("get_track_locations", {"track_ids": track_ids}) if track_ids else []
+    if not isinstance(locations, list) or len(locations) != len(track_ids):
+        raise HTTPException(502, "Unexpected Rekordbox track locations.")
+    for track_id, location in zip(track_ids, locations, strict=True):
+        if (
+            not isinstance(location, dict)
+            or str(location.get("track_id")) != track_id
+            or not isinstance(location.get("file_path"), str)
+            or not Path(location["file_path"]).is_absolute()
+            or any(character in location["file_path"] for character in "\r\n\x00\x85\u2028\u2029")
+        ):
+            raise HTTPException(502, "Unexpected Rekordbox track locations.")
+        collection_mcp.track_paths[track_id] = Path(location["file_path"])
+
     for record in records:
         if record.get("id") is None:
             continue
