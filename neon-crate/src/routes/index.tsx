@@ -7,8 +7,11 @@ import {
   ListMusic,
   Search,
   Settings,
+  Sun,
+  Moon,
   Star,
   Volume2,
+  VolumeX,
   RefreshCw,
   Trash2,
 } from "lucide-react";
@@ -22,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { fmtTime, type Playlist, type Track } from "@/lib/crate-data";
 
 export const Route = createFileRoute("/")({
@@ -52,6 +56,7 @@ const camelot = (k: string) => parseInt(k) * 2 + (k.endsWith("B") ? 1 : 0);
 function Index() {
   const [apiUrl, setApiUrl] = useState("http://localhost:8000");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [lightMode, setLightMode] = useState(false);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [activeId, setActiveId] = useState("");
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -65,8 +70,24 @@ function Index() {
   const [loaded, setLoaded] = useState<{ track: Track; playlist: string } | null>(null);
   const [autoPlay, setAutoPlay] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [volume, setVolume] = useState(0.8);
+  const [muted, setMuted] = useState(false);
   const deck = useRef<DeckHandle>(null);
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+
+  useEffect(() => {
+    if (localStorage.getItem("crate-deck-theme") === "light") {
+      setLightMode(true);
+      document.documentElement.classList.add("light");
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const nextLightMode = !lightMode;
+    setLightMode(nextLightMode);
+    document.documentElement.classList.toggle("light", nextLightMode);
+    localStorage.setItem("crate-deck-theme", nextLightMode ? "light" : "dark");
+  };
 
   const refreshPlaylists = useCallback(async () => {
     setRefreshing(true);
@@ -295,6 +316,36 @@ function Index() {
           <Button
             size="icon"
             variant="ghost"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${lightMode ? "dark" : "light"} mode`}
+            title={`Switch to ${lightMode ? "dark" : "light"} mode`}
+          >
+            {lightMode ? <Moon size={16} /> : <Sun size={16} />}
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => setMuted((value) => !value)}
+            aria-label={muted ? "Unmute" : "Mute"}
+            title={muted ? "Unmute" : "Mute"}
+          >
+            {muted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          </Button>
+          <Slider
+            className="w-24"
+            min={0}
+            max={1}
+            step={0.01}
+            value={[muted ? 0 : volume]}
+            onValueChange={([value]) => {
+              setVolume(value ?? 0);
+              setMuted(false);
+            }}
+            aria-label="Volume"
+          />
+          <Button
+            size="icon"
+            variant="ghost"
             onClick={() => setSettingsOpen(true)}
             aria-label="Settings"
           >
@@ -308,6 +359,8 @@ function Index() {
         track={loaded?.track ?? null}
         playlistName={loaded?.playlist ?? ""}
         autoPlay={autoPlay}
+        volume={volume}
+        muted={muted}
         onPrev={() => step(-1)}
         onNext={() => step(1)}
         onPlayingChange={setPlaying}
