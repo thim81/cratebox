@@ -1,5 +1,6 @@
 """Local API for the CrateDeck playlist browser."""
 
+from base64 import b64decode
 from datetime import date
 from pathlib import Path
 from contextlib import asynccontextmanager, suppress
@@ -13,7 +14,7 @@ import asyncio
 import mutagen
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 from pydantic import BaseModel
@@ -370,8 +371,49 @@ def parse_playlist(path: Path):
             "key": tag("initialkey"),
             "quality": f"{audio.suffix[1:].upper()} {bitrate // 1000}kbps".strip(),
             "url": f"/api/stream?playlist_id={quote(path.stem)}&track_id={quote(track_id)}",
+            "artwork_url": f"/api/playlists/{quote(path.stem)}/tracks/{quote(track_id)}/artwork",
         })
     return tracks
+
+
+def embedded_artwork(audio: Path):
+    try:
+        media = mutagen.File(audio)
+    except (OSError, ValueError, mutagen.MutagenError):
+        return None
+    if media is None:
+        return None
+
+    tags = getattr(media, "tags", None)
+    pictures = list(getattr(media, "pictures", []) or [])
+    if tags is not None:
+        if hasattr(tags, "getall"):
+            pictures.extend(tags.getall("APIC"))
+        pictures.extend(tags.get("covr", []) or [])
+        for encoded in tags.get("metadata_block_picture", []) or []:
+            try:
+                pictures.append(mutagen.flac.Picture(b64decode(encoded)))
+            except (TypeError, ValueError):
+                pass
+
+    for picture in pictures:
+        data = getattr(picture, "data", None)
+        if data is None and isinstance(picture, bytes):
+            data = picture
+        if not data:
+            continue
+        if data.startswith(b"\xff\xd8\xff"):
+            mime = "image/jpeg"
+        elif data.startswith(b"\x89PNG\r\n\x1a\n"):
+            mime = "image/png"
+        elif data.startswith((b"GIF87a", b"GIF89a")):
+            mime = "image/gif"
+        elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+            mime = "image/webp"
+        else:
+            continue
+        return data, mime
+    return None
 
 
 def playlist_summary(path: Path, tracks):
@@ -402,6 +444,24 @@ def get_playlist(playlist_id: str):
     path = find_playlist(playlist_id)
     tracks = parse_playlist(path)
     return {**playlist_summary(path, tracks), "tracks": tracks}
+
+
+@app.get("/api/playlists/{playlist_id}/tracks/{track_id}/artwork")
+def get_track_artwork(playlist_id: str, track_id: str):
+    path = find_playlist(playlist_id)
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise HTTPException(500, "Could not read playlist") from exc
+    _, plan = read_plan_ids(path, lines)
+    for _, _, audio, registered_id, _ in playlist_entries(path, lines, plan):
+        if registered_id == track_id:
+            artwork = embedded_artwork(audio)
+            if artwork:
+                data, media_type = artwork
+                return Response(data, media_type=media_type, headers={"Cache-Control": "private, max-age=3600"})
+            break
+    raise HTTPException(404, "Track artwork not found")
 
 
 @app.delete("/api/playlists/{playlist_id}/tracks")

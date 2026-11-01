@@ -30,6 +30,8 @@ Export JSON contains an ordered `tracks`
 array with each Rekordbox track ID and its absolute file path together. The API
 validates those entries against the M3U8; older ID-only plans still pair with
 M3U8 entries by order.
+The active deck displays embedded audio cover art, with a music-note placeholder
+when no supported artwork is available.
 Rows with an ID use an exact collection lookup; playlists without a matching
 plan fall back to artist/title lookup. Playlist streaming is restricted to
 files referenced by playlists in the configured folder; collection streaming

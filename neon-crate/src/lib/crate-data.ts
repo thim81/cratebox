@@ -10,6 +10,7 @@ export interface Track {
   key: string;
   quality: string;
   url: string;
+  artwork_url?: string;
 }
 export interface Playlist {
   id: string;

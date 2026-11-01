@@ -19,6 +19,9 @@ export async function getPlaylist(
     tracks: (playlist.tracks ?? []).map((track) => ({
       ...track,
       url: new URL(track.url, `${apiUrl}/`).toString(),
+      artwork_url: track.artwork_url
+        ? new URL(track.artwork_url, `${apiUrl}/`).toString()
+        : undefined,
     })),
   };
 }

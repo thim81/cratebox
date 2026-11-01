@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Ref, useImperativeHandle } from "react";
-import { Pause, Play, SkipBack, SkipForward, SlidersHorizontal, Star } from "lucide-react";
+import { Music2, Pause, Play, SkipBack, SkipForward, SlidersHorizontal, Star } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtTime, type Track } from "@/lib/crate-data";
 import type WaveSurferType from "wavesurfer.js";
@@ -39,6 +39,7 @@ export function Deck({
   const [dur, setDur] = useState(0);
   const [rate, setRate] = useState(1);
   const [pitchOpen, setPitchOpen] = useState(false);
+  const [artworkFailedFor, setArtworkFailedFor] = useState<string | null>(null);
   const [cue, setCue] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -153,19 +154,35 @@ export function Deck({
   return (
     <div className="border-b border-border bg-deck px-4 py-3">
       <div className="mb-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <div className="min-w-0">
-          <div className="truncate text-lg font-semibold text-foreground">
-            {track ? `${track.artist} - ${track.title}` : "No track loaded"}
-          </div>
-          <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-            <span className="truncate">
-              {track ? track.album : "Select a track and press Enter"}
-            </span>
-            {track && (
-              <span className="shrink-0 rounded bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
-                {playlistName}
+        <div className="flex min-w-0 items-center gap-3">
+          {track && (
+            <div className="relative flex size-16 shrink-0 items-center justify-center overflow-hidden border border-border bg-secondary text-muted-foreground">
+              <Music2 size={24} aria-hidden="true" />
+              {track.artwork_url && artworkFailedFor !== track.id ? (
+                <img
+                  key={`${track.id}:${track.artwork_url}`}
+                  src={track.artwork_url}
+                  alt={`Cover art for ${track.title}`}
+                  className="absolute inset-0 size-full object-cover"
+                  onError={() => setArtworkFailedFor(track.id)}
+                />
+              ) : null}
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="truncate text-lg font-semibold text-foreground">
+              {track ? `${track.artist} - ${track.title}` : "No track loaded"}
+            </div>
+            <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+              <span className="truncate">
+                {track ? track.album : "Select a track and press Enter"}
               </span>
-            )}
+              {track && (
+                <span className="shrink-0 rounded bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
+                  {playlistName}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         {track && (
