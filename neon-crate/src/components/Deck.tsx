@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState, type Ref, useImperativeHandle } from "react";
-import { Music2, Pause, Play, SkipBack, SkipForward, SlidersHorizontal, Star } from "lucide-react";
+import {
+  ListMusic,
+  Music2,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  SlidersHorizontal,
+  Star,
+} from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtTime, type Track } from "@/lib/crate-data";
 import type WaveSurferType from "wavesurfer.js";
@@ -197,11 +206,14 @@ export function Deck({
               {track ? `${track.artist} - ${track.title}` : "No track loaded"}
             </div>
             <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-              <span className="truncate">
-                {track ? track.album : "Select a track and press Enter"}
-              </span>
+              {track ? (
+                track.album.trim() && <span className="truncate">{track.album}</span>
+              ) : (
+                <span className="truncate">Select a track and press Enter</span>
+              )}
               {track && (
-                <span className="shrink-0 rounded bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
+                <span className="flex shrink-0 items-center gap-1 rounded bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
+                  <ListMusic size={12} aria-hidden="true" />
                   {playlistName}
                 </span>
               )}

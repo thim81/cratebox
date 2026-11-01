@@ -17,6 +17,7 @@ interface Props {
   open: boolean;
   query: string;
   currentImageUrl?: string;
+  embedIntoMp3?: boolean;
   onOpenChange: (open: boolean) => void;
   onChoose: (image: ImageResult) => Promise<void>;
 }
@@ -26,6 +27,7 @@ export function ImageSearchDialog({
   open,
   query: initialQuery,
   currentImageUrl,
+  embedIntoMp3 = false,
   onOpenChange,
   onChoose,
 }: Props) {
@@ -174,7 +176,7 @@ export function ImageSearchDialog({
                   <p className="max-w-48 text-xs">{preview.title || "Image preview"}</p>
                   <div className="flex flex-col gap-2">
                     <Button onClick={() => void choose(preview)} disabled={saving}>
-                      {saving ? "Saving…" : "Use this image"}
+                      {saving ? "Saving…" : embedIntoMp3 ? "Embed into MP3" : "Use this image"}
                     </Button>
                     <a
                       href={preview.source_url}

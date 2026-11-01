@@ -37,6 +37,7 @@ import {
   lookupCollection,
   swapPlaylistTrack,
   saveArtwork,
+  embedArtwork,
 } from "@/lib/cratedeck-api";
 import {
   fmtTime,
@@ -267,33 +268,36 @@ function Index() {
   };
   const chooseArtwork = async (image: import("@/lib/crate-data").ImageResult) => {
     if (!imageTarget) return;
-    await saveArtwork(apiUrl, imageTarget.playlistId, image.image_url, imageTarget.trackId);
     if (imageTarget.trackId) {
-      setTracks((current) =>
-        current.map((track) =>
-          track.id === imageTarget.trackId
-            ? {
-                ...track,
-                fallback_artwork_url: track.fallback_artwork_url ?? track.artwork_url,
-                artwork_url: image.image_url,
-              }
-            : track,
-        ),
+      const result = await embedArtwork(
+        apiUrl,
+        imageTarget.playlistId,
+        imageTarget.trackId,
+        image.image_url,
       );
+      if (activeId === imageTarget.playlistId) {
+        setTracks((current) =>
+          current.map((track) =>
+            track.id === imageTarget.trackId
+              ? { ...track, artwork_url: result.artwork_url, fallback_artwork_url: undefined }
+              : track,
+          ),
+        );
+      }
       setLoaded((current) =>
         current?.playlist === imageTarget.playlistId && current.track.id === imageTarget.trackId
           ? {
               ...current,
               track: {
                 ...current.track,
-                fallback_artwork_url:
-                  current.track.fallback_artwork_url ?? current.track.artwork_url,
-                artwork_url: image.image_url,
+                fallback_artwork_url: undefined,
+                artwork_url: result.artwork_url,
               },
             }
           : current,
       );
     } else {
+      await saveArtwork(apiUrl, imageTarget.playlistId, image.image_url);
       setPlaylists((current) =>
         current.map((playlist) =>
           playlist.id === imageTarget.playlistId
@@ -605,6 +609,7 @@ function Index() {
         open={imageTarget !== null}
         query={imageTarget?.query ?? ""}
         currentImageUrl={imageTarget?.currentImageUrl}
+        embedIntoMp3={Boolean(imageTarget?.trackId)}
         onOpenChange={(open) => {
           if (!open) setImageTarget(null);
         }}
@@ -621,7 +626,6 @@ function Index() {
           onFilterChange={setCrateQ}
           onRefresh={() => void refreshPlaylists()}
           onSelectPlaylist={setActiveId}
-          onEditArtwork={editCrateArtwork}
         />
 
         <main className="flex min-w-0 flex-1 flex-col">

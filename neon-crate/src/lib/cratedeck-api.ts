@@ -34,6 +34,24 @@ export function saveArtwork(
   });
 }
 
+export async function embedArtwork(
+  apiUrl: string,
+  playlistId: string,
+  trackId: string,
+  imageUrl: string,
+): Promise<{ backup_id: string; artwork_url: string }> {
+  const result = await requestJson<{ backup_id: string; artwork_url: string }>(
+    apiUrl,
+    "/api/artwork/embed",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playlist_id: playlistId, track_id: trackId, image_url: imageUrl }),
+    },
+  );
+  return { ...result, artwork_url: new URL(result.artwork_url, `${apiUrl}/`).toString() };
+}
+
 export async function getPlaylists(apiUrl: string): Promise<Playlist[]> {
   const response = await fetch(`${apiUrl}/api/playlists`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);

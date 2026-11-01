@@ -371,6 +371,12 @@ Returned track metadata becomes part of the Codex conversation. Running the
 database reader locally does not make the AI conversation fully offline.
 No audio upload feature is implemented.
 
+CrateDeck is a separate local application. Its explicit **Embed into MP3**
+action can write artwork to a playlist-selected MP3 after creating an exact
+backup under `output/audio-backups/`; this does not change the Rekordbox database
+or the MCP's read-only snapshot. CrateDeck API tests are kept with the app in
+`neon-crate/tests/`.
+
 The project does not provide a standalone playlist-generation CLI or automatic
 Rekordbox import. JSON records preserve selections for further work in chat.
 M3U8 duplicate-free import is still an unresolved manual check. The snapshot

@@ -2,7 +2,9 @@
 
 from base64 import b64decode
 import json
+import os
 from pathlib import Path
+import tempfile
 from urllib.parse import urlsplit
 
 import mutagen
@@ -66,4 +68,24 @@ def read_artwork_overrides():
         return {"playlists": {}, "tracks": {}}
     except (OSError, UnicodeError, json.JSONDecodeError):
         raise HTTPException(500, "Could not read CrateDeck artwork settings") from None
+
+
+def write_artwork_overrides(value):
+    if PLAN_DIRECTORY.is_symlink() or ARTWORK_FILE.is_symlink():
+        raise HTTPException(403, "Artwork settings cannot use symlinked paths")
+    temporary = None
+    try:
+        PLAN_DIRECTORY.mkdir(exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=PLAN_DIRECTORY, prefix=".cratedeck-artwork-", delete=False
+        ) as file:
+            temporary = Path(file.name)
+            file.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+        temporary.replace(ARTWORK_FILE)
+    except OSError:
+        if temporary:
+            temporary.unlink(missing_ok=True)
+        raise HTTPException(500, "Could not save CrateDeck artwork settings") from None
 

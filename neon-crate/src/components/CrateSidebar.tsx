@@ -1,4 +1,4 @@
-import { Image, ListMusic, RefreshCw, Search } from "lucide-react";
+import { ListMusic, Package, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmtTime, type Playlist } from "@/lib/crate-data";
@@ -12,7 +12,6 @@ interface CrateSidebarProps {
   onFilterChange: (filter: string) => void;
   onRefresh: () => void;
   onSelectPlaylist: (playlistId: string) => void;
-  onEditArtwork: (playlist: Playlist) => void;
 }
 
 export function CrateSidebar({
@@ -24,7 +23,6 @@ export function CrateSidebar({
   onFilterChange,
   onRefresh,
   onSelectPlaylist,
-  onEditArtwork,
 }: CrateSidebarProps) {
   const crates = playlists.filter((playlist) =>
     playlist.name.toLowerCase().includes(filter.toLowerCase()),
@@ -47,7 +45,8 @@ export function CrateSidebar({
         </div>
       </div>
       <div className="flex items-center justify-between px-3 pb-1">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          <Package size={12} />
           Crates
         </span>
         <Button
@@ -102,16 +101,6 @@ export function CrateSidebar({
                 <span>{playlist.created}</span>
               </div>
             </button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="mr-1 size-7"
-              onClick={() => onEditArtwork(playlist)}
-              aria-label={`Search artwork for ${playlist.name}`}
-              title="Search Image"
-            >
-              <Image size={14} />
-            </Button>
           </div>
         ))}
       </div>

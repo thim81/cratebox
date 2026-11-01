@@ -27,7 +27,7 @@ Then set the app's API URL to `http://localhost:8000`.
 The server provides `GET /api/playlists`, `GET /api/playlists/{playlist_id}`,
 `GET /api/stream?playlist_id=...&track_id=...`, `GET /api/collection/status`,
 `GET /api/collection/stream/{track_id}`, `POST /api/collection/lookup`,
-`POST /api/images/search`, `PUT /api/artwork`, and
+`POST /api/images/search`, `PUT /api/artwork`, `PUT /api/artwork/embed`, and
 `POST /api/playlists/{playlist_id}/tracks/swap`.
 Export JSON contains an ordered `tracks`
 array with each Rekordbox track ID and its absolute file path together. The API
@@ -35,11 +35,17 @@ validates those entries against the M3U8; older ID-only plans still pair with
 M3U8 entries by order.
 The active deck displays embedded audio cover art, with a music-note placeholder
 when no supported artwork is available.
-Use Search Image beside a crate name or track to search keyless DuckDuckGo image
-results and assign remote artwork. CrateDeck stores only selected image URLs in
-`output/cratedeck-artwork.json`; it does not download image bytes or edit Rekordbox
-tags. Search providers may rate-limit automated requests, and image hosts may
-block previews; a failed track image falls back to embedded artwork.
+Use Search Image beside a crate name or active track to search keyless DuckDuckGo
+image results. Crate artwork stores the selected image URL in
+`output/cratedeck-artwork.json`. Track artwork is downloaded only when the user
+chooses **Embed into MP3**; CrateDeck accepts public HTTPS JPEG/PNG files up to
+8 MiB, makes a byte-for-byte backup in `output/audio-backups/`, stages and checks
+the ID3 update, then atomically replaces the selected MP3. This operation works
+only for tracks in the repository's own `playlists/` folder, rejects symlinked
+or hard-linked targets, and supports ID3v2.3/v2.4 tags. To undo a change, stop
+CrateDeck and restore that track's matching backup file. Search providers may
+rate-limit requests and image hosts may block previews or downloads; a failed
+track image falls back to existing embedded artwork.
 Rows with an ID use an exact collection lookup; playlists without a matching
 plan fall back to artist/title lookup. Playlist streaming is restricted to
 files referenced by playlists in the configured folder; collection streaming
@@ -62,3 +68,13 @@ background agents before the first lookup; the worker creates a fresh verified
 snapshot, stays connected while the API runs, and stops with the API. The header
 shows whether the MCP worker is idle, connecting, connected, or in an error
 state. A lookup startup failure does not interrupt playlist browsing or playback.
+
+## CrateDeck tests
+
+CrateDeck API tests live in `neon-crate/tests/`. Run them from the repository
+root with the MCP project's locked Python environment:
+
+```sh
+uv --directory rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen \
+  pytest ../neon-crate/tests -q
+```
