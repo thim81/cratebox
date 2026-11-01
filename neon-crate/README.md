@@ -26,7 +26,8 @@ PLAYLIST_DIR="/absolute/path/to/playlists" uv --directory ../rekordbx-mcp run --
 Then set the app's API URL to `http://localhost:8000`.
 The server provides `GET /api/playlists`, `GET /api/playlists/{playlist_id}`,
 `GET /api/stream?playlist_id=...&track_id=...`, `GET /api/collection/status`,
-`GET /api/collection/stream/{track_id}`, `POST /api/collection/lookup`,
+`GET /api/collection/stream/{track_id}`, `POST /api/reveal`,
+`POST /api/collection/lookup`,
 `GET /api/rekordbox/playlists`, `GET /api/rekordbox/playlists/{playlist_id}/tracks`,
 `POST /api/rekordbox/playlists/{playlist_id}/copy`, `POST /api/images/search`,
 `PUT /api/artwork`, `PUT /api/artwork/embed`, and
@@ -36,7 +37,8 @@ array with each Rekordbox track ID and its absolute file path together. The API
 validates those entries against the M3U8; older ID-only plans still pair with
 M3U8 entries by order.
 The active deck displays embedded audio cover art, with a music-note placeholder
-when no supported artwork is available.
+when no supported artwork is available. Its Finder button reveals the active
+audio file in Finder on macOS.
 Use Search Image beside a crate name or active track to search music catalogues
 first. iTunes helps identify track and album metadata; MusicBrainz/Cover Art
 Archive supplies matching cover images. CrateDeck supplements a short catalogue

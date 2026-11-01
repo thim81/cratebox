@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Ref, useImperativeHandle } from "react";
 import {
   ListMusic,
+  FolderOpen,
   Music2,
   Pause,
   Play,
@@ -29,6 +30,7 @@ interface Props {
   onNext: () => void;
   onPlayingChange: (p: boolean) => void;
   onEditArtwork: (track: Track) => void;
+  onRevealTrack: (track: Track) => void;
   ref?: Ref<DeckHandle>;
 }
 
@@ -42,6 +44,7 @@ export function Deck({
   onNext,
   onPlayingChange,
   onEditArtwork,
+  onRevealTrack,
   ref,
 }: Props) {
   const box = useRef<HTMLDivElement>(null);
@@ -218,6 +221,17 @@ export function Deck({
                   <ListMusic size={12} aria-hidden="true" />
                   {playlistName}
                 </span>
+              )}
+              {track && (
+                <button
+                  type="button"
+                  onClick={() => onRevealTrack(track)}
+                  className="flex size-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground hover:border-primary hover:text-primary"
+                  aria-label={`Reveal ${track.title} in Finder`}
+                  title="Show in Finder"
+                >
+                  <FolderOpen size={14} aria-hidden="true" />
+                </button>
               )}
             </div>
           </div>

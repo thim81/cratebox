@@ -63,19 +63,23 @@ export function CrateSidebar({
         <Button
           size="sm"
           variant={source === "crate" ? "secondary" : "ghost"}
+          className="gap-1.5"
           role="tab"
           aria-selected={source === "crate"}
           onClick={() => onSourceChange("crate")}
         >
+          <img src="/favicon.svg" alt="" aria-hidden="true" className="size-4" />
           CrateDeck
         </Button>
         <Button
           size="sm"
           variant={source === "rekordbox" ? "secondary" : "ghost"}
+          className="gap-1.5"
           role="tab"
           aria-selected={source === "rekordbox"}
           onClick={() => onSourceChange("rekordbox")}
         >
+          <img src="/rekordbox.ico" alt="" aria-hidden="true" className="size-4" />
           Rekordbox
         </Button>
       </div>

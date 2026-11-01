@@ -38,6 +38,7 @@ import {
   getRekordboxPlaylists,
   getRekordboxPlaylistTracks,
   lookupCollection,
+  revealTrackInFinder,
   swapPlaylistTrack,
   saveArtwork,
   embedArtwork,
@@ -379,6 +380,17 @@ function Index() {
       });
     }
   };
+  const showTrackInFinder = useCallback(
+    async (track: Track) => {
+      try {
+        await revealTrackInFinder(apiUrl, track);
+        setApiError(null);
+      } catch (error) {
+        setApiError(error instanceof Error ? error.message : "Could not reveal track in Finder.");
+      }
+    },
+    [apiUrl],
+  );
   const chooseArtwork = async (image: import("@/lib/crate-data").ImageResult) => {
     if (!imageTarget) return;
     if (imageTarget.trackId) {
@@ -731,6 +743,7 @@ function Index() {
         onNext={() => step(1)}
         onPlayingChange={setPlaying}
         onEditArtwork={editLoadedArtwork}
+        onRevealTrack={(track) => void showTrackInFinder(track)}
       />
 
       <ImageSearchDialog

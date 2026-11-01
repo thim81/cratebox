@@ -96,6 +96,17 @@ export function getRekordboxPlaylists(apiUrl: string): Promise<RekordboxPlaylist
   return requestJson(apiUrl, "/api/rekordbox/playlists");
 }
 
+export async function revealTrackInFinder(apiUrl: string, track: Track): Promise<void> {
+  await requestJson<{ revealed: boolean }>(apiUrl, "/api/reveal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      playlist_id: track.playlist_id,
+      track_id: track.playlist_id ? track.id : track.rekordbox_id ?? track.id,
+    }),
+  });
+}
+
 export function getRekordboxPlaylistTracks(
   apiUrl: string,
   playlistId: string,

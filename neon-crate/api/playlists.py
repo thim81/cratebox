@@ -151,6 +151,7 @@ def parse_playlist(path: Path):
         bitrate = getattr(info, "bitrate", 0) or 0
         tracks.append({
             "id": track_id,
+            "playlist_id": path.stem,
             "rekordbox_id": rekordbox_id,
             "title": tag("title", audio.stem),
             "artist": tag("artist"),

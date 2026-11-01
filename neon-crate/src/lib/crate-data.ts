@@ -1,5 +1,6 @@
 export interface Track {
   id: string;
+  playlist_id?: string;
   rekordbox_id?: string | null;
   title: string;
   artist: string;
