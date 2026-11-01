@@ -151,14 +151,42 @@ function Index() {
         const response = await fetch(`${apiUrl}/api/collection/lookup`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ artist: track.artist, title: track.title }),
+          body: JSON.stringify({
+            track_id: track.rekordbox_id,
+            artist: track.artist,
+            title: track.title,
+          }),
         });
         const data = (await response.json()) as {
           matches?: CollectionMatch[];
           detail?: string;
         };
         if (!response.ok) throw new Error(data.detail ?? `HTTP ${response.status}`);
-        if (lookupRequestId.current === requestId) setLookupMatches(data.matches ?? []);
+        if (lookupRequestId.current === requestId) {
+          const matches = data.matches ?? [];
+          setLookupMatches(matches);
+          const exact = track.rekordbox_id
+            ? matches.find((match) => match.id === track.rekordbox_id)
+            : undefined;
+          if (exact) {
+            const applyMetadata = (current: Track): Track => ({
+              ...current,
+              title: exact.title || current.title,
+              artist: exact.artist || current.artist,
+              album: exact.album || current.album,
+              rating: exact.rating ?? current.rating,
+              bpm: exact.bpm || current.bpm,
+              key: exact.key || current.key,
+              duration: exact.duration || current.duration,
+            });
+            setTracks((current) => current.map((item) =>
+              item.id === track.id ? applyMetadata(item) : item,
+            ));
+            setLoaded((current) => current?.track.id === track.id
+              ? { ...current, track: applyMetadata(current.track) }
+              : current);
+          }
+        }
       } catch (error) {
         if (lookupRequestId.current === requestId) {
           setLookupError(
@@ -296,12 +324,29 @@ function Index() {
         const firstIndex = positions.length ? Math.min(...positions) : 0;
         const remainingView = view.filter((track) => !removedIds.has(track.id));
         const nextIndex = Math.max(0, Math.min(firstIndex, remainingView.length - 1));
-        setTracks((current) => current.filter((track) => !removedIds.has(track.id)));
+        const playlistResponse = await fetch(
+          `${apiUrl}/api/playlists/${encodeURIComponent(activeId)}`,
+        );
+        if (!playlistResponse.ok) throw new Error(`HTTP ${playlistResponse.status}`);
+        const updatedPlaylist = (await playlistResponse.json()) as Playlist;
+        const updatedTracks = (updatedPlaylist.tracks ?? []).map((track) => ({
+          ...track,
+          url: new URL(track.url, `${apiUrl}/`).toString(),
+        }));
+        setTracks(updatedTracks);
         setRangeAnchor(null);
         setSel(nextIndex);
-        if (loaded && removedIds.has(loaded.track.id)) {
-          if (remainingView[nextIndex]) load(remainingView[nextIndex]);
-          else setLoaded(null);
+        if (loaded) {
+          if (removedIds.has(loaded.track.id)) {
+            setLoaded(null);
+          } else {
+            const refreshedLoaded = updatedTracks.find(
+              (track) => track.file_path === loaded.track.file_path && track.rekordbox_id === loaded.track.rekordbox_id,
+            );
+            if (refreshedLoaded) {
+              setLoaded({ ...loaded, track: refreshedLoaded });
+            }
+          }
         }
         setApiError(null);
         await refreshPlaylists();
@@ -311,7 +356,7 @@ function Index() {
         );
       }
     },
-    [activeId, activePl?.name, apiUrl, view, loaded, load, refreshPlaylists],
+    [activeId, activePl?.name, apiUrl, view, loaded, refreshPlaylists],
   );
 
   useEffect(() => {
@@ -613,8 +658,8 @@ function Index() {
                             event.stopPropagation();
                             void lookupTrackInCollection(t);
                           }}
-                          aria-label={`Look up similar tracks for ${t.title}`}
-                          title="Look up in Rekordbox collection"
+                          aria-label={`${t.rekordbox_id ? "Open exact Rekordbox match for" : "Look up similar tracks for"} ${t.title}`}
+                          title={t.rekordbox_id ? "Open exact Rekordbox match" : "Search by artist and title"}
                         >
                           <Search size={14} />
                         </Button>
@@ -720,7 +765,7 @@ function Index() {
       <Dialog open={lookupOpen} onOpenChange={setLookupOpen}>
         <DialogContent className="max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Similar Rekordbox tracks</DialogTitle>
+            <DialogTitle>{lookupTrack?.rekordbox_id ? "Rekordbox track" : "Similar Rekordbox tracks"}</DialogTitle>
             <DialogDescription>
               {lookupTrack ? `${lookupTrack.artist} — ${lookupTrack.title}` : ""}
             </DialogDescription>
@@ -764,14 +809,16 @@ function Index() {
                     </div>
                   </div>
                   <span className="shrink-0 rounded bg-secondary px-2 py-1 font-mono text-xs text-accent">
-                    {match.similarity}%
+                    {lookupTrack?.rekordbox_id ? "Exact" : `${match.similarity}%`}
                   </span>
                 </li>
               ))}
             </ul>
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No similar tracks found in the collection.
+              {lookupTrack?.rekordbox_id
+                ? "No Rekordbox track found for this ID."
+                : "No similar tracks found in the collection."}
             </p>
           )}
         </DialogContent>

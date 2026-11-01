@@ -19,12 +19,14 @@ from fastmcp.client.transports import StdioTransport
 from pydantic import BaseModel
 
 DEFAULT_PLAYLIST_DIR = Path(__file__).resolve().parents[1] / "playlists"
+PLAN_DIRECTORY = Path(__file__).resolve().parents[1] / "output"
 PLAYLIST_DIR = Path(os.environ.get("PLAYLIST_DIR", str(DEFAULT_PLAYLIST_DIR))).expanduser().resolve()
 
 
 class CollectionLookup(BaseModel):
-    artist: str
-    title: str
+    artist: str | None = None
+    title: str | None = None
+    track_id: str | None = None
 
 
 class CollectionMcp:
@@ -62,7 +64,8 @@ class CollectionMcp:
             client = Client(transport, timeout=120, init_timeout=120)
             try:
                 await client.__aenter__()
-                if "lookup_similar_tracks" not in {tool.name for tool in await client.list_tools()}:
+                tool_names = {tool.name for tool in await client.list_tools()}
+                if not {"lookup_similar_tracks", "get_track_details"} <= tool_names:
                     raise RuntimeError("Lookup tool is unavailable.")
                 self.client = client
                 self.state = "connected"
@@ -112,20 +115,41 @@ async def collection_status():
 
 @app.post("/api/collection/lookup")
 async def collection_lookup(request: CollectionLookup):
-    artist, title = request.artist.strip(), request.title.strip()
-    if not artist or not title:
-        raise HTTPException(400, "Artist and title are required for collection lookup.")
+    artist = (request.artist or "").strip()
+    title = (request.title or "").strip()
+    track_id = (request.track_id or "").strip()
+    if not track_id and (not artist or not title):
+        raise HTTPException(400, "Provide a Rekordbox track ID or both artist and title.")
     client = await collection_mcp.connect()
     try:
         result = await client.call_tool(
+            "get_track_details", {"track_id": track_id},
+        ) if track_id else await client.call_tool(
             "lookup_similar_tracks", {"artist": artist, "title": title},
         )
         structured = result.structured_content
-        matches = structured.get("result") if isinstance(structured, dict) else None
-        if matches is None:
-            matches = result.data
-        if matches is None and result.content:
-            matches = json.loads(result.content[0].text)
+        value = structured.get("result") if isinstance(structured, dict) and "result" in structured else structured
+        if value is None:
+            value = result.data
+        if value is None and result.content:
+            value = json.loads(result.content[0].text)
+        if track_id:
+            if isinstance(value, list):
+                value = value[0] if value else None
+            matches = [] if not isinstance(value, dict) else [{
+                "id": str(value.get("id") or track_id),
+                "title": str(value.get("title") or ""),
+                "artist": str(value.get("artist") or ""),
+                "album": str(value.get("album") or ""),
+                "duration": value.get("duration") or value.get("length") or 0,
+                "bpm": value.get("bpm") or 0,
+                "key": str(value.get("key") or ""),
+                "rating": value.get("rating") or 0,
+                "play_count": value.get("play_count") or 0,
+                "similarity": 100,
+            }]
+        else:
+            matches = value
         if not isinstance(matches, list):
             raise ValueError("Unexpected collection lookup response.")
         collection_mcp.state = "connected"
@@ -156,23 +180,81 @@ def playlist_files():
     )
 
 
-def playlist_entries(path: Path, lines: list[str]):
-    occurrences = {}
+def playlist_entry_count(lines: list[str]):
+    return sum(1 for line in lines if line.strip() and not line.lstrip().startswith("#"))
+
+
+def read_plan_ids(path: Path, entry_count: int):
+    plan_path = PLAN_DIRECTORY / f"{path.stem}.json"
+    if not plan_path.is_file():
+        return plan_path, None
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        entries = plan.get("tracks")
+        if isinstance(entries, list):
+            track_ids = [entry.get("track_id") for entry in entries if isinstance(entry, dict)]
+            if len(track_ids) != len(entries):
+                return plan_path, None
+            file_paths = [entry.get("file_path") for entry in entries if isinstance(entry, dict)]
+            if any(not isinstance(item, str) or not Path(item).is_absolute() for item in file_paths):
+                return plan_path, None
+        else:
+            track_ids = plan.get("track_ids")
+            file_paths = None
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return plan_path, None
+    if (
+        not isinstance(track_ids, list)
+        or len(track_ids) != entry_count
+        or any(not isinstance(track_id, str) or not track_id for track_id in track_ids)
+        or (file_paths is not None and len(file_paths) != entry_count)
+    ):
+        return plan_path, None
+    return plan_path, (track_ids, file_paths)
+
+
+def playlist_entries(path: Path, lines: list[str], plan: tuple[list[str], list[str] | None] | None):
+    path_occurrences = {}
+    track_occurrences = {}
+    entry_number = 0
     for line_number, raw_line in enumerate(lines):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        audio = Path(line).expanduser()
+        plan_index = entry_number
+        rekordbox_id = plan[0][entry_number] if plan else None
+        entry_number += 1
+        audio = Path(plan[1][plan_index]) if plan and plan[1] else Path(line).expanduser()
         if not audio.is_absolute():
             audio = path.parent / audio
         audio = audio.resolve()
         if not audio.is_file():
             continue
         audio_key = str(audio)
-        occurrence = occurrences.get(audio_key, 0)
-        occurrences[audio_key] = occurrence + 1
-        digest = hashlib.blake2b(audio_key.encode(), digest_size=8).hexdigest()
-        yield line_number, audio, f"{path.stem}-{digest}-{occurrence}"
+        if rekordbox_id:
+            occurrence = track_occurrences.get(rekordbox_id, 0)
+            track_occurrences[rekordbox_id] = occurrence + 1
+            row_id = f"{rekordbox_id}-{occurrence + 1}"
+        else:
+            occurrence = path_occurrences.get(audio_key, 0)
+            path_occurrences[audio_key] = occurrence + 1
+            digest = hashlib.blake2b(audio_key.encode(), digest_size=8).hexdigest()
+            row_id = f"{path.stem}-{digest}-{occurrence}"
+        yield line_number, plan_index, audio, row_id, rekordbox_id
+
+
+def atomic_write(path: Path, content: str):
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="", dir=path.parent, delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(content)
+        temporary_path.chmod(path.stat().st_mode)
+        os.replace(temporary_path, path)
+    except OSError:
+        if temporary_path:
+            temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def parse_playlist(path: Path):
@@ -182,7 +264,8 @@ def parse_playlist(path: Path):
     except (OSError, UnicodeError) as exc:
         raise HTTPException(500, f"Could not read playlist {path.name}") from exc
 
-    for _, audio, track_id in playlist_entries(path, lines):
+    _, plan = read_plan_ids(path, playlist_entry_count(lines))
+    for _, _, audio, track_id, rekordbox_id in playlist_entries(path, lines, plan):
         try:
             media = mutagen.File(audio, easy=True)
         except (OSError, ValueError):
@@ -201,6 +284,8 @@ def parse_playlist(path: Path):
         bitrate = getattr(info, "bitrate", 0) or 0
         tracks.append({
             "id": track_id,
+            "rekordbox_id": rekordbox_id,
+            "file_path": str(audio),
             "title": tag("title", audio.stem),
             "artist": tag("artist"),
             "album": tag("album"),
@@ -258,27 +343,53 @@ def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)
     except (OSError, UnicodeError) as exc:
         raise HTTPException(500, "Could not read playlist") from exc
 
-    entries = {track_id: index for index, _, track_id in playlist_entries(path, lines)}
+    plan_path, plan = read_plan_ids(path, playlist_entry_count(lines))
+    plan_data = None
+    if plan_path.is_file():
+        if plan is None or plan_path.is_symlink() or PLAN_DIRECTORY.is_symlink():
+            raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+        plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+    entries = {
+        track_id: (line_number, plan_index)
+        for line_number, plan_index, _, track_id, _ in playlist_entries(path, lines, plan)
+    }
     remove_indices = set()
+    remove_plan_indices = set()
     for track_id in track_ids:
         if track_id not in entries:
             raise HTTPException(404, "Track not found in playlist")
-        index = entries[track_id]
+        index, plan_index = entries[track_id]
         remove_indices.add(index)
+        remove_plan_indices.add(plan_index)
         if index and lines[index - 1].lstrip().startswith("#EXTINF:"):
             remove_indices.add(index - 1)
 
     updated_lines = [line for index, line in enumerate(lines) if index not in remove_indices]
-    temporary_path = None
+    if plan_data is not None:
+        if isinstance(plan_data.get("tracks"), list):
+            plan_data["tracks"] = [
+                entry for index, entry in enumerate(plan_data["tracks"])
+                if index not in remove_plan_indices
+            ]
+        else:
+            plan_data["track_ids"] = [
+                track_id for index, track_id in enumerate(plan_data["track_ids"])
+                if index not in remove_plan_indices
+            ]
+    original_text = "".join(lines)
+    playlist_updated = False
     try:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="", dir=path.parent, delete=False) as temporary:
-            temporary_path = Path(temporary.name)
-            temporary.writelines(updated_lines)
-        temporary_path.chmod(path.stat().st_mode)
-        os.replace(temporary_path, path)
+        atomic_write(path, "".join(updated_lines))
+        playlist_updated = True
+        if plan_data is not None:
+            plan_text = json.dumps(plan_data, ensure_ascii=False, indent=2) + "\n"
+            atomic_write(plan_path, plan_text)
     except OSError as exc:
-        if temporary_path:
-            temporary_path.unlink(missing_ok=True)
+        if playlist_updated:
+            try:
+                atomic_write(path, original_text)
+            except OSError:
+                raise HTTPException(500, "Playlist and track-ID plan may be out of sync") from None
         raise HTTPException(500, "Could not update playlist") from exc
     return {"removed": len(track_ids)}
 
@@ -287,7 +398,8 @@ def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)
 def stream(playlist_id: str, track_id: str):
     path = find_playlist(playlist_id)
     lines = path.read_text(encoding="utf-8-sig").splitlines()
-    for _, audio, registered_id in playlist_entries(path, lines):
+    _, plan = read_plan_ids(path, playlist_entry_count(lines))
+    for _, _, audio, registered_id, _ in playlist_entries(path, lines, plan):
         if registered_id == track_id:
             return FileResponse(audio)
     raise HTTPException(404, "Track not found in playlist")

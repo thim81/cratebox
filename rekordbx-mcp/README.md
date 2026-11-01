@@ -145,11 +145,12 @@ starts the numbered sequence at `v001` and leaves the older files intact.
 It checks every ID and audio file, preserves order and repeats, and refuses
 symlink destination directories. Errors identify problematic IDs without
 returning audio paths. Unknown or ambiguous locations are identified by input
-position. JSON always saves resolved track IDs. Supplying file paths makes them
-visible in tool inputs; IDs keep paths local.
+position. JSON saves an ordered `tracks` array pairing each resolved ID with
+its absolute file path. Supplying file paths makes them visible in tool
+inputs; IDs keep paths local.
 
-The JSON saves the revision name, base playlist name, ordered IDs, format
-version and creation time. The M3U8 contains absolute audio paths for manual
+The JSON saves the revision name, base playlist name, ordered ID/path pairs,
+format version and creation time. The M3U8 contains absolute audio paths for manual
 import, so treat it as private. Both destination directories are fixed relative
 to this repository's source layout; run the adapter using the documented uv
 project installation. No export path argument is exposed to the model. Add

@@ -24,13 +24,20 @@ PLAYLIST_DIR="/absolute/path/to/playlists" uv --directory ../rekordbx-mcp run --
 Then set the app's API URL to `http://localhost:8000` and enable API mode.
 The server provides `GET /api/playlists`, `GET /api/playlists/{playlist_id}`,
 `GET /api/stream?playlist_id=...&track_id=...`, `GET /api/collection/status`,
-and `POST /api/collection/lookup`. Audio streaming is restricted to files
+and `POST /api/collection/lookup`. Export JSON contains an ordered `tracks`
+array with each Rekordbox track ID and its absolute file path together. The API
+uses those entries directly; older ID-only plans still pair with M3U8 entries
+by order.
+Rows with an ID use an exact collection lookup; playlists without a matching
+plan fall back to artist/title lookup. Audio streaming is restricted to files
 referenced by playlists in the configured folder. Track removal uses
 `DELETE /api/playlists/{playlist_id}/tracks` with a JSON `track_ids` list and
-only works with the repository's `playlists/` folder.
+updates both playlist and plan files; it only works with the repository's
+`playlists/` folder.
 
-Each track row has a Lookup action that searches the Rekordbox collection for
-similar artist/title matches, including their collection ratings and play counts.
+Each track row has a Lookup action that returns the exact Rekordbox record when
+a plan ID is available, including its rating and play count. For standalone
+playlists it searches by artist and title.
 The MCP worker starts on the first lookup, so
 CrateDeck can browse and play playlists without it. Close Rekordbox and its
 background agents before the first lookup; the worker creates a fresh verified

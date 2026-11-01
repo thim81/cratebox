@@ -25,7 +25,7 @@ collection data read-only.
   estimate duration, and refine the proposal.
 - **Keep selections grounded.** Validate proposed track IDs against your collection snapshot.
 - **Export your set.** Create a numbered M3U8 playlist in `playlists/` and a
-  matching JSON record of its ordered track IDs in `output/`, ready for you to
+  matching JSON record of its ordered track IDs and paths in `output/`, ready for you to
   import manually. The highest numbered revision is the latest.
 - **Stay current.** Create a fresh collection copy at startup and update the
   upstream MCP with one command.
@@ -124,8 +124,9 @@ the numbered sequence at `v001` and preserves the old files.
 Use either an ordered `track_ids` list or an ordered `file_paths` list. File
 locations must be absolute local paths matching exactly one active track in the
 snapshot. Both options preserve your order and intentional repeats. JSON always
-saves the resolved IDs. Prefer IDs when you want to keep audio paths out of tool
-inputs; neither option returns audio paths in the tool response.
+saves ordered ID/path pairs in the JSON plan. Prefer IDs
+when you want to keep audio paths out of tool inputs; neither option returns
+audio paths in the tool response.
 
 If you configured Codex before this feature was added, add `"export_playlist"`
 to `enabled_tools` in `.codex/config.toml`, then restart the MCP with Rekordbox
@@ -218,7 +219,7 @@ not measured audio features. A valid track ID does not guarantee its audio
 file is currently available.
 
 Ordered selections can be saved as JSON and exported as M3U8. The JSON contains
-track IDs, not audio paths; the M3U8 necessarily contains local audio paths.
+track IDs paired with audio paths; the M3U8 also contains local audio paths.
 Keep exports private. Duplicate-free Rekordbox import remains unverified.
 [Import verification requirements](docs/user-guide.md#5-export-and-import-playlists).
 

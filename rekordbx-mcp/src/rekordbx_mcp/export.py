@@ -143,7 +143,11 @@ def export_playlist(
                 )
             revision_name = f"{name}-v{max(existing_revisions, default=0) + 1:03d}"
             plan = {
-                "format": 1, "name": revision_name, "revision_of": name, "track_ids": track_ids,
+                "format": 1, "name": revision_name, "revision_of": name,
+                "tracks": [
+                    {"track_id": track_id, "file_path": path}
+                    for track_id, path in zip(track_ids, paths, strict=True)
+                ],
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
             artifacts = [
