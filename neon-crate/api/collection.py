@@ -58,8 +58,12 @@ class CollectionMcp:
             try:
                 await client.__aenter__()
                 tool_names = {tool.name for tool in await client.list_tools()}
-                if not {"lookup_similar_tracks_for_cratedeck", "get_track_details"} <= tool_names:
-                    raise RuntimeError("Lookup tool is unavailable.")
+                required_tools = {
+                    "lookup_similar_tracks_for_cratedeck", "get_track_details",
+                    "get_playlists", "get_playlist_tracks", "export_playlist",
+                }
+                if not required_tools <= tool_names:
+                    raise RuntimeError("A required Rekordbox collection tool is unavailable.")
                 self.client = client
                 self.state = "connected"
                 return client

@@ -112,7 +112,7 @@ def build_server(
     server = FastMCP("Rekordbox snapshot (read-only)", lifespan=lifespan)
     server.add_middleware(ExportInputPrivacy())
 
-    def wrap(original):
+    def wrap(original, tool_name: str):
         @wraps(original)
         async def call(*args, **kwargs):
             # Upstream's ORM session and module globals are shared. Serialize
@@ -122,14 +122,27 @@ def build_server(
                 upstream._db_initialized = True
                 upstream.ensure_database_connected = ensure_connected
                 await ensure_connected()
-                return redact_paths(await original(*args, **kwargs))
+                result = await original(*args, **kwargs)
+                if tool_name == "get_playlists":
+                    def playlist_sequences():
+                        return {
+                            str(playlist.ID): int(getattr(playlist, "Seq", 0) or 0)
+                            for playlist in database.db.get_playlist()
+                        }
+
+                    sequences = await asyncio.to_thread(playlist_sequences)
+                    result = [
+                        {**playlist, "sequence": sequences.get(str(playlist.get("id") or ""), 0)}
+                        for playlist in result
+                    ]
+                return redact_paths(result)
         return call
 
     for name in READ_TOOLS:
         original = getattr(upstream, name).fn
         server.tool(
             name=name, annotations={"readOnlyHint": True, "destructiveHint": False},
-        )(wrap(original))
+        )(wrap(original, name))
 
     async def rank_similar_tracks(artist: str, title: str, limit: int):
         artist = artist.strip()

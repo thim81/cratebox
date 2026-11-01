@@ -3,6 +3,7 @@ import type {
   CollectionStatus,
   ImageResult,
   Playlist,
+  RekordboxPlaylist,
   Track,
 } from "@/lib/crate-data";
 
@@ -13,11 +14,21 @@ async function requestJson<T>(apiUrl: string, path: string, init?: RequestInit):
   return data as T;
 }
 
-export function searchImages(apiUrl: string, query: string): Promise<ImageResult[]> {
+export function searchImages(
+  apiUrl: string,
+  query: string,
+  options: { artist?: string; album?: string; track?: string; coverArt?: boolean } = {},
+): Promise<ImageResult[]> {
   return requestJson(apiUrl, "/api/images/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({
+      query,
+      artist: options.artist ?? "",
+      album: options.album ?? "",
+      track: options.track ?? "",
+      cover_art: options.coverArt ?? true,
+    }),
   });
 }
 
@@ -79,6 +90,37 @@ export async function getPlaylist(
         : undefined,
     })),
   };
+}
+
+export function getRekordboxPlaylists(apiUrl: string): Promise<RekordboxPlaylist[]> {
+  return requestJson(apiUrl, "/api/rekordbox/playlists");
+}
+
+export function getRekordboxPlaylistTracks(
+  apiUrl: string,
+  playlistId: string,
+): Promise<Track[]> {
+  return requestJson(
+    apiUrl,
+    `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/tracks`,
+  );
+}
+
+export function copyRekordboxPlaylist(
+  apiUrl: string,
+  playlistId: string,
+  name: string,
+  updateExisting = false,
+): Promise<{ name: string; track_count: number; updated_existing: boolean }> {
+  return requestJson(
+    apiUrl,
+    `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/copy`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, update_existing: updateExisting }),
+    },
+  );
 }
 
 export async function getCollectionStatus(apiUrl: string): Promise<CollectionStatus> {

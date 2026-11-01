@@ -4,8 +4,8 @@ import {
   Circle,
   CircleAlert,
   CircleCheck,
+  Copy,
   Disc3,
-  Image,
   LoaderCircle,
   Search,
   Settings,
@@ -30,10 +30,13 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
   collectionStreamUrl,
+  copyRekordboxPlaylist,
   deletePlaylistTracks,
   getCollectionStatus,
   getPlaylist,
   getPlaylists,
+  getRekordboxPlaylists,
+  getRekordboxPlaylistTracks,
   lookupCollection,
   swapPlaylistTrack,
   saveArtwork,
@@ -44,6 +47,7 @@ import {
   type CollectionMatch,
   type CollectionStatus,
   type Playlist,
+  type RekordboxPlaylist,
   type Track,
 } from "@/lib/crate-data";
 
@@ -78,6 +82,15 @@ function Index() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [activeId, setActiveId] = useState("");
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [playlistSource, setPlaylistSource] = useState<"crate" | "rekordbox">("crate");
+  const [rekordboxPlaylists, setRekordboxPlaylists] = useState<RekordboxPlaylist[]>([]);
+  const [activeRekordboxId, setActiveRekordboxId] = useState("");
+  const [rekordboxFolderId, setRekordboxFolderId] = useState<string | null>(null);
+  const [rekordboxTracks, setRekordboxTracks] = useState<Track[]>([]);
+  const [rekordboxError, setRekordboxError] = useState<string | null>(null);
+  const [rekordboxRefreshing, setRekordboxRefreshing] = useState(false);
+  const [rekordboxLoaded, setRekordboxLoaded] = useState(false);
+  const [copyingRekordboxId, setCopyingRekordboxId] = useState<string | null>(null);
   const [collectionStatus, setCollectionStatus] = useState<CollectionStatus>({
     state: "idle",
     message: null,
@@ -104,6 +117,9 @@ function Index() {
     playlistId: string;
     trackId?: string;
     query: string;
+    artist?: string;
+    album?: string;
+    searchTrack?: string;
     currentImageUrl?: string;
   } | null>(null);
   const deck = useRef<DeckHandle>(null);
@@ -147,6 +163,37 @@ function Index() {
       setCollectionStatus({ state: "error", message: "Local API unavailable" });
     }
   }, [apiUrl]);
+
+  const refreshRekordboxPlaylists = useCallback(async () => {
+    setRekordboxRefreshing(true);
+    setRekordboxError(null);
+    try {
+      const data = await getRekordboxPlaylists(apiUrl);
+      setRekordboxPlaylists(data);
+      setActiveRekordboxId((current) =>
+        data.some((playlist) => playlist.id === current && !playlist.is_folder) ? current : "",
+      );
+      setRekordboxFolderId((current) =>
+        current && data.some((playlist) => playlist.id === current && playlist.is_folder)
+          ? current
+          : null,
+      );
+      setRekordboxLoaded(true);
+    } catch (error) {
+      setRekordboxError(
+        error instanceof Error ? error.message : "Could not load Rekordbox playlists.",
+      );
+      setRekordboxLoaded(false);
+    } finally {
+      setRekordboxRefreshing(false);
+      void refreshCollectionStatus();
+    }
+  }, [apiUrl, refreshCollectionStatus]);
+
+  const changePlaylistSource = (source: "crate" | "rekordbox") => {
+    setPlaylistSource(source);
+    if (source === "rekordbox" && !rekordboxLoaded) void refreshRekordboxPlaylists();
+  };
 
   const lookupTrackInCollection = useCallback(
     async (track: Track) => {
@@ -249,12 +296,75 @@ function Index() {
   }, [activeId, apiUrl]);
 
   const activePl = playlists.find((p) => p.id === activeId);
-  const editCrateArtwork = (playlist: Playlist) =>
-    setImageTarget({
-      playlistId: playlist.id,
-      query: playlist.name,
-      currentImageUrl: playlist.artwork_url,
-    });
+  const activeRekordboxPlaylist = rekordboxPlaylists.find(
+    (playlist) => playlist.id === activeRekordboxId,
+  );
+  const activeRekordboxFolder = rekordboxPlaylists.find(
+    (playlist) => playlist.id === rekordboxFolderId,
+  );
+  useEffect(() => {
+    setSel(0);
+    setRangeAnchor(null);
+    if (
+      playlistSource !== "rekordbox" ||
+      !activeRekordboxId ||
+      activeRekordboxPlaylist?.is_folder
+    ) {
+      setRekordboxTracks([]);
+      return;
+    }
+    let cancelled = false;
+    setRekordboxTracks([]);
+    setRekordboxError(null);
+    getRekordboxPlaylistTracks(apiUrl, activeRekordboxId)
+      .then((items) => {
+        if (!cancelled) setRekordboxTracks(items);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setRekordboxError(
+            error instanceof Error ? error.message : "Could not load playlist tracks.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, activeRekordboxId, activeRekordboxPlaylist?.is_folder, playlistSource]);
+
+  const copySelectedRekordboxPlaylist = useCallback(async () => {
+    const playlist = activeRekordboxPlaylist;
+    if (!playlist || playlist.is_folder || !rekordboxTracks.length) return;
+    const name = window.prompt("Name for the CrateDeck copy:", playlist.name)?.trim();
+    if (!name) return;
+    setCopyingRekordboxId(playlist.id);
+    try {
+      let copied;
+      try {
+        copied = await copyRekordboxPlaylist(apiUrl, playlist.id, name);
+      } catch (error) {
+        if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
+          if (
+            !window.confirm(
+              `A CrateDeck playlist named “${name}” already exists. Replace its M3U8 and JSON files with this Rekordbox playlist?`,
+            )
+          )
+            return;
+          copied = await copyRekordboxPlaylist(apiUrl, playlist.id, name, true);
+        } else {
+          throw error;
+        }
+      }
+      await refreshPlaylists();
+      setRekordboxError(null);
+      setActiveId(copied.name);
+      setPlaylistSource("crate");
+    } catch (error) {
+      setRekordboxError(error instanceof Error ? error.message : "Could not copy the playlist.");
+    } finally {
+      setCopyingRekordboxId(null);
+    }
+  }, [activeRekordboxPlaylist, apiUrl, rekordboxTracks.length, refreshPlaylists]);
   const editLoadedArtwork = (track: Track) => {
     const playlist = playlists.find((item) => item.name === loaded?.playlist);
     if (playlist) {
@@ -262,6 +372,9 @@ function Index() {
         playlistId: playlist.id,
         trackId: track.id,
         query: `${track.artist} ${track.title}`.trim(),
+        artist: track.artist,
+        album: track.album,
+        searchTrack: track.title,
         currentImageUrl: track.artwork_url,
       });
     }
@@ -307,14 +420,15 @@ function Index() {
       );
     }
   };
+  const currentTracks = playlistSource === "rekordbox" ? rekordboxTracks : tracks;
   const trackNumbers = useMemo(
-    () => new Map(tracks.map((track, index) => [track.id, index + 1])),
-    [tracks],
+    () => new Map(currentTracks.map((track, index) => [track.id, index + 1])),
+    [currentTracks],
   );
 
   const view = useMemo(() => {
     const s = q.toLowerCase();
-    let list = tracks.filter(
+    let list = currentTracks.filter(
       (t) =>
         !s ||
         [t.title, t.artist, t.album, t.key, String(t.bpm), t.quality].some((v) =>
@@ -335,7 +449,7 @@ function Index() {
       });
     }
     return list;
-  }, [tracks, q, sort, trackNumbers]);
+  }, [currentTracks, q, sort, trackNumbers]);
 
   const activePlaylistName = activePl?.name ?? "";
   const swapCollectionMatch = useCallback(
@@ -397,35 +511,36 @@ function Index() {
           : "MCP error";
 
   const load = useCallback(
-    (t: Track | undefined, play = true) => {
-      if (!t) return;
+    (t: Track | undefined, play = true, fromDeckNavigation = false) => {
+      if (!t || (playlistSource === "rekordbox" && !fromDeckNavigation)) return;
       setAutoPlay(play);
       setLoaded({ track: t, playlist: activePl?.name ?? "" });
     },
-    [activePl?.name],
+    [activePl?.name, playlistSource],
   );
 
   const step = (d: number) => {
     if (!loaded) return;
-    const i = view.findIndex((t) => t.id === loaded.track.id);
+    const stepTracks = playlistSource === "rekordbox" ? tracks : view;
+    const i = stepTracks.findIndex((t) => t.id === loaded.track.id);
     if (i < 0) {
-      const targetIndex = d > 0 ? 0 : view.length - 1;
-      if (view[targetIndex]) {
-        load(view[targetIndex]);
-        setSel(targetIndex);
+      const targetIndex = d > 0 ? 0 : stepTracks.length - 1;
+      if (stepTracks[targetIndex]) {
+        load(stepTracks[targetIndex], true, playlistSource === "rekordbox");
+        if (playlistSource === "crate") setSel(targetIndex);
       }
       return;
     }
-    const n = view[i + d];
+    const n = stepTracks[i + d];
     if (n) {
-      load(n);
-      setSel(i + d);
+      load(n, true, playlistSource === "rekordbox");
+      if (playlistSource === "crate") setSel(i + d);
     }
   };
 
   const removeTracks = useCallback(
     async (toRemove: Track[]) => {
-      if (!toRemove.length) return;
+      if (!toRemove.length || playlistSource === "rekordbox") return;
       const prompt =
         toRemove.length === 1
           ? `Remove “${toRemove[0]!.title}” from “${activePl?.name ?? "this playlist"}”? The audio file will stay on disk.`
@@ -471,7 +586,7 @@ function Index() {
         );
       }
     },
-    [activeId, activePl?.name, apiUrl, view, loaded, refreshPlaylists],
+    [activeId, activePl?.name, apiUrl, view, loaded, playlistSource, refreshPlaylists],
   );
 
   useEffect(() => {
@@ -480,7 +595,9 @@ function Index() {
       if (tag === "INPUT" || tag === "TEXTAREA" || settingsOpen) return;
       if (e.metaKey && e.key === "Backspace") {
         e.preventDefault();
-        void removeTracks(selectedRange.length ? selectedRange : view[sel] ? [view[sel]] : []);
+        if (playlistSource === "crate") {
+          void removeTracks(selectedRange.length ? selectedRange : view[sel] ? [view[sel]] : []);
+        }
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         if (view.length) {
@@ -493,7 +610,7 @@ function Index() {
             if (rangeAnchor === null) setRangeAnchor(sel);
           } else {
             setRangeAnchor(null);
-            if (e.metaKey) load(view[next]);
+            if (playlistSource === "crate" && e.metaKey) load(view[next]);
           }
         }
       } else if (e.key === "ArrowLeft" && loaded) {
@@ -504,17 +621,29 @@ function Index() {
         deck.current?.seek(SEEK_SECONDS);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        setRangeAnchor(null);
-        load(view[sel]);
+        if (playlistSource === "crate") {
+          setRangeAnchor(null);
+          load(view[sel]);
+        }
       } else if (e.key === " ") {
         e.preventDefault();
         if (loaded) deck.current?.toggle();
-        else load(view[sel]);
+        else if (playlistSource === "crate") load(view[sel]);
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [view, sel, loaded, load, settingsOpen, rangeAnchor, selectedRange, removeTracks]);
+  }, [
+    view,
+    sel,
+    loaded,
+    load,
+    settingsOpen,
+    rangeAnchor,
+    selectedRange,
+    removeTracks,
+    playlistSource,
+  ]);
 
   const toggleSort = (k: SortKey) => {
     setRangeAnchor(null);
@@ -608,6 +737,9 @@ function Index() {
         apiUrl={apiUrl}
         open={imageTarget !== null}
         query={imageTarget?.query ?? ""}
+        artist={imageTarget?.artist}
+        album={imageTarget?.album}
+        track={imageTarget?.searchTrack}
         currentImageUrl={imageTarget?.currentImageUrl}
         embedIntoMp3={Boolean(imageTarget?.trackId)}
         onOpenChange={(open) => {
@@ -619,28 +751,61 @@ function Index() {
       <div className="flex min-h-0 flex-1">
         <CrateSidebar
           playlists={playlists}
+          rekordboxPlaylists={rekordboxPlaylists}
           activeId={activeId}
+          activeRekordboxId={activeRekordboxId}
+          rekordboxFolderId={rekordboxFolderId}
+          source={playlistSource}
           filter={crateQ}
           apiError={apiError}
+          rekordboxError={rekordboxError}
           refreshing={refreshing}
+          rekordboxRefreshing={rekordboxRefreshing}
           onFilterChange={setCrateQ}
+          onSourceChange={changePlaylistSource}
           onRefresh={() => void refreshPlaylists()}
+          onRefreshRekordbox={() => void refreshRekordboxPlaylists()}
           onSelectPlaylist={setActiveId}
+          onSelectRekordboxPlaylist={setActiveRekordboxId}
+          onOpenRekordboxFolder={(folderId) => {
+            setRekordboxFolderId(folderId);
+            setActiveRekordboxId("");
+          }}
+          onGoUpRekordboxFolder={() => {
+            setRekordboxFolderId(activeRekordboxFolder?.parent_id ?? null);
+            setActiveRekordboxId("");
+          }}
         />
 
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center gap-3 border-b border-border px-3 py-2">
-            <h1 className="truncate text-sm font-semibold">{activePl?.name ?? "—"}</h1>
-            {activePl && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7"
-                onClick={() => editCrateArtwork(activePl)}
-              >
-                <Image size={13} /> Search Image
-              </Button>
-            )}
+            <h1 className="truncate text-sm font-semibold">
+              {playlistSource === "rekordbox"
+                ? (activeRekordboxPlaylist?.name ??
+                  activeRekordboxFolder?.name ??
+                  "Rekordbox playlists")
+                : (activePl?.name ?? "—")}
+            </h1>
+            {playlistSource === "rekordbox" &&
+              activeRekordboxPlaylist &&
+              !activeRekordboxPlaylist.is_folder && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7"
+                  disabled={
+                    rekordboxTracks.length === 0 || copyingRekordboxId === activeRekordboxId
+                  }
+                  onClick={() => void copySelectedRekordboxPlaylist()}
+                >
+                  {copyingRekordboxId === activeRekordboxId ? (
+                    <LoaderCircle size={13} className="animate-spin" />
+                  ) : (
+                    <Copy size={13} />
+                  )}
+                  Copy to CrateDeck
+                </Button>
+              )}
             <span className="font-mono text-xs text-muted-foreground">{view.length} tracks</span>
             <div className="relative ml-auto w-72">
               <Search
@@ -683,6 +848,7 @@ function Index() {
             onPlayCollectionMatch={playCollectionMatch}
             onSwapCollectionMatch={swapCollectionMatch}
             onCollapseLookup={() => setExpandedLookupTrackId(null)}
+            readOnly={playlistSource === "rekordbox"}
           />
         </main>
       </div>

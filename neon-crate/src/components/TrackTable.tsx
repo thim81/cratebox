@@ -28,6 +28,7 @@ interface TrackTableProps {
   onPlayCollectionMatch: (match: CollectionMatch) => void;
   onSwapCollectionMatch: (sourceTrack: Track, match: CollectionMatch) => void;
   onCollapseLookup: () => void;
+  readOnly?: boolean;
 }
 
 export function TrackTable({
@@ -51,6 +52,7 @@ export function TrackTable({
   onPlayCollectionMatch,
   onSwapCollectionMatch,
   onCollapseLookup,
+  readOnly = false,
 }: TrackTableProps) {
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
 
@@ -128,29 +130,31 @@ export function TrackTable({
                     rowRefs.current[index] = element;
                   }}
                   onClick={() => onSelect(index)}
-                  onDoubleClick={() => onLoad(track)}
+                  onDoubleClick={readOnly ? undefined : () => onLoad(track)}
                   aria-selected={index === selectedIndex || isRangeSelected}
                   className={`cursor-default border-b border-border/40 ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
                 >
                   <td className="w-10 px-1 py-1 text-center">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-7 text-muted-foreground hover:bg-primary hover:text-primary-foreground"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onLookup(track);
-                      }}
-                      aria-expanded={expandedLookupTrackId === track.id}
-                      aria-label={`${track.rekordbox_id ? "Open exact Rekordbox match for" : "Look up similar tracks for"} ${track.title}`}
-                      title={
-                        expandedLookupTrackId === track.id
-                          ? "Collapse lookup results"
-                          : "Search in Rekordbox collection"
-                      }
-                    >
-                      <Search size={14} />
-                    </Button>
+                    {!readOnly && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 text-muted-foreground hover:bg-primary hover:text-primary-foreground"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onLookup(track);
+                        }}
+                        aria-expanded={expandedLookupTrackId === track.id}
+                        aria-label={`${track.rekordbox_id ? "Open exact Rekordbox match for" : "Look up similar tracks for"} ${track.title}`}
+                        title={
+                          expandedLookupTrackId === track.id
+                            ? "Collapse lookup results"
+                            : "Search in Rekordbox collection"
+                        }
+                      >
+                        <Search size={14} />
+                      </Button>
+                    )}
                   </td>
                   <td className="px-2 py-1 font-mono text-muted-foreground">
                     {trackNumbers.get(track.id)}
@@ -193,22 +197,24 @@ export function TrackTable({
                     </span>
                   </td>
                   <td className="px-1 py-1 text-right">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-7 text-muted-foreground hover:text-destructive"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onRemove(track);
-                      }}
-                      aria-label={`Remove ${track.title} from playlist`}
-                      title="Remove from playlist"
-                    >
-                      <Trash2 size={14} />
-                    </Button>
+                    {!readOnly && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 text-muted-foreground hover:text-destructive"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRemove(track);
+                        }}
+                        aria-label={`Remove ${track.title} from playlist`}
+                        title="Remove from playlist"
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    )}
                   </td>
                 </tr>
-                {expandedLookupTrackId === track.id && lookupTrack && (
+                {!readOnly && expandedLookupTrackId === track.id && lookupTrack && (
                   <tr>
                     <td colSpan={12} className="px-3 py-2">
                       <CollectionLookupResults

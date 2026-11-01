@@ -23,11 +23,23 @@ export interface Playlist {
   tracks?: Track[];
 }
 
+export interface RekordboxPlaylist {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  is_folder: boolean;
+  is_smart_playlist: boolean;
+  track_count: number;
+  created_date: string | null;
+  sequence: number;
+}
+
 export interface ImageResult {
   title: string;
   image_url: string;
   thumbnail_url: string;
   source_url: string;
+  source: "Cover Art Archive" | "DuckDuckGo";
 }
 
 export type CollectionState = "idle" | "starting" | "connected" | "error";

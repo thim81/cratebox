@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtTime, type Track } from "@/lib/crate-data";
+import { artworkImageKey, shouldShowArtwork } from "@/lib/artwork-state";
 import type WaveSurferType from "wavesurfer.js";
 
 export interface DeckHandle {
@@ -58,6 +59,7 @@ export function Deck({
   nextRef.current = onNext;
   const settings = useRef({ volume, muted, rate });
   settings.current = { volume, muted, rate };
+  const currentArtworkKey = track ? artworkImageKey(track) : null;
 
   useImperativeHandle(
     ref,
@@ -182,9 +184,9 @@ export function Deck({
               className="relative flex size-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden border border-border bg-secondary text-muted-foreground hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Music2 size={24} aria-hidden="true" />
-              {track.artwork_url && artworkFailedFor !== track.id ? (
+              {shouldShowArtwork(track, artworkFailedFor) ? (
                 <img
-                  key={`${track.id}:${track.artwork_url}`}
+                  key={currentArtworkKey}
                   src={track.artwork_url}
                   alt={`Cover art for ${track.title}`}
                   className="absolute inset-0 size-full object-cover"
@@ -194,7 +196,7 @@ export function Deck({
                       event.currentTarget.src = track.fallback_artwork_url;
                     } else {
                       event.currentTarget.style.display = "none";
-                      setArtworkFailedFor(track.id);
+                      setArtworkFailedFor(currentArtworkKey);
                     }
                   }}
                 />
