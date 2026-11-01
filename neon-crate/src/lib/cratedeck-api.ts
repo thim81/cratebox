@@ -1,4 +1,38 @@
-import type { CollectionMatch, CollectionStatus, Playlist, Track } from "@/lib/crate-data";
+import type {
+  CollectionMatch,
+  CollectionStatus,
+  ImageResult,
+  Playlist,
+  Track,
+} from "@/lib/crate-data";
+
+async function requestJson<T>(apiUrl: string, path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${apiUrl}${path}`, init);
+  const data = (await response.json().catch(() => ({}))) as { detail?: string };
+  if (!response.ok) throw new Error(data.detail ?? `HTTP ${response.status}`);
+  return data as T;
+}
+
+export function searchImages(apiUrl: string, query: string): Promise<ImageResult[]> {
+  return requestJson(apiUrl, "/api/images/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+}
+
+export function saveArtwork(
+  apiUrl: string,
+  playlistId: string,
+  imageUrl: string,
+  trackId?: string,
+) {
+  return requestJson<{ image_url: string }>(apiUrl, "/api/artwork", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playlist_id: playlistId, image_url: imageUrl, track_id: trackId }),
+  });
+}
 
 export async function getPlaylists(apiUrl: string): Promise<Playlist[]> {
   const response = await fetch(`${apiUrl}/api/playlists`);
@@ -21,6 +55,9 @@ export async function getPlaylist(
       url: new URL(track.url, `${apiUrl}/`).toString(),
       artwork_url: track.artwork_url
         ? new URL(track.artwork_url, `${apiUrl}/`).toString()
+        : undefined,
+      fallback_artwork_url: track.fallback_artwork_url
+        ? new URL(track.fallback_artwork_url, `${apiUrl}/`).toString()
         : undefined,
     })),
   };

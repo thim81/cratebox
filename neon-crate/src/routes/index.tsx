@@ -5,6 +5,7 @@ import {
   CircleAlert,
   CircleCheck,
   Disc3,
+  Image,
   LoaderCircle,
   Search,
   Settings,
@@ -14,6 +15,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { Deck, type DeckHandle } from "@/components/Deck";
+import { ImageSearchDialog } from "@/components/ImageSearchDialog";
 import { CrateSidebar } from "@/components/CrateSidebar";
 import { TrackTable, type SortKey, type SortState } from "@/components/TrackTable";
 import {
@@ -34,6 +36,7 @@ import {
   getPlaylists,
   lookupCollection,
   swapPlaylistTrack,
+  saveArtwork,
 } from "@/lib/cratedeck-api";
 import {
   fmtTime,
@@ -96,6 +99,12 @@ function Index() {
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
+  const [imageTarget, setImageTarget] = useState<{
+    playlistId: string;
+    trackId?: string;
+    query: string;
+    currentImageUrl?: string;
+  } | null>(null);
   const deck = useRef<DeckHandle>(null);
 
   useEffect(() => {
@@ -239,6 +248,61 @@ function Index() {
   }, [activeId, apiUrl]);
 
   const activePl = playlists.find((p) => p.id === activeId);
+  const editCrateArtwork = (playlist: Playlist) =>
+    setImageTarget({
+      playlistId: playlist.id,
+      query: playlist.name,
+      currentImageUrl: playlist.artwork_url,
+    });
+  const editLoadedArtwork = (track: Track) => {
+    const playlist = playlists.find((item) => item.name === loaded?.playlist);
+    if (playlist) {
+      setImageTarget({
+        playlistId: playlist.id,
+        trackId: track.id,
+        query: `${track.artist} ${track.title}`.trim(),
+        currentImageUrl: track.artwork_url,
+      });
+    }
+  };
+  const chooseArtwork = async (image: import("@/lib/crate-data").ImageResult) => {
+    if (!imageTarget) return;
+    await saveArtwork(apiUrl, imageTarget.playlistId, image.image_url, imageTarget.trackId);
+    if (imageTarget.trackId) {
+      setTracks((current) =>
+        current.map((track) =>
+          track.id === imageTarget.trackId
+            ? {
+                ...track,
+                fallback_artwork_url: track.fallback_artwork_url ?? track.artwork_url,
+                artwork_url: image.image_url,
+              }
+            : track,
+        ),
+      );
+      setLoaded((current) =>
+        current?.playlist === imageTarget.playlistId && current.track.id === imageTarget.trackId
+          ? {
+              ...current,
+              track: {
+                ...current.track,
+                fallback_artwork_url:
+                  current.track.fallback_artwork_url ?? current.track.artwork_url,
+                artwork_url: image.image_url,
+              },
+            }
+          : current,
+      );
+    } else {
+      setPlaylists((current) =>
+        current.map((playlist) =>
+          playlist.id === imageTarget.playlistId
+            ? { ...playlist, artwork_url: image.image_url }
+            : playlist,
+        ),
+      );
+    }
+  };
   const trackNumbers = useMemo(
     () => new Map(tracks.map((track, index) => [track.id, index + 1])),
     [tracks],
@@ -533,6 +597,18 @@ function Index() {
         onPrev={() => step(-1)}
         onNext={() => step(1)}
         onPlayingChange={setPlaying}
+        onEditArtwork={editLoadedArtwork}
+      />
+
+      <ImageSearchDialog
+        apiUrl={apiUrl}
+        open={imageTarget !== null}
+        query={imageTarget?.query ?? ""}
+        currentImageUrl={imageTarget?.currentImageUrl}
+        onOpenChange={(open) => {
+          if (!open) setImageTarget(null);
+        }}
+        onChoose={chooseArtwork}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -545,11 +621,22 @@ function Index() {
           onFilterChange={setCrateQ}
           onRefresh={() => void refreshPlaylists()}
           onSelectPlaylist={setActiveId}
+          onEditArtwork={editCrateArtwork}
         />
 
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center gap-3 border-b border-border px-3 py-2">
             <h1 className="truncate text-sm font-semibold">{activePl?.name ?? "—"}</h1>
+            {activePl && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                onClick={() => editCrateArtwork(activePl)}
+              >
+                <Image size={13} /> Search Image
+              </Button>
+            )}
             <span className="font-mono text-xs text-muted-foreground">{view.length} tracks</span>
             <div className="relative ml-auto w-72">
               <Search

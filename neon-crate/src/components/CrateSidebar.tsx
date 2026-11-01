@@ -1,4 +1,4 @@
-import { ListMusic, RefreshCw, Search } from "lucide-react";
+import { Image, ListMusic, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmtTime, type Playlist } from "@/lib/crate-data";
@@ -12,6 +12,7 @@ interface CrateSidebarProps {
   onFilterChange: (filter: string) => void;
   onRefresh: () => void;
   onSelectPlaylist: (playlistId: string) => void;
+  onEditArtwork: (playlist: Playlist) => void;
 }
 
 export function CrateSidebar({
@@ -23,6 +24,7 @@ export function CrateSidebar({
   onFilterChange,
   onRefresh,
   onSelectPlaylist,
+  onEditArtwork,
 }: CrateSidebarProps) {
   const crates = playlists.filter((playlist) =>
     playlist.name.toLowerCase().includes(filter.toLowerCase()),
@@ -67,24 +69,50 @@ export function CrateSidebar({
           </div>
         )}
         {crates.map((playlist) => (
-          <button
+          <div
             key={playlist.id}
-            onClick={() => onSelectPlaylist(playlist.id)}
-            className={`block w-full border-l-2 px-3 py-2 text-left transition-colors ${playlist.id === activeId ? "border-primary bg-sidebar-accent" : "border-transparent hover:bg-sidebar-accent/60"}`}
+            className={`flex w-full items-center border-l-2 transition-colors ${playlist.id === activeId ? "border-primary bg-sidebar-accent" : "border-transparent hover:bg-sidebar-accent/60"}`}
           >
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <ListMusic
-                size={14}
-                className={playlist.id === activeId ? "text-primary" : "text-muted-foreground"}
-              />
-              <span className="truncate">{playlist.name}</span>
-            </div>
-            <div className="mt-0.5 flex gap-3 pl-6 font-mono text-[10px] text-muted-foreground">
-              <span>{playlist.trackCount} trk</span>
-              <span>{fmtTime(playlist.duration)}</span>
-              <span>{playlist.created}</span>
-            </div>
-          </button>
+            <button
+              onClick={() => onSelectPlaylist(playlist.id)}
+              className="min-w-0 flex-1 px-3 py-2 text-left"
+            >
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <span className="relative flex size-5 shrink-0 items-center justify-center">
+                  <ListMusic
+                    size={14}
+                    className={playlist.id === activeId ? "text-primary" : "text-muted-foreground"}
+                  />
+                  {playlist.artwork_url && (
+                    <img
+                      src={playlist.artwork_url}
+                      alt=""
+                      className="absolute inset-0 size-5 rounded object-cover"
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none";
+                      }}
+                    />
+                  )}
+                </span>
+                <span className="truncate">{playlist.name}</span>
+              </div>
+              <div className="mt-0.5 flex gap-3 pl-6 font-mono text-[10px] text-muted-foreground">
+                <span>{playlist.trackCount} trk</span>
+                <span>{fmtTime(playlist.duration)}</span>
+                <span>{playlist.created}</span>
+              </div>
+            </button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="mr-1 size-7"
+              onClick={() => onEditArtwork(playlist)}
+              aria-label={`Search artwork for ${playlist.name}`}
+              title="Search Image"
+            >
+              <Image size={14} />
+            </Button>
+          </div>
         ))}
       </div>
       <div className="border-t border-sidebar-border p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">

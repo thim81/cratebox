@@ -18,6 +18,7 @@ interface Props {
   onPrev: () => void;
   onNext: () => void;
   onPlayingChange: (p: boolean) => void;
+  onEditArtwork: (track: Track) => void;
   ref?: Ref<DeckHandle>;
 }
 
@@ -30,6 +31,7 @@ export function Deck({
   onPrev,
   onNext,
   onPlayingChange,
+  onEditArtwork,
   ref,
 }: Props) {
   const box = useRef<HTMLDivElement>(null);
@@ -48,13 +50,20 @@ export function Deck({
   const settings = useRef({ volume, muted, rate });
   settings.current = { volume, muted, rate };
 
-  useImperativeHandle(ref, () => ({
-    toggle: () => ws.current?.playPause(),
-    seek: (seconds) => {
-      const player = ws.current;
-      if (player) player.setTime(Math.max(0, Math.min(player.getDuration(), player.getCurrentTime() + seconds)));
-    },
-  }), []);
+  useImperativeHandle(
+    ref,
+    () => ({
+      toggle: () => ws.current?.playPause(),
+      seek: (seconds) => {
+        const player = ws.current;
+        if (player)
+          player.setTime(
+            Math.max(0, Math.min(player.getDuration(), player.getCurrentTime() + seconds)),
+          );
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     if (!track || !box.current) return;
@@ -156,7 +165,13 @@ export function Deck({
       <div className="mb-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <div className="flex min-w-0 items-center gap-3">
           {track && (
-            <div className="relative flex size-16 shrink-0 items-center justify-center overflow-hidden border border-border bg-secondary text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => onEditArtwork(track)}
+              aria-label={`Search artwork for ${track.title}`}
+              title="Search Image"
+              className="relative flex size-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden border border-border bg-secondary text-muted-foreground hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
               <Music2 size={24} aria-hidden="true" />
               {track.artwork_url && artworkFailedFor !== track.id ? (
                 <img
@@ -164,10 +179,18 @@ export function Deck({
                   src={track.artwork_url}
                   alt={`Cover art for ${track.title}`}
                   className="absolute inset-0 size-full object-cover"
-                  onError={() => setArtworkFailedFor(track.id)}
+                  onError={(event) => {
+                    if (track.fallback_artwork_url && !event.currentTarget.dataset.fallback) {
+                      event.currentTarget.dataset.fallback = "true";
+                      event.currentTarget.src = track.fallback_artwork_url;
+                    } else {
+                      event.currentTarget.style.display = "none";
+                      setArtworkFailedFor(track.id);
+                    }
+                  }}
                 />
               ) : null}
-            </div>
+            </button>
           )}
           <div className="min-w-0">
             <div className="truncate text-lg font-semibold text-foreground">
@@ -193,9 +216,17 @@ export function Deck({
                 {track.quality}
               </span>
             </div>
-            <span className="flex gap-0.5" role="img" aria-label={`Rating: ${track.rating} out of 5 stars`}>
+            <span
+              className="flex gap-0.5"
+              role="img"
+              aria-label={`Rating: ${track.rating} out of 5 stars`}
+            >
               {[1, 2, 3, 4, 5].map((star) => (
-                <Star key={star} size={14} className={star <= track.rating ? "fill-gold text-gold" : "text-muted-foreground"} />
+                <Star
+                  key={star}
+                  size={14}
+                  className={star <= track.rating ? "fill-gold text-gold" : "text-muted-foreground"}
+                />
               ))}
             </span>
           </div>

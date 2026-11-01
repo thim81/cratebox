@@ -11,6 +11,7 @@ export interface Track {
   quality: string;
   url: string;
   artwork_url?: string;
+  fallback_artwork_url?: string;
 }
 export interface Playlist {
   id: string;
@@ -18,7 +19,15 @@ export interface Playlist {
   created: string;
   trackCount: number;
   duration: number;
+  artwork_url?: string;
   tracks?: Track[];
+}
+
+export interface ImageResult {
+  title: string;
+  image_url: string;
+  thumbnail_url: string;
+  source_url: string;
 }
 
 export type CollectionState = "idle" | "starting" | "connected" | "error";
