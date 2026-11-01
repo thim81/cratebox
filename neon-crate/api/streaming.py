@@ -3,11 +3,12 @@
 import subprocess
 import sys
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .collection import collection_mcp
+from .artwork_data import embedded_artwork
 from .playlists import find_playlist, playlist_entries, read_plan_ids
 
 router = APIRouter()
@@ -24,6 +25,18 @@ def collection_stream(track_id: str):
     if audio_path is None or not audio_path.is_file():
         raise HTTPException(404, "Rekordbox track not found in the latest lookup.")
     return FileResponse(audio_path, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/collection/tracks/{track_id}/artwork")
+def collection_track_artwork(track_id: str):
+    audio_path = collection_mcp.track_paths.get(track_id)
+    if audio_path is None or not audio_path.is_file():
+        raise HTTPException(404, "Rekordbox track not found in the latest lookup.")
+    artwork = embedded_artwork(audio_path)
+    if artwork is None:
+        raise HTTPException(404, "Track artwork not found.")
+    data, media_type = artwork
+    return Response(data, media_type=media_type, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/reveal")

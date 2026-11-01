@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
   collectionStreamUrl,
+  collectionArtworkUrl,
   appendRekordboxTrack,
   copyRekordboxPlaylist,
   deletePlaylistTracks,
@@ -271,8 +272,8 @@ function Index() {
   const playCollectionMatch = useCallback(
     (match: CollectionMatch) => {
       const id = `collection-${match.id}`;
-      if (loaded?.track.id === id) {
-        if (!playing) deck.current?.toggle();
+      if (loaded?.track.id === id || loaded?.track.rekordbox_id === match.id) {
+        deck.current?.toggle();
         return;
       }
       const track: Track = {
@@ -287,11 +288,12 @@ function Index() {
         key: match.key,
         quality: "Rekordbox collection",
         url: collectionStreamUrl(apiUrl, match.id),
+        artwork_url: collectionArtworkUrl(apiUrl, match.id),
       };
       setAutoPlay(true);
       setLoaded({ track, playlist: "Rekordbox collection" });
     },
-    [apiUrl, loaded, playing],
+    [apiUrl, loaded],
   );
 
   useEffect(() => {

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ArrowLeftRight, Play, Star, Volume2, X } from "lucide-react";
+import { useState, type KeyboardEvent } from "react";
+import { ArrowLeftRight, Pause, Play, Star, Volume2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
 
@@ -27,6 +27,7 @@ interface Props {
   loading: boolean;
   error: string | null;
   activeTrackId: string | null;
+  activeRekordboxId: string | null;
   playing: boolean;
   onPlay: (match: CollectionMatch) => void;
   onSwap: (sourceTrack: Track, match: CollectionMatch) => void;
@@ -39,6 +40,7 @@ export function CollectionLookupResults({
   loading,
   error,
   activeTrackId,
+  activeRekordboxId,
   playing,
   onPlay,
   onSwap,
@@ -51,15 +53,47 @@ export function CollectionLookupResults({
   const highMatches = visibleMatches.filter((match) => match.similarity >= 70);
   const midMatches = visibleMatches.filter((match) => match.similarity >= 50 && match.similarity < 70);
   const lowMatches = visibleMatches.filter((match) => match.similarity < 50);
+  const isActiveMatch = (match: CollectionMatch) =>
+    activeTrackId === `collection-${match.id}` || activeRekordboxId === match.id;
   const shownMatches = [
     ...(sourceMatch ? [sourceMatch] : []),
     ...highMatches,
     ...(showMidMatches ? midMatches : []),
     ...(showLowMatches ? lowMatches : []),
   ];
+  const navigateResults = (event: KeyboardEvent<HTMLElement>) => {
+    if (!["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) return;
+    const target = event.target as HTMLElement;
+    const row = target.closest<HTMLElement>("[data-lookup-result]");
+    if (!row) return;
+
+    if (event.key === "Enter" || event.key === " ") {
+      if (target.closest("button")) {
+        event.stopPropagation();
+        return;
+      }
+      const match = shownMatches.find((item) => item.id === row.dataset.lookupResult);
+      if (match && match.playable !== false) {
+        event.preventDefault();
+        event.stopPropagation();
+        onPlay(match);
+      }
+      return;
+    }
+
+    const rows = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>("[data-lookup-result]"),
+    );
+    const next = rows[rows.indexOf(row) + (event.key === "ArrowDown" ? 1 : -1)];
+    if (next) {
+      event.preventDefault();
+      event.stopPropagation();
+      next.focus();
+    }
+  };
 
   return (
-    <section className="rounded-md border border-border bg-card/70 p-3" aria-label="Rekordbox lookup results">
+    <section className="rounded-md border border-border bg-card/70 p-3" aria-label="Rekordbox lookup results" onKeyDown={navigateResults}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-xs font-semibold">
@@ -96,9 +130,19 @@ export function CollectionLookupResults({
             <span />
           </li>
           {shownMatches.map((match) => (
-            <li key={match.id} className={`${resultGrid} py-2 ${match.id === sourceTrack.rekordbox_id ? "bg-primary/5" : ""} ${activeTrackId === `collection-${match.id}` ? "text-accent" : ""}`}>
+            <li
+              key={match.id}
+              data-lookup-result={match.id}
+              tabIndex={0}
+              className={`${resultGrid} cursor-default py-2 outline-none focus-visible:ring-1 focus-visible:ring-primary ${match.id === sourceTrack.rekordbox_id ? "bg-primary/5" : ""} ${isActiveMatch(match) ? "text-accent" : ""}`}
+              onDoubleClick={(event) => {
+                if ((event.target as HTMLElement).closest("button") || match.playable === false) return;
+                onPlay(match);
+              }}
+              title={match.playable === false ? "Audio file is unavailable" : "Double-click to load and play"}
+            >
               <span className="flex h-4 items-center justify-center">
-                {activeTrackId === `collection-${match.id}` && (playing
+                {isActiveMatch(match) && (playing
                   ? <Volume2 size={12} className="animate-pulse text-accent" />
                   : <span className="text-accent">▸</span>)}
               </span>
@@ -146,10 +190,12 @@ export function CollectionLookupResults({
                 className="h-7 gap-1 px-1 text-[10px]"
                 disabled={match.playable === false}
                 onClick={() => onPlay(match)}
-                aria-label={`Play ${match.artist} — ${match.title} in deck`}
-                title={match.playable === false ? "Audio file is unavailable" : "Play in main deck"}
+                aria-label={`${isActiveMatch(match) && playing ? "Pause" : "Play"} ${match.artist} — ${match.title} in deck`}
+                title={match.playable === false ? "Audio file is unavailable" : isActiveMatch(match) && playing ? "Pause in main deck" : "Play in main deck"}
               >
-                <Play size={12} /> Play
+                {isActiveMatch(match) && playing
+                  ? <><Pause size={12} /> Pause</>
+                  : <><Play size={12} /> Play</>}
               </Button>
             </li>
           ))}

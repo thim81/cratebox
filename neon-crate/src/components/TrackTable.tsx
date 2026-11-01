@@ -303,6 +303,7 @@ export function TrackTable({
                         loading={lookupLoading}
                         error={lookupError}
                         activeTrackId={loadedTrackId}
+                        activeRekordboxId={loadedTrackId ? tracks.find((item) => item.id === loadedTrackId)?.rekordbox_id ?? null : null}
                         playing={playing}
                         onPlay={onPlayCollectionMatch}
                         onSwap={onSwapCollectionMatch}

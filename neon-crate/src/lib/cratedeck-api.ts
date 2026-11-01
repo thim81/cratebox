@@ -271,3 +271,7 @@ export async function appendRekordboxTrack(
 export function collectionStreamUrl(apiUrl: string, trackId: string): string {
   return `${apiUrl}/api/collection/stream/${encodeURIComponent(trackId)}`;
 }
+
+export function collectionArtworkUrl(apiUrl: string, trackId: string): string {
+  return `${apiUrl}/api/collection/tracks/${encodeURIComponent(trackId)}/artwork`;
+}
