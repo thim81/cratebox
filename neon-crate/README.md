@@ -3,11 +3,13 @@
 The app reads `.m3u` and `.m3u8` playlists through a small local FastAPI server.
 In the repository's `playlists/` folder, tracks can be removed or replaced in a playlist;
 the audio file is never deleted. Other configured playlist folders remain read-only.
+The API implementation is organized by feature in `api/`; `server.py` preserves the
+`server:app` entry point used by the existing launcher.
 
 From this folder, run:
 
 ```sh
-uv --directory ../rekordbx-mcp run --locked --with fastapi --with uvicorn --with mutagen \
+uv --directory ../rekordbx-mcp run --locked --with fastapi --with uvicorn --with mutagen --with ddgs \
   uvicorn --app-dir ../neon-crate --reload-dir ../neon-crate --reload-dir src \
   server:app --port 8000 --reload
 ```
@@ -16,15 +18,16 @@ By default, playlists are read from the repository root `playlists/` folder. To 
 
 ```sh
 PLAYLIST_DIR="/absolute/path/to/playlists" uv --directory ../rekordbx-mcp run --locked \
-  --with fastapi --with uvicorn --with mutagen \
+  --with fastapi --with uvicorn --with mutagen --with ddgs \
   uvicorn --app-dir ../neon-crate --reload-dir ../neon-crate --reload-dir src \
   server:app --port 8000 --reload
 ```
 
-Then set the app's API URL to `http://localhost:8000` and enable API mode.
+Then set the app's API URL to `http://localhost:8000`.
 The server provides `GET /api/playlists`, `GET /api/playlists/{playlist_id}`,
 `GET /api/stream?playlist_id=...&track_id=...`, `GET /api/collection/status`,
-`GET /api/collection/stream/{track_id}`, `POST /api/collection/lookup`, and
+`GET /api/collection/stream/{track_id}`, `POST /api/collection/lookup`,
+`POST /api/images/search`, `PUT /api/artwork`, and
 `POST /api/playlists/{playlist_id}/tracks/swap`.
 Export JSON contains an ordered `tracks`
 array with each Rekordbox track ID and its absolute file path together. The API
@@ -32,6 +35,11 @@ validates those entries against the M3U8; older ID-only plans still pair with
 M3U8 entries by order.
 The active deck displays embedded audio cover art, with a music-note placeholder
 when no supported artwork is available.
+Use Search Image beside a crate name or track to search keyless DuckDuckGo image
+results and assign remote artwork. CrateDeck stores only selected image URLs in
+`output/cratedeck-artwork.json`; it does not download image bytes or edit Rekordbox
+tags. Search providers may rate-limit automated requests, and image hosts may
+block previews; a failed track image falls back to embedded artwork.
 Rows with an ID use an exact collection lookup; playlists without a matching
 plan fall back to artist/title lookup. Playlist streaming is restricted to
 files referenced by playlists in the configured folder; collection streaming

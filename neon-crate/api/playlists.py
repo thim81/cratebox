@@ -1,0 +1,333 @@
+"""Playlist parsing, operations, and endpoints."""
+
+from datetime import date
+import hashlib
+import json
+import os
+from pathlib import Path
+import tempfile
+from urllib.parse import quote
+
+import mutagen
+from fastapi import APIRouter, Body, HTTPException
+from pydantic import BaseModel
+
+from .artwork_data import read_artwork_overrides
+from .collection import collection_mcp
+from .config import DEFAULT_PLAYLIST_DIR, PLAN_DIRECTORY, PLAYLIST_DIR
+
+router = APIRouter()
+
+class PlaylistSwap(BaseModel):
+    source_track_id: str
+    replacement_track_id: str
+
+def playlist_files():
+    return sorted(
+        (p for p in PLAYLIST_DIR.glob("*.m3u*") if p.is_file() and p.suffix.lower() in {".m3u", ".m3u8"}),
+        key=lambda p: (p.stem.casefold(), p.name.casefold()),
+    )
+
+def playlist_entry_count(lines: list[str]):
+    return sum(1 for line in lines if line.strip() and not line.lstrip().startswith("#"))
+
+def read_plan_ids(path: Path, lines: list[str]):
+    plan_path = PLAN_DIRECTORY / f"{path.stem}.json"
+    if PLAN_DIRECTORY.is_symlink() or plan_path.is_symlink():
+        raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+    if not plan_path.exists():
+        return plan_path, None
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        if not isinstance(plan, dict):
+            raise ValueError
+        if "tracks" in plan:
+            entries = plan["tracks"]
+            if not isinstance(entries, list):
+                raise ValueError
+            track_ids = [entry.get("track_id") for entry in entries if isinstance(entry, dict)]
+            if len(track_ids) != len(entries):
+                raise ValueError
+            file_paths = [entry.get("file_path") for entry in entries if isinstance(entry, dict)]
+            if any(
+                not isinstance(item, str) or not Path(item).is_absolute()
+                or any(character in item for character in "\r\n\x00\x85\u2028\u2029")
+                for item in file_paths
+            ):
+                raise ValueError
+        else:
+            track_ids = plan.get("track_ids")
+            file_paths = None
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        raise HTTPException(409, "The playlist and its track-ID plan are out of sync") from None
+    entry_count = playlist_entry_count(lines)
+    if (
+        not isinstance(track_ids, list)
+        or len(track_ids) != entry_count
+        or any(not isinstance(track_id, str) or not track_id for track_id in track_ids)
+        or (file_paths is not None and len(file_paths) != entry_count)
+    ):
+        raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+    if file_paths is not None:
+        playlist_paths = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+        for playlist_path, plan_path_value in zip(playlist_paths, file_paths, strict=True):
+            current_path = Path(playlist_path).expanduser()
+            if not current_path.is_absolute():
+                current_path = path.parent / current_path
+            try:
+                paths_match = current_path.resolve() == Path(plan_path_value).resolve()
+            except (OSError, RuntimeError, ValueError):
+                paths_match = False
+            if not paths_match:
+                raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+    return plan_path, (track_ids, file_paths)
+
+def playlist_entries(path: Path, lines: list[str], plan: tuple[list[str], list[str] | None] | None):
+    path_occurrences = {}
+    track_occurrences = {}
+    entry_number = 0
+    for line_number, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        plan_index = entry_number
+        rekordbox_id = plan[0][entry_number] if plan else None
+        entry_number += 1
+        audio = Path(plan[1][plan_index]) if plan and plan[1] else Path(line).expanduser()
+        if not audio.is_absolute():
+            audio = path.parent / audio
+        audio = audio.resolve()
+        if not audio.is_file():
+            continue
+        audio_key = str(audio)
+        if rekordbox_id:
+            occurrence = track_occurrences.get(rekordbox_id, 0)
+            track_occurrences[rekordbox_id] = occurrence + 1
+            row_id = f"{rekordbox_id}-{occurrence + 1}"
+        else:
+            occurrence = path_occurrences.get(audio_key, 0)
+            path_occurrences[audio_key] = occurrence + 1
+            digest = hashlib.blake2b(audio_key.encode(), digest_size=8).hexdigest()
+            row_id = f"{path.stem}-{digest}-{occurrence}"
+        yield line_number, plan_index, audio, row_id, rekordbox_id
+
+def atomic_write(path: Path, content: str):
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="", dir=path.parent, delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(content)
+        temporary_path.chmod(path.stat().st_mode)
+        os.replace(temporary_path, path)
+    except OSError:
+        if temporary_path:
+            temporary_path.unlink(missing_ok=True)
+        raise
+
+def parse_playlist(path: Path):
+    tracks = []
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise HTTPException(500, f"Could not read playlist {path.name}") from exc
+
+    _, plan = read_plan_ids(path, lines)
+    for _, _, audio, track_id, rekordbox_id in playlist_entries(path, lines, plan):
+        try:
+            media = mutagen.File(audio, easy=True)
+        except (OSError, ValueError):
+            media = None
+        tags = media or {}
+        info = getattr(media, "info", None)
+
+        def tag(key, default=""):
+            values = tags.get(key, [])
+            return str(values[0]) if values else default
+
+        try:
+            bpm = int(float(tag("bpm", "0") or 0))
+        except (TypeError, ValueError):
+            bpm = 0
+        bitrate = getattr(info, "bitrate", 0) or 0
+        tracks.append({
+            "id": track_id,
+            "rekordbox_id": rekordbox_id,
+            "title": tag("title", audio.stem),
+            "artist": tag("artist"),
+            "album": tag("album"),
+            "duration": round(getattr(info, "length", 0) or 0),
+            "rating": 0,
+            "bpm": bpm,
+            "key": tag("initialkey"),
+            "quality": f"{audio.suffix[1:].upper()} {bitrate // 1000}kbps".strip(),
+            "url": f"/api/stream?playlist_id={quote(path.stem)}&track_id={quote(track_id)}",
+            "artwork_url": f"/api/playlists/{quote(path.stem)}/tracks/{quote(track_id)}/artwork",
+        })
+    return tracks
+
+def playlist_summary(path: Path, tracks):
+    created = date.fromtimestamp(path.stat().st_ctime).isoformat()
+    overrides = read_artwork_overrides()
+    return {
+        "id": path.stem,
+        "name": path.stem,
+        "trackCount": len(tracks),
+        "duration": sum(track["duration"] for track in tracks),
+        "created": created,
+        "artwork_url": overrides.get("playlists", {}).get(path.stem),
+    }
+
+def find_playlist(playlist_id: str):
+    matches = [p for p in playlist_files() if p.stem == playlist_id]
+    if not matches:
+        raise HTTPException(404, "Playlist not found")
+    return matches[0]
+
+@router.get("/api/playlists")
+def list_playlists():
+    return [playlist_summary(path, parse_playlist(path)) for path in playlist_files()]
+
+@router.get("/api/playlists/{playlist_id}")
+def get_playlist(playlist_id: str):
+    path = find_playlist(playlist_id)
+    tracks = parse_playlist(path)
+    overrides = read_artwork_overrides().get("tracks", {}).get(path.stem, {})
+    for track in tracks:
+        if track["id"] in overrides:
+            track["fallback_artwork_url"] = track["artwork_url"]
+            track["artwork_url"] = overrides[track["id"]]
+    return {**playlist_summary(path, tracks), "tracks": tracks}
+
+@router.delete("/api/playlists/{playlist_id}/tracks")
+def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)):
+    if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
+        raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
+    if not track_ids or len(track_ids) > 1000 or len(set(track_ids)) != len(track_ids):
+        raise HTTPException(400, "Select between 1 and 1000 unique tracks")
+
+    path = find_playlist(playlist_id)
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as playlist:
+            lines = playlist.readlines()
+    except (OSError, UnicodeError) as exc:
+        raise HTTPException(500, "Could not read playlist") from exc
+
+    plan_path, plan = read_plan_ids(path, lines)
+    plan_data = None
+    if plan_path.is_file():
+        if plan is None or plan_path.is_symlink() or PLAN_DIRECTORY.is_symlink():
+            raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+        plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+    entries = {
+        track_id: (line_number, plan_index)
+        for line_number, plan_index, _, track_id, _ in playlist_entries(path, lines, plan)
+    }
+    remove_indices = set()
+    remove_plan_indices = set()
+    for track_id in track_ids:
+        if track_id not in entries:
+            raise HTTPException(404, "Track not found in playlist")
+        index, plan_index = entries[track_id]
+        remove_indices.add(index)
+        remove_plan_indices.add(plan_index)
+        if index and lines[index - 1].lstrip().startswith("#EXTINF:"):
+            remove_indices.add(index - 1)
+
+    updated_lines = [line for index, line in enumerate(lines) if index not in remove_indices]
+    if plan_data is not None:
+        if isinstance(plan_data.get("tracks"), list):
+            plan_data["tracks"] = [
+                entry for index, entry in enumerate(plan_data["tracks"])
+                if index not in remove_plan_indices
+            ]
+        else:
+            plan_data["track_ids"] = [
+                track_id for index, track_id in enumerate(plan_data["track_ids"])
+                if index not in remove_plan_indices
+            ]
+    original_text = "".join(lines)
+    playlist_updated = False
+    try:
+        atomic_write(path, "".join(updated_lines))
+        playlist_updated = True
+        if plan_data is not None:
+            plan_text = json.dumps(plan_data, ensure_ascii=False, indent=2) + "\n"
+            atomic_write(plan_path, plan_text)
+    except OSError as exc:
+        if playlist_updated:
+            try:
+                atomic_write(path, original_text)
+            except OSError:
+                raise HTTPException(500, "Playlist and track-ID plan may be out of sync") from None
+        raise HTTPException(500, "Could not update playlist") from exc
+    return {"removed": len(track_ids)}
+
+@router.post("/api/playlists/{playlist_id}/tracks/swap")
+def swap_track(playlist_id: str, request: PlaylistSwap):
+    if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
+        raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
+    if not request.source_track_id or not request.replacement_track_id:
+        raise HTTPException(400, "Both playlist and replacement track IDs are required")
+    replacement_audio = collection_mcp.track_paths.get(request.replacement_track_id)
+    if replacement_audio is None or not replacement_audio.is_file():
+        raise HTTPException(404, "Replacement track is unavailable; run lookup again")
+
+    path = find_playlist(playlist_id)
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as playlist:
+            lines = playlist.readlines()
+    except (OSError, UnicodeError) as exc:
+        raise HTTPException(500, "Could not read playlist") from exc
+
+    plan_path, plan = read_plan_ids(path, lines)
+    entries = list(playlist_entries(path, lines, plan))
+    source = next(
+        (entry for entry in entries if entry[3] == request.source_track_id), None,
+    )
+    if source is None:
+        raise HTTPException(404, "Source track not found in playlist")
+    line_number, plan_index = source[0], source[1]
+    original_text = "".join(lines)
+    line_ending = "\r\n" if lines[line_number].endswith("\r\n") else "\n" if lines[line_number].endswith("\n") else ""
+    lines[line_number] = f"{replacement_audio}{line_ending}"
+
+    plan_data = None
+    if plan_path.is_file():
+        if plan is None or plan_path.is_symlink() or PLAN_DIRECTORY.is_symlink():
+            raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+        try:
+            plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+            if isinstance(plan_data.get("tracks"), list):
+                plan_data["tracks"][plan_index]["track_id"] = request.replacement_track_id
+                plan_data["tracks"][plan_index]["file_path"] = str(replacement_audio)
+            else:
+                plan_data["track_ids"][plan_index] = request.replacement_track_id
+        except (AttributeError, IndexError, KeyError, TypeError, OSError, UnicodeError, json.JSONDecodeError):
+            raise HTTPException(409, "The playlist and its track-ID plan are out of sync") from None
+
+    playlist_updated = False
+    try:
+        atomic_write(path, "".join(lines))
+        playlist_updated = True
+        if plan_data is not None:
+            atomic_write(plan_path, json.dumps(plan_data, ensure_ascii=False, indent=2) + "\n")
+    except OSError as exc:
+        if playlist_updated:
+            try:
+                atomic_write(path, original_text)
+            except OSError:
+                raise HTTPException(500, "Playlist and track-ID plan may be out of sync") from None
+        raise HTTPException(500, "Could not update playlist") from exc
+
+    updated_plan = None
+    if plan is not None:
+        track_ids = list(plan[0])
+        track_ids[plan_index] = request.replacement_track_id
+        file_paths = list(plan[1]) if plan[1] is not None else None
+        if file_paths is not None:
+            file_paths[plan_index] = str(replacement_audio)
+        updated_plan = (track_ids, file_paths)
+    updated_entries = playlist_entries(path, lines, updated_plan)
+    updated_track = next((entry for entry in updated_entries if entry[1] == plan_index), None)
+    return {"track_id": updated_track[3] if updated_track else None}
+
