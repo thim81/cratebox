@@ -49,6 +49,7 @@ interface TrackTableProps {
   separatorSwapping?: boolean;
   onAppendToPlaylist?: (track: Track) => void;
   appendDisabled?: boolean;
+  appendDestinationSelected?: boolean;
   appendingTrackId?: string | null;
   readOnly?: boolean;
   reorderEnabled?: boolean;
@@ -86,6 +87,7 @@ export function TrackTable({
   separatorSwapping = false,
   onAppendToPlaylist,
   appendDisabled = true,
+  appendDestinationSelected = false,
   appendingTrackId,
   readOnly = false,
   reorderEnabled = false,
@@ -208,7 +210,7 @@ export function TrackTable({
                     readOnly || !isSeparator ? onLoad(track) : onSelectSeparator(track)
                   }
                   aria-selected={index === selectedIndex || isRangeSelected}
-                  className={`group relative cursor-default border-b border-border/40 ${reorderEnabled && !reordering ? "cursor-grab active:cursor-grabbing" : ""} ${dropTarget?.trackId === track.id ? (dropTarget.before ? "border-t-2 border-t-primary" : "border-b-2 border-b-primary") : ""} ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
+                  className={`group relative scroll-mt-8 cursor-default border-b border-border/40 ${reorderEnabled && !reordering ? "cursor-grab active:cursor-grabbing" : ""} ${dropTarget?.trackId === track.id ? (dropTarget.before ? "border-t-2 border-t-primary" : "border-b-2 border-b-primary") : ""} ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
                 >
                   <td className="w-10 px-1 py-1 text-center">
                     {!readOnly && (
@@ -303,14 +305,20 @@ export function TrackTable({
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="size-7 text-muted-foreground hover:text-primary"
+                        className="size-7 text-muted-foreground hover:text-white"
                         disabled={!track.rekordbox_id || appendDisabled}
                         onClick={(event) => {
                           event.stopPropagation();
                           onAppendToPlaylist(track);
                         }}
                         aria-label={`Add ${track.title} to a CrateDeck playlist`}
-                        title={appendDisabled ? "No CrateDeck playlist available" : "Choose a CrateDeck playlist"}
+                        title={
+                          appendDisabled
+                            ? "No CrateDeck playlist available"
+                            : appendDestinationSelected
+                              ? "Add to selected CrateDeck playlist"
+                              : "Choose a CrateDeck playlist"
+                        }
                       >
                         {appendingTrackId === track.id ? (
                           <LoaderCircle size={14} className="animate-spin" />

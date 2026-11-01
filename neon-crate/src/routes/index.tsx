@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
+import { toast } from "sonner";
 import {
   Circle,
   CircleAlert,
@@ -91,6 +92,7 @@ function Index() {
   const [activeId, setActiveId] = useState("");
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlistSource, setPlaylistSource] = useState<"crate" | "rekordbox">("crate");
+  const selectedTrackByPlaylist = useRef(new Map<string, string>());
   const activePlaylistContext = useRef({ id: activeId, source: playlistSource });
   const playlistTracksGeneration = useRef(0);
   useLayoutEffect(() => {
@@ -125,7 +127,7 @@ function Index() {
   } | null>(null);
   const [separatorType, setSeparatorType] = useState<SeparatorType>("generic");
   const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
-  const [appendNotice, setAppendNotice] = useState<string | null>(null);
+  const [appendPlaylistId, setAppendPlaylistId] = useState("");
   const [pendingAppendTrack, setPendingAppendTrack] = useState<Track | null>(null);
   const [crateQ, setCrateQ] = useState("");
   const [q, setQ] = useState("");
@@ -218,7 +220,6 @@ function Index() {
   const changePlaylistSource = (source: "crate" | "rekordbox") => {
     setPlaylistSource(source);
     setApiError(null);
-    setAppendNotice(null);
     if (source === "rekordbox" && !rekordboxLoaded) void refreshRekordboxPlaylists();
   };
 
@@ -312,7 +313,6 @@ function Index() {
   useEffect(() => {
     const generation = ++playlistTracksGeneration.current;
     let active = true;
-    setSel(0);
     setRangeAnchor(null);
     setExpandedSeparatorTrackId(null);
     setPendingSeparatorReplacement(null);
@@ -332,9 +332,10 @@ function Index() {
     return () => {
       active = false;
     };
-  }, [activeId, apiUrl, playlistSource]);
+  }, [activeId, apiUrl]);
 
   const activePl = playlists.find((p) => p.id === activeId);
+  const appendDestination = playlists.find((p) => p.id === appendPlaylistId);
   const activeRekordboxPlaylist = rekordboxPlaylists.find(
     (playlist) => playlist.id === activeRekordboxId,
   );
@@ -342,13 +343,8 @@ function Index() {
     (playlist) => playlist.id === rekordboxFolderId,
   );
   useEffect(() => {
-    setSel(0);
     setRangeAnchor(null);
-    if (
-      playlistSource !== "rekordbox" ||
-      !activeRekordboxId ||
-      activeRekordboxPlaylist?.is_folder
-    ) {
+    if (!activeRekordboxId || activeRekordboxPlaylist?.is_folder) {
       setRekordboxTracks([]);
       return;
     }
@@ -369,7 +365,7 @@ function Index() {
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, activeRekordboxId, activeRekordboxPlaylist?.is_folder, playlistSource]);
+  }, [apiUrl, activeRekordboxId, activeRekordboxPlaylist?.is_folder]);
 
   const copySelectedRekordboxPlaylist = useCallback(async () => {
     const playlist = activeRekordboxPlaylist;
@@ -414,11 +410,10 @@ function Index() {
       const generation = ++playlistTracksGeneration.current;
       setAppendingTrackId(track.id);
       setApiError(null);
-      setAppendNotice(null);
       try {
         await appendRekordboxTrack(apiUrl, destination.id, trackId);
         await refreshPlaylists();
-        setAppendNotice(`Added “${track.title}” to ${destination.name}.`);
+        toast.success(`Added “${track.title}” to ${destination.name}.`);
         if (
           generation === playlistTracksGeneration.current &&
           activePlaylistContext.current.source === "crate" &&
@@ -438,7 +433,6 @@ function Index() {
           }
         }
       } catch (error) {
-        setAppendNotice(null);
         setApiError(
           `Couldn't insert ${track.title} into ${destination.name} (${error instanceof Error ? error.message : "request failed"})`,
         );
@@ -546,6 +540,23 @@ function Index() {
     return list;
   }, [currentTracks, q, sort, trackNumbers]);
 
+  const selectionKey = `${playlistSource}:${playlistSource === "crate" ? activeId : activeRekordboxId}`;
+  const selectTrackAt = useCallback(
+    (index: number, list: Track[] = view) => {
+      setSel(index);
+      const track = list[index];
+      if (track) selectedTrackByPlaylist.current.set(selectionKey, track.id);
+    },
+    [selectionKey, view],
+  );
+
+  useEffect(() => {
+    const rememberedId = selectedTrackByPlaylist.current.get(selectionKey);
+    const rememberedIndex = rememberedId ? view.findIndex((track) => track.id === rememberedId) : -1;
+    setSel(rememberedIndex >= 0 ? rememberedIndex : 0);
+    setRangeAnchor(null);
+  }, [selectionKey, view]);
+
   const activePlaylistName = activePl?.name ?? "";
   const swapCollectionMatch = useCallback(
     async (sourceTrack: Track, match: CollectionMatch) => {
@@ -562,13 +573,9 @@ function Index() {
         const updatedTracks = playlist.tracks ?? [];
         setTracks(updatedTracks);
         setRangeAnchor(null);
-        setSel(
-          Math.max(
-            0,
-            view.findIndex((track) => track.id === sourceTrack.id),
-          ),
-        );
         const replacementTrack = updatedTracks.find((track) => track.id === result.track_id);
+        const replacementIndex = updatedTracks.findIndex((track) => track.id === result.track_id);
+        selectTrackAt(replacementIndex >= 0 ? replacementIndex : 0, updatedTracks);
         if (replacementTrack) {
           setLookupTrack(replacementTrack);
           setExpandedLookupTrackId(replacementTrack.id);
@@ -585,7 +592,7 @@ function Index() {
         );
       }
     },
-    [activeId, activePlaylistName, apiUrl, loaded, refreshPlaylists, view],
+    [activeId, activePlaylistName, apiUrl, loaded, refreshPlaylists, selectTrackAt],
   );
 
   const addSeparator = useCallback(
@@ -646,7 +653,7 @@ function Index() {
           });
         }
         const targetIndex = nextView.findIndex((item) => item.id === track.id);
-        setSel(targetIndex >= 0 ? targetIndex : 0);
+        selectTrackAt(targetIndex >= 0 ? targetIndex : 0, nextView);
         setApiError(null);
       } catch (error) {
         if (
@@ -661,7 +668,7 @@ function Index() {
         setSeparatorInserting(false);
       }
     },
-    [activeId, activePlaylistName, apiUrl, playlistSource, q, refreshPlaylists, sort],
+    [activeId, activePlaylistName, apiUrl, playlistSource, q, refreshPlaylists, selectTrackAt, sort],
   );
 
   const selectSeparator = useCallback((track: Track) => {
@@ -741,7 +748,7 @@ function Index() {
         setTracks(updatedTracks);
         setRangeAnchor(null);
         const selectedIndex = updatedTracks.findIndex((track) => track.id === selectedTrackId);
-        setSel(selectedIndex >= 0 ? selectedIndex : 0);
+        selectTrackAt(selectedIndex >= 0 ? selectedIndex : 0, updatedTracks);
         setApiError(null);
       } catch (error) {
         if (
@@ -756,7 +763,7 @@ function Index() {
         setReordering(false);
       }
     },
-    [activeId, apiUrl, playlistSource, reordering, sel, view],
+    [activeId, apiUrl, playlistSource, reordering, sel, selectTrackAt, view],
   );
   const collectionStatusLabel =
     collectionStatus.state === "idle"
@@ -797,14 +804,14 @@ function Index() {
       const targetIndex = d > 0 ? 0 : stepTracks.length - 1;
       if (stepTracks[targetIndex]) {
         load(stepTracks[targetIndex], true);
-        setSel(targetIndex);
+        selectTrackAt(targetIndex);
       }
       return;
     }
     const n = stepTracks[i + d];
     if (n) {
       load(n, true);
-      setSel(i + d);
+      selectTrackAt(i + d);
     }
   };
 
@@ -833,7 +840,7 @@ function Index() {
         const updatedTracks = updatedPlaylist.tracks ?? [];
         setTracks(updatedTracks);
         setRangeAnchor(null);
-        setSel(nextIndex);
+        selectTrackAt(nextIndex, remainingView);
         if (loaded) {
           if (removedIds.has(loaded.track.id)) {
             setLoaded(null);
@@ -856,7 +863,7 @@ function Index() {
         );
       }
     },
-    [activeId, activePl?.name, apiUrl, view, loaded, playlistSource, refreshPlaylists],
+    [activeId, activePl?.name, apiUrl, view, loaded, playlistSource, refreshPlaylists, selectTrackAt],
   );
 
   useEffect(() => {
@@ -875,7 +882,7 @@ function Index() {
             0,
             Math.min(view.length - 1, sel + (e.key === "ArrowDown" ? 1 : -1)),
           );
-          setSel(next);
+          selectTrackAt(next);
           if (e.shiftKey) {
             if (rangeAnchor === null) setRangeAnchor(sel);
           } else {
@@ -913,6 +920,7 @@ function Index() {
     selectedRange,
     removeTracks,
     playlistSource,
+    selectTrackAt,
   ]);
 
   const toggleSort = (k: SortKey) => {
@@ -1104,11 +1112,29 @@ function Index() {
                   </select>
                 </label>
               )}
-              {playlistSource === "rekordbox" && appendNotice && (
-                <span className="text-xs text-accent" role="status">
-                  {appendNotice}
-                </span>
-              )}
+              {playlistSource === "rekordbox" &&
+                activeRekordboxPlaylist &&
+                !activeRekordboxPlaylist.is_folder && (
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <select
+                      aria-label="Local CrateDeck playlist to insert into"
+                      className="h-8 max-w-56 rounded border border-input bg-background px-2 text-xs text-foreground"
+                      value={appendPlaylistId}
+                      disabled={playlists.length === 0 || appendingTrackId !== null}
+                      onChange={(event) => {
+                        setAppendPlaylistId(event.currentTarget.value);
+                        setApiError(null);
+                      }}
+                    >
+                      <option value="">Select CrateDeck playlist</option>
+                      {playlists.map((playlist) => (
+                        <option key={playlist.id} value={playlist.id}>
+                          {playlist.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               <div className="relative w-72">
                 <Search
                   size={14}
@@ -1118,7 +1144,6 @@ function Index() {
                   value={q}
                   onChange={(e) => {
                     setQ(e.target.value);
-                    setSel(0);
                     setRangeAnchor(null);
                   }}
                   placeholder="Search title, artist, key, BPM…"
@@ -1143,7 +1168,7 @@ function Index() {
             lookupError={lookupError}
             onSort={toggleSort}
             onSelect={(index) => {
-              setSel(index);
+              selectTrackAt(index);
               setRangeAnchor(null);
             }}
             onLoad={load}
@@ -1160,10 +1185,14 @@ function Index() {
             separatorSwapping={separatorInserting}
             onAppendToPlaylist={(track) => {
               setApiError(null);
-              setAppendNotice(null);
-              setPendingAppendTrack(track);
+              if (appendDestination) {
+                void appendTrackToPlaylist(track, appendDestination.id);
+              } else {
+                setPendingAppendTrack(track);
+              }
             }}
             appendDisabled={playlists.length === 0 || appendingTrackId !== null}
+            appendDestinationSelected={Boolean(appendDestination)}
             appendingTrackId={appendingTrackId}
             readOnly={playlistSource === "rekordbox"}
             reorderEnabled={playlistSource === "crate" && sort.k === null && !q}
@@ -1183,9 +1212,9 @@ function Index() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add to CrateDeck playlist</DialogTitle>
+            <DialogTitle>Select a CrateDeck playlist</DialogTitle>
             <DialogDescription>
-              Choose a destination for “{pendingAppendTrack?.title ?? "this track"}”.
+              Choose where to add “{pendingAppendTrack?.title ?? "this track"}”.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] space-y-2 overflow-y-auto">
@@ -1197,6 +1226,7 @@ function Index() {
                 onClick={() => {
                   const track = pendingAppendTrack;
                   if (!track) return;
+                  setAppendPlaylistId(playlist.id);
                   setPendingAppendTrack(null);
                   void appendTrackToPlaylist(track, playlist.id);
                 }}

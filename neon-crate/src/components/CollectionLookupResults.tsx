@@ -48,6 +48,7 @@ export function CollectionLookupResults({
 }: Props) {
   const [showMidMatches, setShowMidMatches] = useState(false);
   const [showLowMatches, setShowLowMatches] = useState(false);
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const sourceMatch = matches.find((match) => match.id === sourceTrack.rekordbox_id);
   const visibleMatches = matches.filter((match) => match.id !== sourceTrack.rekordbox_id);
   const highMatches = visibleMatches.filter((match) => match.similarity >= 70);
@@ -133,8 +134,13 @@ export function CollectionLookupResults({
             <li
               key={match.id}
               data-lookup-result={match.id}
+              data-selected={selectedMatchId === match.id || undefined}
               tabIndex={0}
-              className={`${resultGrid} cursor-default py-2 outline-none focus-visible:ring-1 focus-visible:ring-primary ${match.id === sourceTrack.rekordbox_id ? "bg-primary/5" : ""} ${isActiveMatch(match) ? "text-accent" : ""}`}
+              className={`${resultGrid} cursor-default py-2 outline-none focus-visible:ring-1 focus-visible:ring-primary ${match.id === sourceTrack.rekordbox_id ? "bg-primary/5" : ""} ${selectedMatchId === match.id ? "bg-primary/10 ring-1 ring-inset ring-primary/60" : ""} ${isActiveMatch(match) ? "text-accent" : ""}`}
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest("button")) return;
+                setSelectedMatchId(match.id);
+              }}
               onDoubleClick={(event) => {
                 if ((event.target as HTMLElement).closest("button") || match.playable === false) return;
                 onPlay(match);
