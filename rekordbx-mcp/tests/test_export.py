@@ -24,15 +24,17 @@ def test_export_preserves_order_unicode_and_inputs(collection, playable_snapshot
     before = [sha256(path) for path in originals]
     result = export_playlist(collection, "Été house", ["2", "1", "2"], output)
     playlist = Path(result["playlist_path"])
-    assert playlist.parent == output
+    assert playlist.parent == output.parent / "playlists"
     assert playlist.suffix == ".m3u8"
+    assert result["revision_name"] == "Été house-v001"
     assert playlist.read_text(encoding="utf-8").splitlines() == [
         "#EXTM3U", str(playable_snapshot / "music/Second track.mp3"),
         str(playable_snapshot / "music/Été #1.mp3"),
         str(playable_snapshot / "music/Second track.mp3"),
     ]
     plan = json.loads(Path(result["plan_path"]).read_text(encoding="utf-8"))
-    assert plan["name"] == "Été house"
+    assert plan["name"] == "Été house-v001"
+    assert plan["revision_of"] == "Été house"
     assert plan["track_ids"] == ["2", "1", "2"]
     assert result["track_count"] == 3
     assert "music/" not in json.dumps(result)
@@ -127,7 +129,9 @@ def test_file_locations_resolve_to_ids_and_preserve_order(collection, playable_s
     before = [sha256(path) for path in originals]
     locations = [str(audio[0]), str(audio[1]), str(audio[0])]
     result = export_playlist(collection, "From locations", None, output, file_paths=locations)
-    assert Path(result["playlist_path"]).read_text(encoding="utf-8").splitlines() == ["#EXTM3U", *locations]
+    playlist = Path(result["playlist_path"])
+    assert playlist.parent == output.parent / "playlists"
+    assert playlist.read_text(encoding="utf-8").splitlines() == ["#EXTM3U", *locations]
     plan = json.loads(Path(result["plan_path"]).read_text(encoding="utf-8"))
     assert plan["track_ids"] == ["2", "1", "2"]
     assert result["track_count"] == 3

@@ -15,7 +15,7 @@ from pydantic import ValidationError
 from rekordbox_mcp import server as upstream
 
 from .database import SnapshotDatabase
-from .export import OUTPUT_DIRECTORY, export_playlist as write_playlist
+from .export import OUTPUT_DIRECTORY, PLAYLISTS_DIRECTORY, export_playlist as write_playlist
 from .snapshot import verify_snapshot
 
 
@@ -54,7 +54,15 @@ def redact_paths(value):
     return value
 
 
-def build_server(snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY) -> FastMCP:
+def build_server(
+    snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY,
+    playlists_directory: Path | None = None,
+) -> FastMCP:
+    if playlists_directory is None:
+        playlists_directory = (
+            PLAYLISTS_DIRECTORY if Path(output_directory) == OUTPUT_DIRECTORY
+            else Path(output_directory).parent / "playlists"
+        )
     verify_snapshot(snapshot)
     database = SnapshotDatabase(snapshot)
 
@@ -95,13 +103,17 @@ def build_server(snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY) -
     async def export_playlist(
         name: str, track_ids: list[str] | None = None,
         file_paths: list[str] | None = None,
+        revision: bool = False,
     ) -> dict:
-        """Export existing collection tracks to new M3U8 and JSON files in output/.
+        """Export tracks as a numbered M3U8 in playlists/ and matching JSON in output/.
 
-        Use a filename-safe name without an extension. Preserves order and repeats.
+        Use a filename-safe base name without an extension. First exports use v001.
+        If the base name already exists, ask whether to create its next numbered
+        revision or use a different name. To create the confirmed revision, call
+        again with revision=true. Never use revision=true without user confirmation.
         Supply exactly one of track_ids or file_paths, with 1–1000 entries.
         File paths must be absolute and match exactly one active snapshot track.
-        Rejects unknown/deleted IDs, missing audio and existing output filenames.
+        Rejects unknown/deleted IDs and missing audio. Existing files are never replaced.
         Returns artifact paths only; JSON saves resolved IDs, not audio paths.
         Prefer track_ids to avoid sending audio paths in tool arguments.
         Creates external files only; never imports or edits Rekordbox data.
@@ -110,14 +122,16 @@ def build_server(snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY) -
             try:
                 await ensure_connected()
                 return write_playlist(
-                    database.db, name, track_ids, output_directory, file_paths=file_paths,
+                    database.db, name, track_ids, output_directory,
+                    file_paths=file_paths, playlists_directory=playlists_directory,
+                    revision=revision,
                 )
             except ValueError as error:
                 raise ToolError(str(error)) from None
-            except FileExistsError:
-                raise ToolError("Export files already exist; choose a different playlist name.") from None
+            except FileExistsError as error:
+                raise ToolError(str(error)) from None
             except OSError:
-                raise ToolError("Cannot write export files; check the local output directory and permissions.") from None
+                raise ToolError("Cannot write export files; check the local playlists/ and output/ directories and permissions.") from None
             except Exception:
                 logger.exception("Playlist export failed")
                 raise ToolError("Playlist export failed; check the local server logs.") from None

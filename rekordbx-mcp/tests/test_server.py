@@ -29,6 +29,7 @@ async def test_search_uses_snapshot_and_omits_audio_paths(snapshot):
 
 async def test_export_tool_creates_local_artifacts_without_returning_audio_paths(playable_snapshot):
     output = playable_snapshot / "output"
+    playlists = playable_snapshot / "playlists"
     async with Client(build_server(playable_snapshot, output_directory=output)) as client:
         tool = next(tool for tool in await client.list_tools() if tool.name == "export_playlist")
         assert tool.annotations.readOnlyHint is False
@@ -36,8 +37,8 @@ async def test_export_tool_creates_local_artifacts_without_returning_audio_paths
         exported = json.loads(result.content[0].text)
         assert exported["track_count"] == 2
         assert str(playable_snapshot / "music") not in result.content[0].text
-        assert (output / "House.m3u8").is_file()
-        assert json.loads((output / "House.json").read_text())["track_ids"] == ["2", "1"]
+        assert (playlists / "House-v001.m3u8").is_file()
+        assert json.loads((output / "House-v001.json").read_text())["track_ids"] == ["2", "1"]
         error = await client.call_tool("export_playlist", {"name": "Bad", "track_ids": ["3"]}, raise_on_error=False)
         assert error.is_error
         assert str(playable_snapshot / "music") not in error.content[0].text
@@ -45,13 +46,14 @@ async def test_export_tool_creates_local_artifacts_without_returning_audio_paths
 
 async def test_export_tool_accepts_file_paths_as_an_alternative(playable_snapshot):
     output = playable_snapshot / "output"
+    playlists = playable_snapshot / "playlists"
     locations = [str(playable_snapshot / "music/Second track.mp3"), str(playable_snapshot / "music/Été #1.mp3")]
     async with Client(build_server(playable_snapshot, output_directory=output)) as client:
         result = await client.call_tool("export_playlist", {"name": "Locations", "file_paths": locations})
         exported = json.loads(result.content[0].text)
         assert exported["track_count"] == 2
-        assert (output / "Locations.m3u8").read_text(encoding="utf-8").splitlines() == ["#EXTM3U", *locations]
-        assert json.loads((output / "Locations.json").read_text())["track_ids"] == ["2", "1"]
+        assert (playlists / "Locations-v001.m3u8").read_text(encoding="utf-8").splitlines() == ["#EXTM3U", *locations]
+        assert json.loads((output / "Locations-v001.json").read_text())["track_ids"] == ["2", "1"]
         assert str(playable_snapshot / "music") not in result.content[0].text
         for arguments in [
             {"name": "Both", "track_ids": ["1"], "file_paths": locations},
@@ -61,7 +63,8 @@ async def test_export_tool_accepts_file_paths_as_an_alternative(playable_snapsho
             error = await client.call_tool("export_playlist", arguments, raise_on_error=False)
             assert error.is_error
             assert str(playable_snapshot / "music") not in error.content[0].text
-        assert {path.name for path in output.iterdir()} == {"Locations.m3u8", "Locations.json"}
+        assert {path.name for path in output.iterdir()} == {"Locations-v001.json"}
+        assert {path.name for path in playlists.iterdir()} == {"Locations-v001.m3u8"}
 
 
 @pytest.mark.parametrize("malformed", ["string_list", "element_type", "missing_name", "extra_argument"])

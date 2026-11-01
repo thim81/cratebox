@@ -230,12 +230,20 @@ visible in your Codex conversation; prefer IDs to keep paths local. Neither
 success nor error responses return audio paths. Unmatched or ambiguous file
 locations are reported by their position in the supplied list.
 
-Exports are created under `/Users/thim/Sites/rekordbx/output/`:
+Exports use matching revision names in two repository folders:
 
-- `House warm-up.m3u8`: UTF-8 playlist containing absolute local audio paths.
-- `House warm-up.json`: playlist name, ordered IDs, creation time and format
-  version. To revise a saved selection, ask Codex to read this JSON, adjust the
-  IDs, validate them against the current snapshot, and export with a new name.
+- `playlists/House warm-up-v001.m3u8`: UTF-8 playlist containing absolute local
+  audio paths.
+- `output/House warm-up-v001.json`: playlist name, ordered IDs, creation time
+  and format version. The highest numbered revision is the latest.
+
+If an export with the requested base name already exists, Codex asks whether
+you want the next numbered revision or a separate playlist under a new name.
+After you confirm a revision, Codex creates the next number and keeps all prior
+files intact. If the existing export has no version number, its confirmed
+revision starts the numbered sequence at `v001`. To revise a saved selection,
+ask Codex to read its JSON, adjust the IDs, validate them against the current
+snapshot, and export the revision.
 
 Track order and intentional repeated IDs are preserved. An export accepts
 1–1000 tracks via either input. Every ID must exist and not be marked deleted,
@@ -243,10 +251,10 @@ and every referenced audio file must be present. Errors report affected IDs with
 paths. Nothing is silently skipped and validation failures create no artifacts.
 
 Names must be a single filename stem without slashes or control characters,
-up to 200 UTF-8 bytes. Existing filenames and symlink destinations are refused;
-use a different name for a revision. The destination is fixed by the adapter,
-not chosen by the model. Exports are ignored by Git. Treat M3U8 files as private
-because they contain local filesystem paths.
+up to 200 UTF-8 bytes. Existing filenames and symlink destinations are never
+replaced. The destinations are fixed by the adapter, not chosen by the model.
+Exports are ignored by Git. Treat M3U8 files as private because they contain
+local filesystem paths.
 
 Open Rekordbox and manually import the M3U8 when you choose. The adapter does
 not perform that import. Importing is your explicit action and changes the
@@ -341,7 +349,8 @@ MCP conversation through the snapshot launcher.
 | `rekordbx-mcp/tests/` | Automated tests |
 | `rekordbx-mcp/codex-mcp.example.toml` | Codex connection template |
 | `rekordbx-mcp/.cache/rekordbox-snapshots/` | Generated collection copies |
-| `output/` | Generated exports |
+| `output/` | Generated JSON export plans |
+| `playlists/` | Generated M3U8 playlists for manual import |
 | `AGENTS.md` | Repository rules, including original-data protection |
 
 More implementation details are in the
@@ -351,8 +360,9 @@ More implementation details are in the
 
 The adapter opens only verified snapshots through a read-only SQLCipher
 connection and exposes the approved reading tools plus the local exporter.
-The exporter writes new M3U8 and JSON files only in `output/`. The worker runs with
-normal user filesystem and network permissions; there is no OS isolation.
+The exporter writes new M3U8 files only in `playlists/` and matching JSON files
+only in `output/`. The worker runs with normal user filesystem and network
+permissions; there is no OS isolation.
 Dedicated `file_path` and `database_path` fields are omitted from ordinary responses.
 The upstream filepath-returning tools are not exposed. The export tool returns
 artifact paths and a track count, not the audio paths inside the M3U8.

@@ -24,8 +24,9 @@ collection data read-only.
 - **Shape a set in conversation.** Ask Codex to select tracks, explain the order,
   estimate duration, and refine the proposal.
 - **Keep selections grounded.** Validate proposed track IDs against your collection snapshot.
-- **Export your set.** Create an M3U8 playlist and a JSON record of its ordered
-  track IDs in `output/`, ready for you to import manually.
+- **Export your set.** Create a numbered M3U8 playlist in `playlists/` and a
+  matching JSON record of its ordered track IDs in `output/`, ready for you to
+  import manually. The highest numbered revision is the latest.
 - **Stay current.** Create a fresh collection copy at startup and update the
   upstream MCP with one command.
 
@@ -111,10 +112,14 @@ More examples are in the [playlist guide](docs/user-guide.md#4-ask-for-playlists
 > Export the final selection with `export_playlist`, named "House warm-up",
 > preserving the agreed track order. Give me links to the M3U8 and JSON files.
 
-The files appear in the repository's `output/` directory. The exporter resolves
-audio paths locally from the current snapshot and checks that every selected
-file exists. Unknown/deleted IDs, missing files, unsafe names, and existing
-export filenames stop the export. Choose a new name for each revision.
+The M3U8 appears in `playlists/`; its matching JSON plan appears in `output/`.
+Exports use numbered names (`House warm-up-v001`, then `-v002`), so the highest
+number is the latest. The exporter resolves audio paths locally from the
+current snapshot and checks that every selected file exists. Unknown/deleted
+IDs, missing files, unsafe names, and existing export names stop the first
+attempt. Codex asks whether to create the next revision or use a new name for a
+separate playlist. Confirming a revision of an older unnumbered export starts
+the numbered sequence at `v001` and preserves the old files.
 
 Use either an ordered `track_ids` list or an ordered `file_paths` list. File
 locations must be absolute local paths matching exactly one active track in the
@@ -142,7 +147,8 @@ SQLCipher connection. Database mutation and import tools are excluded.
 If checking or copying fails, startup stops. A running session keeps its fixed
 snapshot; quit Rekordbox and restart the MCP whenever you want to refresh it.
 The adapter does not edit existing playlists, analysis files, audio, or tags.
-Its export tool creates only new files in the project's `output/` directory.
+Its export tool creates only new M3U8 files in `playlists/` and JSON plans in
+`output/`.
 
 The database reader runs locally. Returned metadata becomes part of your Codex
 conversation; the AI conversation is not fully offline. The worker uses your

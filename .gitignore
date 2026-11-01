@@ -11,3 +11,4 @@ __pycache__/
 /.codex/config.toml
 /output/
 /.idea/
+/playlists/
