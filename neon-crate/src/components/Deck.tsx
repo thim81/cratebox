@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Ref, useImperativeHandle } from "react";
-import { Pause, Play, SkipBack, SkipForward, Star, Volume2, VolumeX } from "lucide-react";
+import { Pause, Play, SkipBack, SkipForward, SlidersHorizontal, Star } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtTime, type Track } from "@/lib/crate-data";
 import type WaveSurferType from "wavesurfer.js";
@@ -13,6 +13,8 @@ interface Props {
   track: Track | null;
   playlistName: string;
   autoPlay: boolean;
+  volume: number;
+  muted: boolean;
   onPrev: () => void;
   onNext: () => void;
   onPlayingChange: (p: boolean) => void;
@@ -23,6 +25,8 @@ export function Deck({
   track,
   playlistName,
   autoPlay,
+  volume,
+  muted,
   onPrev,
   onNext,
   onPlayingChange,
@@ -33,16 +37,15 @@ export function Deck({
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [dur, setDur] = useState(0);
-  const [vol, setVol] = useState(0.8);
-  const [muted, setMuted] = useState(false);
   const [rate, setRate] = useState(1);
+  const [pitchOpen, setPitchOpen] = useState(false);
   const [cue, setCue] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const nextRef = useRef(onNext);
   nextRef.current = onNext;
-  const settings = useRef({ vol, muted, rate });
-  settings.current = { vol, muted, rate };
+  const settings = useRef({ volume, muted, rate });
+  settings.current = { volume, muted, rate };
 
   useImperativeHandle(ref, () => ({
     toggle: () => ws.current?.playPause(),
@@ -93,7 +96,7 @@ export function Deck({
       });
       ws.current = inst;
       const s = settings.current;
-      inst.setVolume(s.muted ? 0 : s.vol);
+      inst.setVolume(s.muted ? 0 : s.volume);
       inst.setPlaybackRate(s.rate, false);
       inst.on("ready", (d) => {
         setDur(d);
@@ -126,8 +129,8 @@ export function Deck({
   }, [track?.id]);
 
   useEffect(() => {
-    ws.current?.setVolume(muted ? 0 : vol);
-  }, [vol, muted]);
+    ws.current?.setVolume(muted ? 0 : volume);
+  }, [volume, muted]);
   useEffect(() => {
     ws.current?.setPlaybackRate(rate, false);
   }, [rate]);
@@ -152,30 +155,31 @@ export function Deck({
       <div className="mb-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <div className="min-w-0">
           <div className="truncate text-lg font-semibold text-foreground">
-            {track?.title ?? "No track loaded"}
+            {track ? `${track.artist} - ${track.title}` : "No track loaded"}
           </div>
-          <div className="truncate text-sm text-muted-foreground">
-            {track ? `${track.artist} — ${track.album}` : "Select a track and press Enter"}
+          <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            <span className="truncate">
+              {track ? track.album : "Select a track and press Enter"}
+            </span>
+            {track && (
+              <span className="shrink-0 rounded bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
+                {playlistName}
+              </span>
+            )}
           </div>
-          {track && (
-            <div className="mt-1 flex gap-0.5" role="img" aria-label={`Rating: ${track.rating} out of 5 stars`}>
-              {[1, 2, 3, 4, 5].map((star) => (
-                <Star key={star} size={15} className={star <= track.rating ? "fill-gold text-gold" : "text-muted-foreground"} />
-              ))}
-            </div>
-          )}
         </div>
         {track && (
-          <div className="ml-auto flex flex-wrap items-center gap-2 font-mono text-xs">
-            <span className="rounded bg-secondary px-2 py-1 text-accent">
-              {(track.bpm * rate).toFixed(1)} BPM
-            </span>
-            <span className="rounded bg-secondary px-2 py-1 text-primary">{track.key}</span>
-            <span className="rounded border border-primary/40 px-2 py-1 text-primary">
-              {track.quality}
-            </span>
-            <span className="rounded bg-secondary px-2 py-1 text-muted-foreground">
-              {playlistName}
+          <div className="ml-auto flex flex-col items-end gap-1 font-mono text-xs">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="rounded bg-secondary px-2 py-1 text-primary">{track.key}</span>
+              <span className="rounded border border-primary/40 px-2 py-1 text-primary">
+                {track.quality}
+              </span>
+            </div>
+            <span className="flex gap-0.5" role="img" aria-label={`Rating: ${track.rating} out of 5 stars`}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Star key={star} size={14} className={star <= track.rating ? "fill-gold text-gold" : "text-muted-foreground"} />
+              ))}
             </span>
           </div>
         )}
@@ -200,73 +204,76 @@ export function Deck({
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button
-          onClick={onCue}
-          disabled={!track}
-          className="h-9 rounded border border-gold/60 bg-secondary px-3 font-mono text-xs font-bold text-gold hover:bg-gold/10 disabled:opacity-40"
-        >
-          CUE
-        </button>
-        <button onClick={onPrev} className={btn} aria-label="Previous">
-          <SkipBack size={16} />
-        </button>
-        <button
-          onClick={() => ws.current?.playPause()}
-          disabled={!track}
-          aria-label={playing ? "Pause" : "Play"}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_0_16px] shadow-primary/50 disabled:opacity-40"
-        >
-          {playing ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
-        </button>
-        <button onClick={onNext} className={btn} aria-label="Next">
-          <SkipForward size={16} />
-        </button>
-
-        <div className="font-mono text-sm tabular-nums">
-          <span className="text-primary">{fmtTime(time)}</span>
-          <span className="mx-1 text-muted-foreground">/</span>
-          <span className="text-destructive">-{fmtTime(dur - time)}</span>
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          <span className="font-mono text-[10px] text-muted-foreground">PITCH</span>
-          <Slider
-            className="w-32"
-            min={0.92}
-            max={1.08}
-            step={0.001}
-            value={[rate]}
-            onValueChange={([v]) => setRate(v ?? 1)}
-          />
+      <div className="mt-3 grid grid-cols-1 items-center gap-3 md:grid-cols-[1fr_auto_1fr]">
+        <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={() => setRate(1)}
-            className="w-14 font-mono text-xs text-accent tabular-nums"
-            title="Reset"
+            onClick={onCue}
+            disabled={!track}
+            className="h-9 rounded border border-gold/60 bg-secondary px-3 font-mono text-xs font-bold text-gold hover:bg-gold/10 disabled:opacity-40"
           >
-            {Number(pitch) > 0 ? "+" : ""}
-            {pitch}%
+            CUE
           </button>
-        </div>
-        <div className="flex items-center gap-2">
+          <button onClick={onPrev} className={btn} aria-label="Previous">
+            <SkipBack size={16} />
+          </button>
           <button
-            onClick={() => setMuted((m) => !m)}
-            className="text-muted-foreground hover:text-primary"
-            aria-label="Mute"
+            onClick={() => ws.current?.playPause()}
+            disabled={!track}
+            aria-label={playing ? "Pause" : "Play"}
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_0_16px] shadow-primary/50 disabled:opacity-40"
           >
-            {muted || vol === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            {playing ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
           </button>
-          <Slider
-            className="w-28"
-            min={0}
-            max={1}
-            step={0.01}
-            value={[muted ? 0 : vol]}
-            onValueChange={([v]) => {
-              setVol(v ?? 0);
-              setMuted(false);
-            }}
-          />
+          <button onClick={onNext} className={btn} aria-label="Next">
+            <SkipForward size={16} />
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPitchOpen((open) => !open)}
+              className={pitchOpen ? "text-primary" : "text-muted-foreground hover:text-primary"}
+              aria-expanded={pitchOpen}
+              aria-label={pitchOpen ? "Hide pitch slider" : "Show pitch slider"}
+              title="Pitch"
+            >
+              <SlidersHorizontal size={16} />
+            </button>
+            {pitchOpen && (
+              <>
+                <Slider
+                  className="w-32"
+                  min={0.92}
+                  max={1.08}
+                  step={0.001}
+                  value={[rate]}
+                  onValueChange={([v]) => setRate(v ?? 1)}
+                  aria-label="Pitch"
+                />
+                <button
+                  onClick={() => setRate(1)}
+                  className="w-14 font-mono text-xs text-accent tabular-nums"
+                  title="Reset pitch"
+                >
+                  {Number(pitch) > 0 ? "+" : ""}
+                  {pitch}%
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-center gap-2 font-mono text-xs tabular-nums">
+          <span className="rounded bg-destructive px-2 py-1 text-destructive-foreground">
+            -{fmtTime(dur - time)}
+          </span>
+          <span className="rounded bg-primary px-2 py-1 text-primary-foreground">
+            {fmtTime(time)}
+          </span>
+        </div>
+        <div className="flex items-center justify-end">
+          {track && (
+            <span className="rounded bg-secondary px-2 py-1 font-mono text-xs text-accent">
+              {(track.bpm * rate).toFixed(2)} BPM
+            </span>
+          )}
         </div>
       </div>
     </div>
