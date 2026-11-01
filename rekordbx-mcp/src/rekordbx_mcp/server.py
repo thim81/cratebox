@@ -2,8 +2,10 @@
 
 import argparse
 import asyncio
+import unicodedata
 import sys
 from contextlib import asynccontextmanager
+from difflib import SequenceMatcher
 from functools import wraps
 from pathlib import Path
 
@@ -54,6 +56,19 @@ def redact_paths(value):
     return value
 
 
+def normalize_match_text(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value).casefold()
+    unaccented = "".join(char for char in decomposed if not unicodedata.combining(char))
+    words = "".join(char if char.isalnum() else " " for char in unaccented)
+    return " ".join(words.split())
+
+
+def similarity(left: str, right: str) -> float:
+    return SequenceMatcher(
+        None, normalize_match_text(left), normalize_match_text(right),
+    ).ratio()
+
+
 def build_server(
     snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY,
     playlists_directory: Path | None = None,
@@ -98,6 +113,63 @@ def build_server(
         server.tool(
             name=name, annotations={"readOnlyHint": True, "destructiveHint": False},
         )(wrap(original))
+
+    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
+    async def lookup_similar_tracks(artist: str, title: str, limit: int = 10) -> list[dict]:
+        """Find collection tracks matching an artist and a fuzzy title."""
+        artist = artist.strip()
+        title = title.strip()
+        if not artist or not title:
+            raise ToolError("Artist and title are required for collection lookup.")
+        if not 1 <= limit <= 10:
+            raise ToolError("Limit must be between 1 and 10.")
+
+        async with _upstream_lock:
+            upstream.db = database
+            upstream._db_initialized = True
+            upstream.ensure_database_connected = ensure_connected
+            try:
+                await ensure_connected()
+
+                def ranked_candidates():
+                    ranked = []
+                    normalized_artist = normalize_match_text(artist)
+                    for content in database._get_active_content():
+                        candidate_artist = str(getattr(content, "ArtistName", "") or "")
+                        artist_score = similarity(artist, candidate_artist)
+                        if not candidate_artist or (
+                            normalized_artist not in normalize_match_text(candidate_artist)
+                            and artist_score < 0.5
+                        ):
+                            continue
+                        candidate = database._content_to_track(content).model_dump()
+                        score = 0.35 * artist_score + 0.65 * similarity(
+                            title, str(candidate.get("title") or ""),
+                        )
+                        ranked.append((score, candidate))
+                    return ranked
+
+                ranked = await asyncio.to_thread(ranked_candidates)
+            except Exception:
+                logger.exception("Rekordbox collection lookup failed")
+                raise ToolError(
+                    "Collection lookup failed; check the local server logs."
+                ) from None
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        results = []
+        for score, candidate in ranked[:limit]:
+            results.append({
+                "id": str(candidate.get("id") or ""),
+                "title": str(candidate.get("title") or ""),
+                "artist": str(candidate.get("artist") or ""),
+                "album": str(candidate.get("album") or ""),
+                "duration": candidate.get("length") or candidate.get("duration") or 0,
+                "bpm": candidate.get("bpm") or 0,
+                "key": str(candidate.get("key") or ""),
+                "similarity": round(score * 100, 1),
+            })
+        return redact_paths(results)
 
     @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
     async def export_playlist(

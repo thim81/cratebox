@@ -7,18 +7,30 @@ the audio file is never deleted. Other configured playlist folders remain read-o
 From this folder, run:
 
 ```sh
-uv run --with fastapi --with uvicorn --with mutagen uvicorn server:app --port 8000 --reload
+uv --directory ../rekordbx-mcp run --locked --with fastapi --with uvicorn --with mutagen \
+  uvicorn --app-dir ../neon-crate server:app --port 8000 --reload
 ```
 
 By default, playlists are read from the repository root `playlists/` folder. To use another folder:
 
 ```sh
-PLAYLIST_DIR="/absolute/path/to/playlists" uv run --with fastapi --with uvicorn --with mutagen uvicorn server:app --port 8000 --reload
+PLAYLIST_DIR="/absolute/path/to/playlists" uv --directory ../rekordbx-mcp run --locked \
+  --with fastapi --with uvicorn --with mutagen \
+  uvicorn --app-dir ../neon-crate server:app --port 8000 --reload
 ```
 
 Then set the app's API URL to `http://localhost:8000` and enable API mode.
 The server provides `GET /api/playlists`, `GET /api/playlists/{playlist_id}`,
-and `GET /api/stream?playlist_id=...&track_id=...`. Audio streaming is restricted
-to files referenced by playlists in the configured folder. Track removal uses
+`GET /api/stream?playlist_id=...&track_id=...`, `GET /api/collection/status`,
+and `POST /api/collection/lookup`. Audio streaming is restricted to files
+referenced by playlists in the configured folder. Track removal uses
 `DELETE /api/playlists/{playlist_id}/tracks` with a JSON `track_ids` list and
 only works with the repository's `playlists/` folder.
+
+Each track row has a Lookup action that searches the Rekordbox collection for
+similar artist/title matches. The MCP worker starts on the first lookup, so
+CrateDeck can browse and play playlists without it. Close Rekordbox and its
+background agents before the first lookup; the worker creates a fresh verified
+snapshot, stays connected while the API runs, and stops with the API. The header
+shows whether the MCP worker is idle, connecting, connected, or in an error
+state. A lookup startup failure does not interrupt playlist browsing or playback.

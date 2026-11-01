@@ -6,10 +6,14 @@ For a product overview and quick start, see [Rekordbx](../README.md).
 
 A native macOS adapter for the upstream
 [rekordbox-mcp](https://github.com/davehenke/rekordbox-mcp), managed with uv.
-It exposes 18 reading tools against a verified copy of the collection, plus a
+It exposes 19 read-only tools against a verified copy of the collection, plus a
 local playlist exporter.
 The original Rekordbox database, playlists, analysis files and audio remain
 read-only source data. Docker is not used.
+
+CrateDeck can also launch this MCP on the first track lookup through its local
+API. Close Rekordbox and its background agents before that first lookup; the
+worker uses a fresh verified snapshot and stops when CrateDeck's API shuts down.
 
 ## Set up
 

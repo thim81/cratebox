@@ -2,25 +2,146 @@
 
 from datetime import date
 from pathlib import Path
+from contextlib import asynccontextmanager, suppress
 import hashlib
+import json
 from urllib.parse import quote
 import os
 import tempfile
+import asyncio
 
 import mutagen
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastmcp import Client
+from fastmcp.client.transports import StdioTransport
+from pydantic import BaseModel
 
 DEFAULT_PLAYLIST_DIR = Path(__file__).resolve().parents[1] / "playlists"
 PLAYLIST_DIR = Path(os.environ.get("PLAYLIST_DIR", str(DEFAULT_PLAYLIST_DIR))).expanduser().resolve()
-app = FastAPI(title="CrateDeck playlist API")
+
+
+class CollectionLookup(BaseModel):
+    artist: str
+    title: str
+
+
+class CollectionMcp:
+    def __init__(self):
+        self.state = "idle"
+        self.message = None
+        self.client = None
+        self.lock = asyncio.Lock()
+        self.project = Path(__file__).resolve().parents[1] / "rekordbx-mcp"
+
+    async def status(self):
+        if self.client:
+            try:
+                if not await self.client.ping():
+                    raise RuntimeError("MCP worker did not respond.")
+            except Exception:
+                with suppress(Exception):
+                    await self.client.close()
+                self.client = None
+                self.state = "error"
+                self.message = "Collection connection was lost. Try Lookup again or restart the local API."
+        return {"state": self.state, "message": self.message}
+
+    async def connect(self):
+        async with self.lock:
+            if self.client:
+                return self.client
+            self.state = "starting"
+            self.message = None
+            transport = StdioTransport(
+                command="uv",
+                args=["run", "--locked", "--offline", "rekordbx-mcp", "start"],
+                cwd=str(self.project),
+            )
+            client = Client(transport, timeout=120, init_timeout=120)
+            try:
+                await client.__aenter__()
+                if "lookup_similar_tracks" not in {tool.name for tool in await client.list_tools()}:
+                    raise RuntimeError("Lookup tool is unavailable.")
+                self.client = client
+                self.state = "connected"
+                return client
+            except Exception:
+                with suppress(Exception):
+                    await client.close()
+                self.state = "error"
+                self.message = "Could not connect to the Rekordbox collection. Close Rekordbox and its background agents, then try again."
+                raise HTTPException(503, self.message) from None
+
+    async def close(self):
+        async with self.lock:
+            if self.client:
+                with suppress(Exception):
+                    await self.client.close()
+                self.client = None
+            if self.state in ("starting", "connected"):
+                self.state = "idle"
+            self.message = None
+
+
+collection_mcp = CollectionMcp()
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    try:
+        yield
+    finally:
+        await collection_mcp.close()
+
+
+app = FastAPI(title="CrateDeck playlist API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+
+@app.get("/api/collection/status")
+async def collection_status():
+    return await collection_mcp.status()
+
+
+@app.post("/api/collection/lookup")
+async def collection_lookup(request: CollectionLookup):
+    artist, title = request.artist.strip(), request.title.strip()
+    if not artist or not title:
+        raise HTTPException(400, "Artist and title are required for collection lookup.")
+    client = await collection_mcp.connect()
+    try:
+        result = await client.call_tool(
+            "lookup_similar_tracks", {"artist": artist, "title": title},
+        )
+        matches = result.data
+        if matches is None and result.content:
+            matches = json.loads(result.content[0].text)
+        collection_mcp.state = "connected"
+        collection_mcp.message = None
+        return {"matches": matches or []}
+    except Exception:
+        error_message = "Collection lookup failed."
+        if collection_mcp.client:
+            try:
+                if not await collection_mcp.client.ping():
+                    raise RuntimeError("MCP worker did not respond.")
+                collection_mcp.state = "connected"
+                collection_mcp.message = None
+            except Exception:
+                with suppress(Exception):
+                    await collection_mcp.client.close()
+                collection_mcp.client = None
+                collection_mcp.state = "error"
+                collection_mcp.message = "Collection connection was lost. Try Lookup again or restart the local API."
+                error_message = collection_mcp.message
+        raise HTTPException(502, error_message) from None
 
 
 def playlist_files():

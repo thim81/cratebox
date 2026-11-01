@@ -19,6 +19,24 @@ export interface Playlist {
   tracks?: Track[];
 }
 
+export type CollectionState = "idle" | "starting" | "connected" | "error";
+
+export interface CollectionStatus {
+  state: CollectionState;
+  message: string | null;
+}
+
+export interface CollectionMatch {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: number;
+  bpm: number;
+  key: string;
+  similarity: number;
+}
+
 export function fmtTime(sec: number) {
   if (!isFinite(sec) || sec < 0) sec = 0;
   const h = Math.floor(sec / 3600),

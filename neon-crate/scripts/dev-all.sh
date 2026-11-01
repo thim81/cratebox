@@ -1,7 +1,10 @@
 #!/bin/sh
 set -eu
 
-uv run --with fastapi --with uvicorn --with mutagen uvicorn server:app --port 8000 --reload &
+api_dir=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
+mcp_dir=$(CDPATH= cd "$api_dir/../rekordbx-mcp" && pwd)
+uv --directory "$mcp_dir" run --locked --with fastapi --with uvicorn --with mutagen \
+  uvicorn --app-dir "$api_dir" server:app --port 8000 --reload &
 api_pid=$!
 
 cleanup() {

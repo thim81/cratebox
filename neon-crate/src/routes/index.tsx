@@ -3,8 +3,12 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   ChevronDown,
   ChevronUp,
+  Circle,
+  CircleAlert,
+  CircleCheck,
   Disc3,
   ListMusic,
+  LoaderCircle,
   Search,
   Settings,
   Sun,
@@ -26,7 +30,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { fmtTime, type Playlist, type Track } from "@/lib/crate-data";
+import {
+  fmtTime,
+  type CollectionMatch,
+  type CollectionStatus,
+  type Playlist,
+  type Track,
+} from "@/lib/crate-data";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -60,6 +70,16 @@ function Index() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [activeId, setActiveId] = useState("");
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [collectionStatus, setCollectionStatus] = useState<CollectionStatus>({
+    state: "idle",
+    message: null,
+  });
+  const [lookupOpen, setLookupOpen] = useState(false);
+  const [lookupTrack, setLookupTrack] = useState<Track | null>(null);
+  const [lookupMatches, setLookupMatches] = useState<CollectionMatch[]>([]);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const lookupRequestId = useRef(0);
   const [apiError, setApiError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [crateQ, setCrateQ] = useState("");
@@ -109,9 +129,59 @@ function Index() {
     }
   }, [apiUrl]);
 
+  const refreshCollectionStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiUrl}/api/collection/status`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setCollectionStatus((await response.json()) as CollectionStatus);
+    } catch {
+      setCollectionStatus({ state: "error", message: "Local API unavailable" });
+    }
+  }, [apiUrl]);
+
+  const lookupTrackInCollection = useCallback(
+    async (track: Track) => {
+      const requestId = ++lookupRequestId.current;
+      setLookupTrack(track);
+      setLookupMatches([]);
+      setLookupError(null);
+      setLookupLoading(true);
+      setLookupOpen(true);
+      try {
+        const response = await fetch(`${apiUrl}/api/collection/lookup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ artist: track.artist, title: track.title }),
+        });
+        const data = (await response.json()) as {
+          matches?: CollectionMatch[];
+          detail?: string;
+        };
+        if (!response.ok) throw new Error(data.detail ?? `HTTP ${response.status}`);
+        if (lookupRequestId.current === requestId) setLookupMatches(data.matches ?? []);
+      } catch (error) {
+        if (lookupRequestId.current === requestId) {
+          setLookupError(
+            error instanceof Error ? error.message : "Collection lookup failed.",
+          );
+        }
+      } finally {
+        if (lookupRequestId.current === requestId) setLookupLoading(false);
+        void refreshCollectionStatus();
+      }
+    },
+    [apiUrl, refreshCollectionStatus],
+  );
+
   useEffect(() => {
     void refreshPlaylists();
   }, [refreshPlaylists]);
+
+  useEffect(() => {
+    void refreshCollectionStatus();
+    const interval = window.setInterval(() => void refreshCollectionStatus(), 3000);
+    return () => window.clearInterval(interval);
+  }, [refreshCollectionStatus]);
 
   useEffect(() => {
     setSel(0);
@@ -313,6 +383,31 @@ function Index() {
           CRATE<span className="text-accent">DECK</span>
         </span>
         <div className="ml-auto flex items-center gap-3 text-xs">
+          <div
+            role="status"
+            aria-label={`MCP ${collectionStatus.state}`}
+            title={collectionStatus.message ?? `MCP ${collectionStatus.state}`}
+            className={`flex items-center gap-1.5 ${collectionStatus.state === "connected" ? "text-accent" : collectionStatus.state === "error" ? "text-destructive" : "text-muted-foreground"}`}
+          >
+            {collectionStatus.state === "starting" ? (
+              <LoaderCircle size={14} className="animate-spin" />
+            ) : collectionStatus.state === "connected" ? (
+              <CircleCheck size={14} />
+            ) : collectionStatus.state === "error" ? (
+              <CircleAlert size={14} />
+            ) : (
+              <Circle size={14} />
+            )}
+            <span className="hidden sm:inline">
+              {collectionStatus.state === "idle"
+                ? "MCP not started"
+                : collectionStatus.state === "starting"
+                  ? "MCP connecting"
+                  : collectionStatus.state === "connected"
+                    ? "MCP connected"
+                    : "MCP error"}
+            </span>
+          </div>
           <Button
             size="icon"
             variant="ghost"
@@ -527,6 +622,19 @@ function Index() {
                         <Button
                           size="icon"
                           variant="ghost"
+                          className="size-7 text-muted-foreground hover:text-primary"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void lookupTrackInCollection(t);
+                          }}
+                          aria-label={`Look up similar tracks for ${t.title}`}
+                          title="Look up in Rekordbox collection"
+                        >
+                          <Search size={14} />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
                           className="size-7 text-muted-foreground hover:text-destructive"
                           onClick={(event) => {
                             event.stopPropagation();
@@ -580,6 +688,48 @@ function Index() {
               Save
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={lookupOpen} onOpenChange={setLookupOpen}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Similar Rekordbox tracks</DialogTitle>
+            <DialogDescription>
+              {lookupTrack ? `${lookupTrack.artist} — ${lookupTrack.title}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {lookupLoading ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground" role="status">
+              <LoaderCircle size={16} className="animate-spin" />
+              Searching the collection…
+            </div>
+          ) : lookupError ? (
+            <p className="py-4 text-sm text-destructive" role="alert">{lookupError}</p>
+          ) : lookupMatches.length ? (
+            <ul className="divide-y divide-border">
+              {lookupMatches.map((match) => (
+                <li key={match.id} className="flex items-start justify-between gap-4 py-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{match.title}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {match.artist}{match.album ? ` — ${match.album}` : ""}
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                      {fmtTime(match.duration)}{match.bpm ? ` · ${match.bpm} BPM` : ""}{match.key ? ` · ${match.key}` : ""}
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded bg-secondary px-2 py-1 font-mono text-xs text-accent">
+                    {match.similarity}%
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No similar tracks found in the collection.
+            </p>
+          )}
         </DialogContent>
       </Dialog>
     </div>
