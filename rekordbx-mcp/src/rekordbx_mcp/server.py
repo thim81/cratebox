@@ -50,6 +50,11 @@ class CrateDeckLookupTrack(LookupTrack):
     file_path: str
 
 
+class TrackLocation(BaseModel):
+    track_id: str
+    file_path: str
+
+
 class PlaylistSeparator(BaseModel):
     type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
     before_track: int
@@ -232,6 +237,34 @@ def build_server(
             similarity=round(score * 100, 1),
             file_path=str(candidate.get("file_path") or ""),
         ) for score, candidate in ranked]
+
+    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
+    async def get_track_locations(track_ids: list[str]) -> list[TrackLocation]:
+        """Resolve ordered track IDs to paths for trusted local application APIs."""
+        if not track_ids or len(track_ids) > 1000 or any(not item for item in track_ids):
+            raise ToolError("Provide between 1 and 1000 track IDs.")
+        async with _upstream_lock:
+            upstream.db = database
+            upstream._db_initialized = True
+            upstream.ensure_database_connected = ensure_connected
+            try:
+                await ensure_connected()
+
+                def resolve_locations():
+                    by_id = {
+                        str(database._content_to_track(content).id): str(content.FolderPath or "")
+                        for content in database._get_active_content()
+                    }
+                    if any(track_id not in by_id or not by_id[track_id] for track_id in track_ids):
+                        raise ValueError
+                    return [TrackLocation(track_id=track_id, file_path=by_id[track_id]) for track_id in track_ids]
+
+                return await asyncio.to_thread(resolve_locations)
+            except ValueError:
+                raise ToolError("One or more tracks are unavailable in the active collection.") from None
+            except Exception:
+                logger.exception("Track location lookup failed")
+                raise ToolError("Track location lookup failed; check the local server logs.") from None
 
     @server.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
     async def export_playlist(

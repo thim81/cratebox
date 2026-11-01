@@ -157,14 +157,14 @@ export function TrackTable({
                   onClick={() => onSelect(index)}
                   onDoubleClick={readOnly ? undefined : () => onLoad(track)}
                   aria-selected={index === selectedIndex || isRangeSelected}
-                  className={`group cursor-default border-b border-border/40 ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
+                  className={`group relative cursor-default border-b border-border/40 ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
                 >
-                  <td className="relative w-10 px-1 py-1 text-center">
+                  <td className="w-10 px-1 py-1 text-center">
                     {!readOnly && index > 0 && (
                       <Button
                         size="icon"
                         variant="ghost"
-                        className={`absolute left-1/2 top-0 z-20 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-card p-0 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-primary group-hover:opacity-100 focus-visible:opacity-100 ${separatorInserting ? "pointer-events-none" : ""}`}
+                        className={`absolute bottom-0 left-1/2 z-20 size-5 -translate-x-1/2 translate-y-1/2 rounded-full border border-border bg-card p-0 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-primary group-hover:opacity-100 focus-visible:opacity-100 ${separatorInserting ? "pointer-events-none" : ""}`}
                         disabled={separatorInserting}
                         onClick={(event) => {
                           event.stopPropagation();

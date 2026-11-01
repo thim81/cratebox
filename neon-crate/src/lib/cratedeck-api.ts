@@ -203,13 +203,13 @@ export async function swapPlaylistTrack(
 }
 
 export const PLAYLIST_SEPARATORS = [
-  { type: "generic", label: "Generic" },
-  { type: "90s", label: "90s" },
-  { type: "R&B", label: "R&B" },
-  { type: "Ambi", label: "Ambi" },
-  { type: "Salsa", label: "Salsa" },
-  { type: "Party", label: "Party" },
-  { type: "Dance", label: "Dance" },
+  { type: "generic", label: "Generic", trackId: "228753448" },
+  { type: "90s", label: "90s", trackId: "118082420" },
+  { type: "R&B", label: "R&B", trackId: "38579759" },
+  { type: "Ambi", label: "Ambi", trackId: "242295304" },
+  { type: "Salsa", label: "Salsa", trackId: "244354734" },
+  { type: "Party", label: "Party", trackId: "247266859" },
+  { type: "Dance", label: "Dance", trackId: "32984962" },
 ] as const;
 
 export type SeparatorType = (typeof PLAYLIST_SEPARATORS)[number]["type"];
@@ -227,6 +227,27 @@ export async function insertPlaylistSeparator(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type, before_track_id: beforeTrackId, confirm_update: true }),
+    },
+  );
+}
+
+export async function replacePlaylistSeparator(
+  apiUrl: string,
+  playlistId: string,
+  separatorTrackId: string,
+  type: SeparatorType,
+): Promise<void> {
+  await requestJson(
+    apiUrl,
+    `/api/playlists/${encodeURIComponent(playlistId)}/separators/replace`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        separator_track_id: separatorTrackId,
+        type,
+        confirm_update: true,
+      }),
     },
   );
 }

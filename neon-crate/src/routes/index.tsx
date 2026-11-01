@@ -89,6 +89,7 @@ function Index() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlistSource, setPlaylistSource] = useState<"crate" | "rekordbox">("crate");
   const activePlaylistContext = useRef({ id: activeId, source: playlistSource });
+  const playlistTracksGeneration = useRef(0);
   useLayoutEffect(() => {
     activePlaylistContext.current = { id: activeId, source: playlistSource };
   }, [activeId, playlistSource]);
@@ -298,6 +299,8 @@ function Index() {
   }, [refreshCollectionStatus]);
 
   useEffect(() => {
+    const generation = ++playlistTracksGeneration.current;
+    let active = true;
     setSel(0);
     setRangeAnchor(null);
     if (!activeId) {
@@ -305,9 +308,18 @@ function Index() {
       return;
     }
     getPlaylist(apiUrl, activeId)
-      .then((playlist) => setTracks(playlist.tracks ?? []))
-      .catch(() => setTracks([]));
-  }, [activeId, apiUrl]);
+      .then((playlist) => {
+        if (active && generation === playlistTracksGeneration.current) {
+          setTracks(playlist.tracks ?? []);
+        }
+      })
+      .catch(() => {
+        if (active && generation === playlistTracksGeneration.current) setTracks([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeId, apiUrl, playlistSource]);
 
   const activePl = playlists.find((p) => p.id === activeId);
   const appendDestination = playlists.find((p) => p.id === appendPlaylistId);
@@ -387,14 +399,23 @@ function Index() {
       const trackId = track.rekordbox_id;
       if (playlistSource !== "rekordbox" || !destination || !trackId) return;
 
+      const generation = ++playlistTracksGeneration.current;
       setAppendingTrackId(track.id);
       try {
         await appendRekordboxTrack(apiUrl, destination.id, trackId);
         await refreshPlaylists();
-        if (activePlaylistContext.current.id === destination.id) {
+        if (
+          generation === playlistTracksGeneration.current &&
+          activePlaylistContext.current.source === "crate" &&
+          activePlaylistContext.current.id === destination.id
+        ) {
           try {
             const playlist = await getPlaylist(apiUrl, destination.id, true);
-            if (activePlaylistContext.current.id === destination.id) {
+            if (
+              generation === playlistTracksGeneration.current &&
+              activePlaylistContext.current.source === "crate" &&
+              activePlaylistContext.current.id === destination.id
+            ) {
               setTracks(playlist.tracks ?? []);
             }
           } catch {
@@ -970,7 +991,7 @@ function Index() {
                 activeRekordboxPlaylist &&
                 !activeRekordboxPlaylist.is_folder && (
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    Insert into playlist
+                    Insert into CrateDeck playlist
                     <select
                       aria-label="Local CrateDeck playlist to insert into"
                       className="h-8 max-w-56 rounded border border-input bg-background px-2 text-xs text-foreground"

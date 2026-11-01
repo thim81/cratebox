@@ -60,7 +60,8 @@ class CollectionMcp:
                 tool_names = {tool.name for tool in await client.list_tools()}
                 required_tools = {
                     "lookup_similar_tracks_for_cratedeck", "get_track_details",
-                    "get_playlists", "get_playlist_tracks", "export_playlist",
+                    "get_playlists", "get_playlist_tracks", "get_track_locations",
+                    "export_playlist",
                 }
                 if not required_tools <= tool_names:
                     raise RuntimeError("A required Rekordbox collection tool is unavailable.")

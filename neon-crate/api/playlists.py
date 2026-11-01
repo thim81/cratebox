@@ -1,6 +1,7 @@
 """Playlist parsing, operations, and endpoints."""
 
 from datetime import date
+import asyncio
 import hashlib
 import json
 import os
@@ -17,6 +18,11 @@ from .collection import collection_mcp
 from .config import DEFAULT_PLAYLIST_DIR, PLAN_DIRECTORY, PLAYLIST_DIR
 
 router = APIRouter()
+_playlist_mutation_locks: dict[str, asyncio.Lock] = {}
+
+
+def playlist_mutation_lock(playlist_id: str) -> asyncio.Lock:
+    return _playlist_mutation_locks.setdefault(playlist_id, asyncio.Lock())
 
 class PlaylistSwap(BaseModel):
     source_track_id: str
@@ -200,7 +206,12 @@ def get_playlist(playlist_id: str):
     return {**playlist_summary(path, tracks), "tracks": tracks}
 
 @router.delete("/api/playlists/{playlist_id}/tracks")
-def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)):
+async def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)):
+    async with playlist_mutation_lock(playlist_id):
+        return _delete_tracks(playlist_id, track_ids)
+
+
+def _delete_tracks(playlist_id: str, track_ids: list[str]):
     if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
         raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
     if not track_ids or len(track_ids) > 1000 or len(set(track_ids)) != len(track_ids):
@@ -264,7 +275,12 @@ def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)
     return {"removed": len(track_ids)}
 
 @router.post("/api/playlists/{playlist_id}/tracks/swap")
-def swap_track(playlist_id: str, request: PlaylistSwap):
+async def swap_track(playlist_id: str, request: PlaylistSwap):
+    async with playlist_mutation_lock(playlist_id):
+        return _swap_track(playlist_id, request)
+
+
+def _swap_track(playlist_id: str, request: PlaylistSwap):
     if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
         raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
     if not request.source_track_id or not request.replacement_track_id:

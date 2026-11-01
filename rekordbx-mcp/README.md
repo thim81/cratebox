@@ -167,6 +167,12 @@ It returns file paths for immediate server-side playback and must stay out of
 conversational MCP client allowlists; the API removes paths before responding to
 the browser.
 
+`get_track_locations` is a generic read-only collection contract for trusted
+local application APIs that need to verify an existing ID/path pairing. It
+returns paths and must also stay out of conversational MCP client allowlists.
+The CrateDeck API compares these values internally before updating a playlist;
+browser responses contain no audio paths.
+
 ## Protection boundaries
 
 - **Source copier:** ordinary binary reads of the original, outside the worker.
