@@ -3,7 +3,7 @@ import { ArrowLeftRight, LoaderCircle, Pause, Play, Plus, Star, Volume2, X } fro
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
 
-const resultGrid = "grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem_4rem] items-center gap-1.5";
+const resultGrid = "grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem_2rem] items-center gap-1.5";
 
 function qualityBadgeClass(quality: string) {
   const bitrate = Number(/\bMP3\s+(\d+)\s*kbps/i.exec(quality)?.[1]);
@@ -187,7 +187,7 @@ export function CollectionLookupResults({
               )}
               <span className="text-right font-mono text-[10px] text-accent">{match.similarity}%</span>
               {match.id === sourceTrack.rekordbox_id ? (
-                <span className="whitespace-nowrap rounded bg-primary/10 px-1 py-1 text-center text-[10px] text-primary">In playlist</span>
+                <span className="col-span-2 whitespace-nowrap rounded bg-primary/10 px-1 py-1 text-center text-[10px] text-primary">In playlist</span>
               ) : (
                 <Button
                   size="sm"
@@ -201,9 +201,7 @@ export function CollectionLookupResults({
                   <ArrowLeftRight size={12} /> Swap
                 </Button>
               )}
-              {match.id === sourceTrack.rekordbox_id ? (
-                <span />
-              ) : (
+              {match.id !== sourceTrack.rekordbox_id && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -222,17 +220,17 @@ export function CollectionLookupResults({
                 </Button>
               )}
               <Button
-                size="sm"
+                size="icon"
                 variant="outline"
-                className="h-7 gap-1 px-1 text-[10px]"
+                className="size-7"
                 disabled={match.playable === false}
                 onClick={() => onPlay(match)}
                 aria-label={`${isActiveMatch(match) && playing ? "Pause" : "Play"} ${match.artist} — ${match.title} in deck`}
                 title={match.playable === false ? "Audio file is unavailable" : isActiveMatch(match) && playing ? "Pause in main deck" : "Play in main deck"}
               >
                 {isActiveMatch(match) && playing
-                  ? <><Pause size={12} /> Pause</>
-                  : <><Play size={12} /> Play</>}
+                  ? <Pause size={12} />
+                  : <Play size={12} />}
               </Button>
             </li>
           ))}
