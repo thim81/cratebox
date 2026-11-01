@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -52,6 +52,9 @@ interface TrackTableProps {
   appendPlaylistName?: string;
   appendingTrackId?: string | null;
   readOnly?: boolean;
+  reorderEnabled?: boolean;
+  reordering?: boolean;
+  onReorder?: (sourceTrackId: string, targetTrackId: string, before: boolean) => void;
 }
 
 export function TrackTable({
@@ -87,8 +90,13 @@ export function TrackTable({
   appendPlaylistName,
   appendingTrackId,
   readOnly = false,
+  reorderEnabled = false,
+  reordering = false,
+  onReorder,
 }: TrackTableProps) {
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const draggedTrackId = useRef<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ trackId: string; before: boolean } | null>(null);
 
   useEffect(() => {
     rowRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
@@ -167,6 +175,36 @@ export function TrackTable({
                   ref={(element) => {
                     rowRefs.current[index] = element;
                   }}
+                  draggable={reorderEnabled && !reordering}
+                  onDragStart={(event) => {
+                    draggedTrackId.current = track.id;
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", track.id);
+                  }}
+                  onDragOver={(event) => {
+                    const sourceTrackId = draggedTrackId.current;
+                    if (!sourceTrackId || sourceTrackId === track.id) return;
+                    event.preventDefault();
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    const before = event.clientY < bounds.top + bounds.height / 2;
+                    event.dataTransfer.dropEffect = "move";
+                    setDropTarget({ trackId: track.id, before });
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const sourceTrackId = draggedTrackId.current;
+                    if (sourceTrackId && sourceTrackId !== track.id && onReorder) {
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      const before = event.clientY < bounds.top + bounds.height / 2;
+                      onReorder(sourceTrackId, track.id, before);
+                    }
+                    draggedTrackId.current = null;
+                    setDropTarget(null);
+                  }}
+                  onDragEnd={() => {
+                    draggedTrackId.current = null;
+                    setDropTarget(null);
+                  }}
                   onClick={() => onSelect(index)}
                   onDoubleClick={
                     readOnly
@@ -174,7 +212,7 @@ export function TrackTable({
                       : () => (isSeparator ? onSelectSeparator(track) : onLoad(track))
                   }
                   aria-selected={index === selectedIndex || isRangeSelected}
-                  className={`group relative cursor-default border-b border-border/40 ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
+                  className={`group relative cursor-default border-b border-border/40 ${reorderEnabled && !reordering ? "cursor-grab active:cursor-grabbing" : ""} ${dropTarget?.trackId === track.id ? (dropTarget.before ? "border-t-2 border-t-primary" : "border-b-2 border-b-primary") : ""} ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
                 >
                   <td className="w-10 px-1 py-1 text-center">
                     {!readOnly && (

@@ -43,6 +43,7 @@ import {
   replacePlaylistSeparator,
   lookupCollection,
   PLAYLIST_SEPARATORS,
+  reorderPlaylistTrack,
   revealTrackInFinder,
   swapPlaylistTrack,
   saveArtwork,
@@ -117,6 +118,7 @@ function Index() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [separatorInserting, setSeparatorInserting] = useState(false);
+  const [reordering, setReordering] = useState(false);
   const [pendingSeparatorReplacement, setPendingSeparatorReplacement] = useState<{
     track: Track;
     type: SeparatorType;
@@ -710,6 +712,46 @@ function Index() {
     () => new Set(selectedRange.map((track) => track.id)),
     [selectedRange],
   );
+  const reorderTrack = useCallback(
+    async (sourceTrackId: string, targetTrackId: string, before: boolean) => {
+      if (!activeId || playlistSource !== "crate" || reordering) return;
+      const requestPlaylistId = activeId;
+      const selectedTrackId = view[sel]?.id;
+      setReordering(true);
+      try {
+        await reorderPlaylistTrack(
+          apiUrl,
+          requestPlaylistId,
+          sourceTrackId,
+          targetTrackId,
+          before,
+        );
+        const playlist = await getPlaylist(apiUrl, requestPlaylistId, true);
+        if (
+          activePlaylistContext.current.id !== requestPlaylistId ||
+          activePlaylistContext.current.source !== "crate"
+        ) return;
+        const updatedTracks = playlist.tracks ?? [];
+        setTracks(updatedTracks);
+        setRangeAnchor(null);
+        const selectedIndex = updatedTracks.findIndex((track) => track.id === selectedTrackId);
+        setSel(selectedIndex >= 0 ? selectedIndex : 0);
+        setApiError(null);
+      } catch (error) {
+        if (
+          activePlaylistContext.current.id === requestPlaylistId &&
+          activePlaylistContext.current.source === "crate"
+        ) {
+          setApiError(
+            `Couldn't reorder track (${error instanceof Error ? error.message : "request failed"})`,
+          );
+        }
+      } finally {
+        setReordering(false);
+      }
+    },
+    [activeId, apiUrl, playlistSource, reordering, sel, view],
+  );
   const collectionStatusLabel =
     collectionStatus.state === "idle"
       ? "MCP not started"
@@ -1118,6 +1160,11 @@ function Index() {
             appendPlaylistName={appendDestination?.name}
             appendingTrackId={appendingTrackId}
             readOnly={playlistSource === "rekordbox"}
+            reorderEnabled={playlistSource === "crate" && sort.k === null && !q}
+            reordering={reordering}
+            onReorder={(sourceTrackId, targetTrackId, before) =>
+              void reorderTrack(sourceTrackId, targetTrackId, before)
+            }
           />
         </main>
       </div>

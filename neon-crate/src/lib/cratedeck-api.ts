@@ -202,6 +202,29 @@ export async function swapPlaylistTrack(
   return data;
 }
 
+export async function reorderPlaylistTrack(
+  apiUrl: string,
+  playlistId: string,
+  sourceTrackId: string,
+  targetTrackId: string,
+  before: boolean,
+): Promise<void> {
+  const response = await fetch(
+    `${apiUrl}/api/playlists/${encodeURIComponent(playlistId)}/tracks/reorder`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_track_id: sourceTrackId,
+        target_track_id: targetTrackId,
+        before,
+      }),
+    },
+  );
+  const data = (await response.json()) as { detail?: string };
+  if (!response.ok) throw new Error(data.detail ?? `HTTP ${response.status}`);
+}
+
 export const PLAYLIST_SEPARATORS = [
   { type: "generic", label: "Generic", trackId: "228753448" },
   { type: "90s", label: "90s", trackId: "118082420" },
