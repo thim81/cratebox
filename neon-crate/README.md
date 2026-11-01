@@ -9,7 +9,7 @@ From this folder, run:
 uv run --with fastapi --with uvicorn --with mutagen uvicorn server:app --port 8000
 ```
 
-By default, playlists are read from `~/Music/Playlists`. To use another folder:
+By default, playlists are read from the repository root `playlists/` folder. To use another folder:
 
 ```sh
 PLAYLIST_DIR="/absolute/path/to/playlists" uv run --with fastapi --with uvicorn --with mutagen uvicorn server:app --port 8000

@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "oxc", "typescript", "react"],
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "vitest": true
+  },
+  "ignorePatterns": ["dist", ".output", ".vinxi", "src/routeTree.gen.ts"],
+  "rules": {
+    "typescript/no-unused-vars": "off",
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ],
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "server-only",
+            "message": "TanStack Start does not use the Next.js `server-only` package. Rename the module to `*.server.ts` or mark it with `@tanstack/react-start/server-only`."
+          }
+        ]
+      }
+    ],
+    "react/set-state-in-effect": "off",
+    "react/static-components": "off"
+  }
+}

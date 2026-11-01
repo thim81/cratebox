@@ -10,7 +10,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-PLAYLIST_DIR = Path(os.environ.get("PLAYLIST_DIR", "~/Music/Playlists")).expanduser().resolve()
+DEFAULT_PLAYLIST_DIR = Path(__file__).resolve().parents[1] / "playlists"
+PLAYLIST_DIR = Path(os.environ.get("PLAYLIST_DIR", str(DEFAULT_PLAYLIST_DIR))).expanduser().resolve()
 app = FastAPI(title="CrateDeck playlist API")
 app.add_middleware(
     CORSMiddleware,
