@@ -141,9 +141,10 @@ export function TrackTable({
           {tracks.map((track, index) => {
             const isLoaded = loadedTrackId === track.id;
             const isRangeSelected = selectedIds.has(track.id);
-            const isSeparator = PLAYLIST_SEPARATORS.some(
+            const separator = PLAYLIST_SEPARATORS.find(
               (separator) => separator.trackId === track.rekordbox_id,
             );
+            const isSeparator = Boolean(separator);
             const mp3Bitrate = /\bMP3\s+(\d+)\s*kbps/i.exec(track.quality)?.[1];
             const bitrate = Number(mp3Bitrate);
             const qualityClass = mp3Bitrate
@@ -226,7 +227,17 @@ export function TrackTable({
                         ))}
                     </span>
                   </td>
-                  <td className="max-w-[16rem] truncate px-2 py-1 font-medium">{track.title}</td>
+                  <td className="max-w-[16rem] px-2 py-1 font-medium">
+                    {separator ? (
+                      <span className="flex w-full min-w-0 items-center gap-1 text-muted-foreground">
+                        <span className="w-3 shrink-0 border-t border-current" aria-hidden="true" />
+                        <span className="shrink-0">{separator.label.toUpperCase()}</span>
+                        <span className="min-w-2 flex-1 border-t border-current" aria-hidden="true" />
+                      </span>
+                    ) : (
+                      <span className="block truncate">{track.title}</span>
+                    )}
+                  </td>
                   <td className="max-w-[12rem] truncate px-2 py-1">{track.artist}</td>
                   <td className="max-w-[12rem] truncate px-2 py-1 text-muted-foreground">
                     {track.album}
