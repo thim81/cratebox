@@ -62,6 +62,12 @@ class AppendTrackRequest(BaseModel):
     confirm_update: bool = False
 
 
+class InsertTrackRequest(BaseModel):
+    track_id: str
+    after_track_id: str
+    confirm_update: bool = False
+
+
 def result_value(result):
     structured = result.structured_content
     value = structured.get("result") if isinstance(structured, dict) and "result" in structured else structured
@@ -400,5 +406,45 @@ async def append_rekordbox_track(playlist_id: str, request: AppendTrackRequest):
         return {
             "name": str(exported.get("name") or path.stem),
             "track_count": int(exported.get("track_count") or len(plan[0]) + 1),
+            "updated_existing": bool(exported.get("updated_existing")),
+        }
+
+
+@router.post("/api/playlists/{playlist_id}/tracks/insert-after")
+async def insert_rekordbox_track(playlist_id: str, request: InsertTrackRequest):
+    if not request.confirm_update:
+        raise HTTPException(400, "Confirm inserting this track into the playlist.")
+    track_id = request.track_id.strip()
+    after_track_id = request.after_track_id.strip()
+    if not track_id or not after_track_id:
+        raise HTTPException(400, "Both Rekordbox track IDs are required")
+
+    async with playlist_mutation_lock(playlist_id):
+        path, plan, lines = local_playlist_with_plan(playlist_id)
+        await validate_plan_locations(plan)
+        target = next(
+            (
+                entry
+                for entry in playlist_entries(path, lines, plan, include_missing=True)
+                if entry[3] == after_track_id
+            ),
+            None,
+        )
+        if target is None:
+            raise HTTPException(404, "Selected track not found in playlist")
+
+        insertion_index = target[1] + 1
+        track_ids = [*plan[0][:insertion_index], track_id, *plan[0][insertion_index:]]
+        exported = await call_tool(
+            "export_playlist",
+            {"name": path.stem, "track_ids": track_ids, "update_existing": True},
+        )
+        if not isinstance(exported, dict):
+            raise HTTPException(502, "Unexpected playlist export response.")
+        occurrence = track_ids[:insertion_index].count(track_id) + 1
+        return {
+            "track_id": f"{track_id}-{occurrence}",
+            "name": str(exported.get("name") or path.stem),
+            "track_count": int(exported.get("track_count") or len(track_ids)),
             "updated_existing": bool(exported.get("updated_existing")),
         }

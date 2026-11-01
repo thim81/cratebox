@@ -291,6 +291,27 @@ export async function appendRekordboxTrack(
   );
 }
 
+export async function insertRekordboxTrackAfter(
+  apiUrl: string,
+  playlistId: string,
+  afterTrackId: string,
+  trackId: string,
+): Promise<{ track_id: string }> {
+  return requestJson(
+    apiUrl,
+    `/api/playlists/${encodeURIComponent(playlistId)}/tracks/insert-after`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        track_id: trackId,
+        after_track_id: afterTrackId,
+        confirm_update: true,
+      }),
+    },
+  );
+}
+
 export function collectionStreamUrl(apiUrl: string, trackId: string): string {
   return `${apiUrl}/api/collection/stream/${encodeURIComponent(trackId)}`;
 }

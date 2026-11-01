@@ -33,6 +33,7 @@ import {
   collectionStreamUrl,
   collectionArtworkUrl,
   appendRekordboxTrack,
+  insertRekordboxTrackAfter,
   copyRekordboxPlaylist,
   deletePlaylistTracks,
   getCollectionStatus,
@@ -125,8 +126,13 @@ function Index() {
     track: Track;
     type: SeparatorType;
   } | null>(null);
+  const [pendingCollectionSwap, setPendingCollectionSwap] = useState<{
+    sourceTrack: Track;
+    match: CollectionMatch;
+  } | null>(null);
   const [separatorType, setSeparatorType] = useState<SeparatorType>("generic");
   const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
+  const [addingCollectionTrackId, setAddingCollectionTrackId] = useState<string | null>(null);
   const [appendPlaylistId, setAppendPlaylistId] = useState("");
   const [pendingAppendTrack, setPendingAppendTrack] = useState<Track | null>(null);
   const [crateQ, setCrateQ] = useState("");
@@ -560,13 +566,7 @@ function Index() {
   const activePlaylistName = activePl?.name ?? "";
   const swapCollectionMatch = useCallback(
     async (sourceTrack: Track, match: CollectionMatch) => {
-      if (
-        !activeId ||
-        !window.confirm(
-          `Replace “${sourceTrack.title}” in “${activePlaylistName || "this playlist"}” with “${match.title}”?`,
-        )
-      )
-        return;
+      if (!activeId) return;
       try {
         const result = await swapPlaylistTrack(apiUrl, activeId, sourceTrack.id, match.id);
         const playlist = await getPlaylist(apiUrl, activeId, true);
@@ -593,6 +593,59 @@ function Index() {
       }
     },
     [activeId, activePlaylistName, apiUrl, loaded, refreshPlaylists, selectTrackAt],
+  );
+  const requestCollectionSwap = useCallback((sourceTrack: Track, match: CollectionMatch) => {
+    setPendingCollectionSwap({ sourceTrack, match });
+  }, []);
+  const addCollectionMatch = useCallback(
+    async (sourceTrack: Track, match: CollectionMatch) => {
+      if (!activeId || playlistSource !== "crate" || addingCollectionTrackId) return;
+      const requestPlaylistId = activeId;
+      const generation = ++playlistTracksGeneration.current;
+      setAddingCollectionTrackId(match.id);
+      setApiError(null);
+      try {
+        const result = await insertRekordboxTrackAfter(
+          apiUrl,
+          requestPlaylistId,
+          sourceTrack.id,
+          match.id,
+        );
+        toast.success(`Added “${match.title}” after “${sourceTrack.title}”.`);
+        try {
+          const [playlist] = await Promise.all([
+            getPlaylist(apiUrl, requestPlaylistId, true),
+            refreshPlaylists(),
+          ]);
+          if (
+            generation === playlistTracksGeneration.current &&
+            activePlaylistContext.current.id === requestPlaylistId &&
+            activePlaylistContext.current.source === "crate"
+          ) {
+            const updatedTracks = playlist.tracks ?? [];
+            setTracks(updatedTracks);
+            const addedIndex = updatedTracks.findIndex((track) => track.id === result.track_id);
+            if (addedIndex >= 0) selectTrackAt(addedIndex, updatedTracks);
+            setApiError(null);
+          }
+        } catch (error) {
+          if (activePlaylistContext.current.id === requestPlaylistId) {
+            setApiError(
+              `Track added, but the playlist could not be refreshed (${error instanceof Error ? error.message : "request failed"})`,
+            );
+          }
+        }
+      } catch (error) {
+        if (activePlaylistContext.current.id === requestPlaylistId) {
+          setApiError(
+            `Couldn't add track (${error instanceof Error ? error.message : "request failed"})`,
+          );
+        }
+      } finally {
+        setAddingCollectionTrackId(null);
+      }
+    },
+    [activeId, addingCollectionTrackId, apiUrl, playlistSource, refreshPlaylists, selectTrackAt],
   );
 
   const addSeparator = useCallback(
@@ -875,7 +928,36 @@ function Index() {
         if (playlistSource === "crate") {
           void removeTracks(selectedRange.length ? selectedRange : view[sel] ? [view[sel]] : []);
         }
+      } else if (
+        e.key.toLowerCase() === "l" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        playlistSource === "crate" &&
+        view[sel]
+      ) {
+        e.preventDefault();
+        void lookupTrackInCollection(view[sel]);
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const lookupSection = expandedLookupTrackId
+          ? Array.from(document.querySelectorAll<HTMLElement>("[data-lookup-source-track]")).find(
+              (element) => element.dataset.lookupSourceTrack === expandedLookupTrackId,
+            )
+          : null;
+        const lookupRows = Array.from(
+          lookupSection?.querySelectorAll<HTMLElement>("[data-lookup-result]") ?? [],
+        );
+        if (e.key === "ArrowDown" && view[sel]?.id === expandedLookupTrackId && lookupRows[0]) {
+          e.preventDefault();
+          lookupRows[0].focus();
+          return;
+        }
+        if (e.key === "ArrowUp" && view[sel - 1]?.id === expandedLookupTrackId && lookupRows.length) {
+          e.preventDefault();
+          selectTrackAt(sel - 1);
+          lookupRows[lookupRows.length - 1]?.focus();
+          return;
+        }
         e.preventDefault();
         if (view.length) {
           const next = Math.max(
@@ -921,6 +1003,8 @@ function Index() {
     removeTracks,
     playlistSource,
     selectTrackAt,
+    expandedLookupTrackId,
+    lookupTrackInCollection,
   ]);
 
   const toggleSort = (k: SortKey) => {
@@ -1166,6 +1250,7 @@ function Index() {
             lookupMatches={lookupMatches}
             lookupLoading={lookupLoading}
             lookupError={lookupError}
+            addingCollectionTrackId={addingCollectionTrackId}
             onSort={toggleSort}
             onSelect={(index) => {
               selectTrackAt(index);
@@ -1175,7 +1260,8 @@ function Index() {
             onLookup={(track) => void lookupTrackInCollection(track)}
             onRemove={(track) => void removeTracks([track])}
             onPlayCollectionMatch={playCollectionMatch}
-            onSwapCollectionMatch={swapCollectionMatch}
+            onSwapCollectionMatch={requestCollectionSwap}
+            onAddCollectionMatch={addCollectionMatch}
             onCollapseLookup={() => setExpandedLookupTrackId(null)}
             onSelectSeparator={selectSeparator}
             onReplaceSeparator={(track, type) => void replaceSeparator(track, type)}
@@ -1269,6 +1355,36 @@ function Index() {
             </Button>
             <Button disabled={separatorInserting} onClick={() => void confirmReplaceSeparator()}>
               {separatorInserting ? <LoaderCircle size={14} className="animate-spin" /> : null}
+              Replace
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingCollectionSwap !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingCollectionSwap(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Replace track?</DialogTitle>
+            <DialogDescription>
+              Replace “{pendingCollectionSwap?.sourceTrack.title}” in “{activePlaylistName || "this playlist"}” with “{pendingCollectionSwap?.match.title}”?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setPendingCollectionSwap(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                const pending = pendingCollectionSwap;
+                setPendingCollectionSwap(null);
+                if (pending) void swapCollectionMatch(pending.sourceTrack, pending.match);
+              }}
+            >
               Replace
             </Button>
           </div>

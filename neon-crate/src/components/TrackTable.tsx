@@ -33,6 +33,7 @@ interface TrackTableProps {
   lookupMatches: CollectionMatch[];
   lookupLoading: boolean;
   lookupError: string | null;
+  addingCollectionTrackId: string | null;
   onSort: (key: SortKey) => void;
   onSelect: (index: number) => void;
   onLoad: (track: Track) => void;
@@ -40,6 +41,7 @@ interface TrackTableProps {
   onRemove: (track: Track) => void;
   onPlayCollectionMatch: (match: CollectionMatch) => void;
   onSwapCollectionMatch: (sourceTrack: Track, match: CollectionMatch) => void;
+  onAddCollectionMatch: (sourceTrack: Track, match: CollectionMatch) => void;
   onCollapseLookup: () => void;
   onInsertSeparator: (type: SeparatorType, track: Track) => void;
   onSelectSeparator: (track: Track) => void;
@@ -71,6 +73,7 @@ export function TrackTable({
   lookupMatches,
   lookupLoading,
   lookupError,
+  addingCollectionTrackId,
   onSort,
   onSelect,
   onLoad,
@@ -78,6 +81,7 @@ export function TrackTable({
   onRemove,
   onPlayCollectionMatch,
   onSwapCollectionMatch,
+  onAddCollectionMatch,
   onCollapseLookup,
   onInsertSeparator,
   onSelectSeparator,
@@ -175,6 +179,7 @@ export function TrackTable({
                   ref={(element) => {
                     rowRefs.current[index] = element;
                   }}
+                  tabIndex={-1}
                   draggable={reorderEnabled && !reordering}
                   onDragStart={(event) => {
                     draggedTrackId.current = track.id;
@@ -220,6 +225,7 @@ export function TrackTable({
                         className="size-7 text-muted-foreground transition-opacity hover:bg-primary hover:text-primary-foreground"
                         onClick={(event) => {
                           event.stopPropagation();
+                          onSelect(index);
                           onLookup(track);
                         }}
                         aria-expanded={expandedLookupTrackId === track.id}
@@ -354,8 +360,19 @@ export function TrackTable({
                         activeTrackId={loadedTrackId}
                         activeRekordboxId={loadedTrackId ? tracks.find((item) => item.id === loadedTrackId)?.rekordbox_id ?? null : null}
                         playing={playing}
+                        addingTrackId={addingCollectionTrackId}
                         onPlay={onPlayCollectionMatch}
                         onSwap={onSwapCollectionMatch}
+                        onAdd={onAddCollectionMatch}
+                        onNavigatePlaylist={(direction) => {
+                          const sourceIndex = tracks.findIndex(
+                            (item) => item.id === lookupTrack.id,
+                          );
+                          const targetIndex = sourceIndex + (direction === "down" ? 1 : 0);
+                          if (targetIndex < 0 || targetIndex >= tracks.length) return;
+                          onSelect(targetIndex);
+                          rowRefs.current[targetIndex]?.focus();
+                        }}
                         onCollapse={onCollapseLookup}
                       />
                     </td>

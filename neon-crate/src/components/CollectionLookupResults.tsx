@@ -1,9 +1,9 @@
 import { useState, type KeyboardEvent } from "react";
-import { ArrowLeftRight, Pause, Play, Star, Volume2, X } from "lucide-react";
+import { ArrowLeftRight, LoaderCircle, Pause, Play, Plus, Star, Volume2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
 
-const resultGrid = "grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem] items-center gap-1.5";
+const resultGrid = "grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem_4rem] items-center gap-1.5";
 
 function qualityBadgeClass(quality: string) {
   const bitrate = Number(/\bMP3\s+(\d+)\s*kbps/i.exec(quality)?.[1]);
@@ -29,8 +29,11 @@ interface Props {
   activeTrackId: string | null;
   activeRekordboxId: string | null;
   playing: boolean;
+  addingTrackId: string | null;
   onPlay: (match: CollectionMatch) => void;
   onSwap: (sourceTrack: Track, match: CollectionMatch) => void;
+  onAdd: (sourceTrack: Track, match: CollectionMatch) => void;
+  onNavigatePlaylist: (direction: "up" | "down") => void;
   onCollapse: () => void;
 }
 
@@ -42,8 +45,11 @@ export function CollectionLookupResults({
   activeTrackId,
   activeRekordboxId,
   playing,
+  addingTrackId,
   onPlay,
   onSwap,
+  onAdd,
+  onNavigatePlaylist,
   onCollapse,
 }: Props) {
   const [showMidMatches, setShowMidMatches] = useState(false);
@@ -90,11 +96,15 @@ export function CollectionLookupResults({
       event.preventDefault();
       event.stopPropagation();
       next.focus();
+    } else {
+      event.preventDefault();
+      event.stopPropagation();
+      onNavigatePlaylist(event.key === "ArrowDown" ? "down" : "up");
     }
   };
 
   return (
-    <section className="rounded-md border border-border bg-card/70 p-3" aria-label="Rekordbox lookup results" onKeyDown={navigateResults}>
+    <section data-lookup-source-track={sourceTrack.id} className="rounded-md border border-border bg-card/70 p-3" aria-label="Rekordbox lookup results" onKeyDown={navigateResults}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-xs font-semibold">
@@ -127,6 +137,7 @@ export function CollectionLookupResults({
             <span className="text-right">Key</span>
             <span>Quality</span>
             <span className="text-right">Match</span>
+            <span />
             <span />
             <span />
           </li>
@@ -188,6 +199,26 @@ export function CollectionLookupResults({
                   title={match.playable === false ? "Audio file is unavailable" : "Replace source track in playlist"}
                 >
                   <ArrowLeftRight size={12} /> Swap
+                </Button>
+              )}
+              {match.id === sourceTrack.rekordbox_id ? (
+                <span />
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 px-1 text-[10px]"
+                  disabled={match.playable === false || addingTrackId !== null}
+                  onClick={() => onAdd(sourceTrack, match)}
+                  aria-label={`Add ${match.title} after ${sourceTrack.title} in playlist`}
+                  title={match.playable === false ? "Audio file is unavailable" : "Add after source track"}
+                >
+                  {addingTrackId === match.id ? (
+                    <LoaderCircle size={12} className="animate-spin" />
+                  ) : (
+                    <Plus size={12} />
+                  )}
+                  Add
                 </Button>
               )}
               <Button
