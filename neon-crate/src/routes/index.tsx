@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
   collectionStreamUrl,
+  appendRekordboxTrack,
   copyRekordboxPlaylist,
   deletePlaylistTracks,
   getCollectionStatus,
@@ -112,6 +113,9 @@ function Index() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [separatorInserting, setSeparatorInserting] = useState(false);
+  const [separatorType, setSeparatorType] = useState<SeparatorType>("generic");
+  const [appendPlaylistId, setAppendPlaylistId] = useState("");
+  const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
   const [crateQ, setCrateQ] = useState("");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortState>({ k: null, dir: 1 });
@@ -306,6 +310,7 @@ function Index() {
   }, [activeId, apiUrl]);
 
   const activePl = playlists.find((p) => p.id === activeId);
+  const appendDestination = playlists.find((p) => p.id === appendPlaylistId);
   const activeRekordboxPlaylist = rekordboxPlaylists.find(
     (playlist) => playlist.id === activeRekordboxId,
   );
@@ -375,6 +380,37 @@ function Index() {
       setCopyingRekordboxId(null);
     }
   }, [activeRekordboxPlaylist, apiUrl, rekordboxTracks.length, refreshPlaylists]);
+
+  const appendTrackToPlaylist = useCallback(
+    async (track: Track) => {
+      const destination = playlists.find((playlist) => playlist.id === appendPlaylistId);
+      const trackId = track.rekordbox_id;
+      if (playlistSource !== "rekordbox" || !destination || !trackId) return;
+
+      setAppendingTrackId(track.id);
+      try {
+        await appendRekordboxTrack(apiUrl, destination.id, trackId);
+        await refreshPlaylists();
+        if (activePlaylistContext.current.id === destination.id) {
+          try {
+            const playlist = await getPlaylist(apiUrl, destination.id, true);
+            if (activePlaylistContext.current.id === destination.id) {
+              setTracks(playlist.tracks ?? []);
+            }
+          } catch {
+            // The playlist update succeeded; the next selection will reload its tracks.
+          }
+        }
+      } catch (error) {
+        setApiError(
+          `Couldn't insert ${track.title} into ${destination.name} (${error instanceof Error ? error.message : "request failed"})`,
+        );
+      } finally {
+        setAppendingTrackId(null);
+      }
+    },
+    [apiUrl, appendPlaylistId, playlistSource, playlists, refreshPlaylists],
+  );
   const editLoadedArtwork = (track: Track) => {
     const playlist = playlists.find((item) => item.name === loaded?.playlist);
     if (playlist) {
@@ -911,21 +947,62 @@ function Index() {
                 </Button>
               )}
             <span className="font-mono text-xs text-muted-foreground">{view.length} tracks</span>
-            <div className="relative ml-auto w-72">
-              <Search
-                size={14}
-                className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                value={q}
-                onChange={(e) => {
-                  setQ(e.target.value);
-                  setSel(0);
-                  setRangeAnchor(null);
-                }}
-                placeholder="Search title, artist, key, BPM…"
-                className="h-8 pl-7 text-xs"
-              />
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              {playlistSource === "crate" && (
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  Insert separator
+                  <select
+                    aria-label="Separator type to insert"
+                    className="h-8 rounded border border-input bg-background px-2 text-xs text-foreground"
+                    value={separatorType}
+                    disabled={separatorInserting}
+                    onChange={(event) => setSeparatorType(event.currentTarget.value as SeparatorType)}
+                  >
+                    {PLAYLIST_SEPARATORS.map(({ type, label }) => (
+                      <option key={type} value={type}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {playlistSource === "rekordbox" &&
+                activeRekordboxPlaylist &&
+                !activeRekordboxPlaylist.is_folder && (
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    Insert into playlist
+                    <select
+                      aria-label="Local CrateDeck playlist to insert into"
+                      className="h-8 max-w-56 rounded border border-input bg-background px-2 text-xs text-foreground"
+                      value={appendPlaylistId}
+                      disabled={playlists.length === 0 || appendingTrackId !== null}
+                      onChange={(event) => setAppendPlaylistId(event.currentTarget.value)}
+                    >
+                      <option value="">Select CrateDeck playlist</option>
+                      {playlists.map((playlist) => (
+                        <option key={playlist.id} value={playlist.id}>
+                          {playlist.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              <div className="relative w-72">
+                <Search
+                  size={14}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  value={q}
+                  onChange={(e) => {
+                    setQ(e.target.value);
+                    setSel(0);
+                    setRangeAnchor(null);
+                  }}
+                  placeholder="Search title, artist, key, BPM…"
+                  className="h-8 pl-7 text-xs"
+                />
+              </div>
             </div>
           </div>
           <TrackTable
@@ -953,7 +1030,12 @@ function Index() {
             onSwapCollectionMatch={swapCollectionMatch}
             onCollapseLookup={() => setExpandedLookupTrackId(null)}
             onInsertSeparator={(type, track) => void addSeparator(type, track)}
+            separatorType={separatorType}
             separatorInserting={separatorInserting}
+            onAppendToPlaylist={(track) => void appendTrackToPlaylist(track)}
+            appendDisabled={!appendDestination || appendingTrackId !== null}
+            appendPlaylistName={appendDestination?.name}
+            appendingTrackId={appendingTrackId}
             readOnly={playlistSource === "rekordbox"}
           />
         </main>

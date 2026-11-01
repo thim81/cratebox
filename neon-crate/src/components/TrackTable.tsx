@@ -1,5 +1,15 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronUp, Search, Star, Trash2, Volume2 } from "lucide-react";
+import { Fragment, useEffect, useRef, type ReactNode } from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  ListPlus,
+  LoaderCircle,
+  Plus,
+  Search,
+  Star,
+  Trash2,
+  Volume2,
+} from "lucide-react";
 import { CollectionLookupResults } from "@/components/CollectionLookupResults";
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
@@ -30,7 +40,12 @@ interface TrackTableProps {
   onSwapCollectionMatch: (sourceTrack: Track, match: CollectionMatch) => void;
   onCollapseLookup: () => void;
   onInsertSeparator: (type: SeparatorType, track: Track) => void;
+  separatorType: SeparatorType;
   separatorInserting: boolean;
+  onAppendToPlaylist?: (track: Track) => void;
+  appendDisabled?: boolean;
+  appendPlaylistName?: string;
+  appendingTrackId?: string | null;
   readOnly?: boolean;
 }
 
@@ -56,11 +71,15 @@ export function TrackTable({
   onSwapCollectionMatch,
   onCollapseLookup,
   onInsertSeparator,
+  separatorType,
   separatorInserting,
+  onAppendToPlaylist,
+  appendDisabled = true,
+  appendPlaylistName,
+  appendingTrackId,
   readOnly = false,
 }: TrackTableProps) {
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
-  const [separatorSelection, setSeparatorSelection] = useState("");
 
   useEffect(() => {
     rowRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
@@ -90,29 +109,6 @@ export function TrackTable({
 
   return (
     <div className="flex-1 overflow-auto">
-      {!readOnly && (
-        <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-border/60 bg-card px-2 py-1.5 text-xs">
-          <span className="text-muted-foreground">Insert separator before selected</span>
-          <select
-            aria-label="Insert separator before selected track"
-            className="h-7 rounded border border-input bg-background px-2 text-xs text-foreground"
-            value={separatorSelection}
-            disabled={!tracks[selectedIndex] || separatorInserting}
-            onChange={(event) => {
-              const type = event.currentTarget.value as SeparatorType;
-              setSeparatorSelection("");
-              const track = tracks[selectedIndex];
-              if (type && track) onInsertSeparator(type, track);
-            }}
-          >
-            <option value="">Add separator…</option>
-            {PLAYLIST_SEPARATORS.map(({ type, label }) => (
-              <option key={type} value={type}>{label}</option>
-            ))}
-          </select>
-          {separatorInserting && <span className="text-muted-foreground">Inserting…</span>}
-        </div>
-      )}
       <table className="w-full border-collapse text-xs">
         <thead className="text-[10px] text-muted-foreground">
           <tr>
@@ -161,14 +157,30 @@ export function TrackTable({
                   onClick={() => onSelect(index)}
                   onDoubleClick={readOnly ? undefined : () => onLoad(track)}
                   aria-selected={index === selectedIndex || isRangeSelected}
-                  className={`cursor-default border-b border-border/40 ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
+                  className={`group cursor-default border-b border-border/40 ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
                 >
-                  <td className="w-10 px-1 py-1 text-center">
+                  <td className="relative w-10 px-1 py-1 text-center">
+                    {!readOnly && index > 0 && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className={`absolute left-1/2 top-0 z-20 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-card p-0 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-primary group-hover:opacity-100 focus-visible:opacity-100 ${separatorInserting ? "pointer-events-none" : ""}`}
+                        disabled={separatorInserting}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onInsertSeparator(separatorType, track);
+                        }}
+                        aria-label={`Insert ${PLAYLIST_SEPARATORS.find((item) => item.type === separatorType)?.label ?? "Generic"} separator before ${track.title}`}
+                        title={`Insert ${separatorType} separator before this track`}
+                      >
+                        <Plus size={12} />
+                      </Button>
+                    )}
                     {!readOnly && (
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="size-7 text-muted-foreground hover:bg-primary hover:text-primary-foreground"
+                        className={`size-7 text-muted-foreground transition-opacity hover:bg-primary hover:text-primary-foreground ${index > 0 ? "group-hover:opacity-0 group-focus-within:opacity-0" : ""}`}
                         onClick={(event) => {
                           event.stopPropagation();
                           onLookup(track);
@@ -226,7 +238,30 @@ export function TrackTable({
                     </span>
                   </td>
                   <td className="px-1 py-1 text-right">
-                    {!readOnly && (
+                    {readOnly && onAppendToPlaylist ? (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 text-muted-foreground hover:text-primary"
+                        disabled={!track.rekordbox_id || appendDisabled}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onAppendToPlaylist(track);
+                        }}
+                        aria-label={`Insert ${track.title} into ${appendPlaylistName || "a CrateDeck playlist"}`}
+                        title={
+                          appendPlaylistName
+                            ? `Insert into ${appendPlaylistName}`
+                            : "Select a CrateDeck playlist first"
+                        }
+                      >
+                        {appendingTrackId === track.id ? (
+                          <LoaderCircle size={14} className="animate-spin" />
+                        ) : (
+                          <ListPlus size={14} />
+                        )}
+                      </Button>
+                    ) : !readOnly ? (
                       <Button
                         size="icon"
                         variant="ghost"
@@ -240,7 +275,7 @@ export function TrackTable({
                       >
                         <Trash2 size={14} />
                       </Button>
-                    )}
+                    ) : null}
                   </td>
                 </tr>
                 {!readOnly && expandedLookupTrackId === track.id && lookupTrack && (

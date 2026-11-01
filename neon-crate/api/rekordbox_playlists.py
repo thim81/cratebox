@@ -24,6 +24,11 @@ class InsertSeparatorRequest(BaseModel):
     confirm_update: bool = False
 
 
+class AppendTrackRequest(BaseModel):
+    track_id: str
+    confirm_update: bool = False
+
+
 def result_value(result):
     structured = result.structured_content
     value = structured.get("result") if isinstance(structured, dict) and "result" in structured else structured
@@ -58,6 +63,26 @@ async def playlist_records():
     if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
         raise HTTPException(502, "Unexpected Rekordbox playlist list.")
     return records
+
+
+def local_playlist_with_plan(playlist_id: str):
+    if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
+        raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
+    matches = [item for item in playlist_files() if item.stem == playlist_id]
+    if len(matches) != 1 or matches[0].suffix.lower() != ".m3u8":
+        raise HTTPException(409, "Playlist edits require one unambiguous .m3u8 playlist")
+
+    path = matches[0]
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as playlist:
+            lines = playlist.readlines()
+    except (OSError, UnicodeError) as exc:
+        raise HTTPException(500, "Could not read playlist") from exc
+
+    _, plan = read_plan_ids(path, lines)
+    if plan is None or plan[1] is None:
+        raise HTTPException(409, "A valid track-ID and file-path plan is required to edit this playlist")
+    return path, plan, lines
 
 
 @router.get("/api/rekordbox/playlists")
@@ -146,22 +171,7 @@ async def copy_rekordbox_playlist(playlist_id: str, request: CopyPlaylistRequest
 async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRequest):
     if not request.confirm_update:
         raise HTTPException(400, "Confirm updating this playlist before inserting a separator.")
-    if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
-        raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
-
-    matches = [item for item in playlist_files() if item.stem == playlist_id]
-    if len(matches) != 1 or matches[0].suffix.lower() != ".m3u8":
-        raise HTTPException(409, "Separator insertion requires one unambiguous .m3u8 playlist")
-    path = matches[0]
-    try:
-        with path.open(encoding="utf-8-sig", newline="") as playlist:
-            lines = playlist.readlines()
-    except (OSError, UnicodeError) as exc:
-        raise HTTPException(500, "Could not read playlist") from exc
-
-    _, plan = read_plan_ids(path, lines)
-    if plan is None or plan[1] is None:
-        raise HTTPException(409, "A valid track-ID and file-path plan is required to insert a separator")
+    path, plan, lines = local_playlist_with_plan(playlist_id)
     entries = list(playlist_entries(path, lines, plan))
     target = next((entry for entry in entries if entry[3] == request.before_track_id), None)
     if target is None:
@@ -182,5 +192,31 @@ async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRe
         "name": str(exported.get("name") or path.stem),
         "track_count": int(exported.get("track_count") or len(plan[0])),
         "separator_count": int(exported.get("separator_count") or 0),
+        "updated_existing": bool(exported.get("updated_existing")),
+    }
+
+
+@router.post("/api/playlists/{playlist_id}/tracks/append")
+async def append_rekordbox_track(playlist_id: str, request: AppendTrackRequest):
+    if not request.confirm_update:
+        raise HTTPException(400, "Confirm inserting this track into the playlist.")
+    track_id = request.track_id.strip()
+    if not track_id:
+        raise HTTPException(400, "A Rekordbox track ID is required")
+
+    path, plan, _ = local_playlist_with_plan(playlist_id)
+    exported = await call_tool(
+        "export_playlist",
+        {
+            "name": path.stem,
+            "track_ids": [*plan[0], track_id],
+            "update_existing": True,
+        },
+    )
+    if not isinstance(exported, dict):
+        raise HTTPException(502, "Unexpected playlist export response.")
+    return {
+        "name": str(exported.get("name") or path.stem),
+        "track_count": int(exported.get("track_count") or len(plan[0]) + 1),
         "updated_existing": bool(exported.get("updated_existing")),
     }

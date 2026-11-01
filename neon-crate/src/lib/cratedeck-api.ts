@@ -231,6 +231,22 @@ export async function insertPlaylistSeparator(
   );
 }
 
+export async function appendRekordboxTrack(
+  apiUrl: string,
+  playlistId: string,
+  trackId: string,
+): Promise<void> {
+  await requestJson(
+    apiUrl,
+    `/api/playlists/${encodeURIComponent(playlistId)}/tracks/append`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ track_id: trackId, confirm_update: true }),
+    },
+  );
+}
+
 export function collectionStreamUrl(apiUrl: string, trackId: string): string {
   return `${apiUrl}/api/collection/stream/${encodeURIComponent(trackId)}`;
 }
