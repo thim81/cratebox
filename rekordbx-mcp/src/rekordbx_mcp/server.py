@@ -45,6 +45,10 @@ class LookupTrack(BaseModel):
     similarity: float
 
 
+class CrateDeckLookupTrack(LookupTrack):
+    file_path: str
+
+
 class ExportInputPrivacy(Middleware):
     async def on_call_tool(self, context, call_next):
         try:
@@ -127,11 +131,7 @@ def build_server(
             name=name, annotations={"readOnlyHint": True, "destructiveHint": False},
         )(wrap(original))
 
-    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
-    async def lookup_similar_tracks(
-        artist: str, title: str, limit: int = 10,
-    ) -> list[LookupTrack]:
-        """Find collection tracks matching an artist and a fuzzy title."""
+    async def rank_similar_tracks(artist: str, title: str, limit: int):
         artist = artist.strip()
         title = title.strip()
         if not artist or not title:
@@ -158,6 +158,7 @@ def build_server(
                         ):
                             continue
                         candidate = database._content_to_track(content).model_dump()
+                        candidate["file_path"] = str(getattr(content, "FolderPath", "") or "")
                         score = 0.35 * artist_score + 0.65 * similarity(
                             title, str(candidate.get("title") or ""),
                         )
@@ -172,21 +173,46 @@ def build_server(
                 ) from None
 
         ranked.sort(key=lambda item: item[0], reverse=True)
-        results = []
-        for score, candidate in ranked[:limit]:
-            results.append(LookupTrack(
-                id=str(candidate.get("id") or ""),
-                title=str(candidate.get("title") or ""),
-                artist=str(candidate.get("artist") or ""),
-                album=str(candidate.get("album") or ""),
-                duration=candidate.get("length") or candidate.get("duration") or 0,
-                bpm=candidate.get("bpm") or 0,
-                key=str(candidate.get("key") or ""),
-                rating=candidate.get("rating") or 0,
-                play_count=candidate.get("play_count") or 0,
-                similarity=round(score * 100, 1),
-            ))
-        return results
+        return ranked[:limit]
+
+    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
+    async def lookup_similar_tracks(
+        artist: str, title: str, limit: int = 10,
+    ) -> list[LookupTrack]:
+        """Find collection tracks matching an artist and fuzzy title, without audio paths."""
+        ranked = await rank_similar_tracks(artist, title, limit)
+        return [LookupTrack(
+            id=str(candidate.get("id") or ""),
+            title=str(candidate.get("title") or ""),
+            artist=str(candidate.get("artist") or ""),
+            album=str(candidate.get("album") or ""),
+            duration=candidate.get("length") or candidate.get("duration") or 0,
+            bpm=candidate.get("bpm") or 0,
+            key=str(candidate.get("key") or ""),
+            rating=candidate.get("rating") or 0,
+            play_count=candidate.get("play_count") or 0,
+            similarity=round(score * 100, 1),
+        ) for score, candidate in ranked]
+
+    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
+    async def lookup_similar_tracks_for_cratedeck(
+        artist: str, title: str, limit: int = 10,
+    ) -> list[CrateDeckLookupTrack]:
+        """App-only lookup that includes paths for CrateDeck's local API playback."""
+        ranked = await rank_similar_tracks(artist, title, limit)
+        return [CrateDeckLookupTrack(
+            id=str(candidate.get("id") or ""),
+            title=str(candidate.get("title") or ""),
+            artist=str(candidate.get("artist") or ""),
+            album=str(candidate.get("album") or ""),
+            duration=candidate.get("length") or candidate.get("duration") or 0,
+            bpm=candidate.get("bpm") or 0,
+            key=str(candidate.get("key") or ""),
+            rating=candidate.get("rating") or 0,
+            play_count=candidate.get("play_count") or 0,
+            similarity=round(score * 100, 1),
+            file_path=str(candidate.get("file_path") or ""),
+        ) for score, candidate in ranked]
 
     @server.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
     async def export_playlist(

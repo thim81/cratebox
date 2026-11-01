@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Deck, type DeckHandle } from "@/components/Deck";
+import { CollectionLookupResults } from "@/components/CollectionLookupResults";
 import {
   Dialog,
   DialogContent,
@@ -74,7 +75,7 @@ function Index() {
     state: "idle",
     message: null,
   });
-  const [lookupOpen, setLookupOpen] = useState(false);
+  const [expandedLookupTrackId, setExpandedLookupTrackId] = useState<string | null>(null);
   const [lookupTrack, setLookupTrack] = useState<Track | null>(null);
   const [lookupMatches, setLookupMatches] = useState<CollectionMatch[]>([]);
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -142,11 +143,15 @@ function Index() {
   const lookupTrackInCollection = useCallback(
     async (track: Track) => {
       const requestId = ++lookupRequestId.current;
+      if (expandedLookupTrackId === track.id) {
+        setExpandedLookupTrackId(null);
+        return;
+      }
+      setExpandedLookupTrackId(track.id);
       setLookupTrack(track);
       setLookupMatches([]);
       setLookupError(null);
       setLookupLoading(true);
-      setLookupOpen(true);
       try {
         const response = await fetch(`${apiUrl}/api/collection/lookup`, {
           method: "POST",
@@ -198,8 +203,31 @@ function Index() {
         void refreshCollectionStatus();
       }
     },
-    [apiUrl, refreshCollectionStatus],
+    [apiUrl, expandedLookupTrackId, refreshCollectionStatus],
   );
+
+  const playCollectionMatch = useCallback((match: CollectionMatch) => {
+    const id = `collection-${match.id}`;
+    if (loaded?.track.id === id) {
+      if (!playing) deck.current?.toggle();
+      return;
+    }
+    const track: Track = {
+      id,
+      rekordbox_id: match.id,
+      title: match.title,
+      artist: match.artist,
+      album: match.album,
+      duration: match.duration,
+      rating: match.rating,
+      bpm: match.bpm,
+      key: match.key,
+      quality: "Rekordbox collection",
+      url: `${apiUrl}/api/collection/stream/${encodeURIComponent(match.id)}`,
+    };
+    setAutoPlay(true);
+    setLoaded({ track, playlist: "Rekordbox collection" });
+  }, [apiUrl, loaded, playing]);
 
   useEffect(() => {
     void refreshPlaylists();
@@ -292,6 +320,14 @@ function Index() {
   const step = (d: number) => {
     if (!loaded) return;
     const i = view.findIndex((t) => t.id === loaded.track.id);
+    if (i < 0) {
+      const targetIndex = d > 0 ? 0 : view.length - 1;
+      if (view[targetIndex]) {
+        load(view[targetIndex]);
+        setSel(targetIndex);
+      }
+      return;
+    }
     const n = view[i + d];
     if (n) {
       load(n);
@@ -638,8 +674,8 @@ function Index() {
                     ? `${bitrate} kbps · ${bitrate >= 320 ? "Perfect" : bitrate === 128 ? "Minimal" : bitrate > 128 ? "OK" : "Warn"}`
                     : t.quality;
                   return (
+                    <Fragment key={t.id}>
                     <tr
-                      key={t.id}
                       ref={(el) => {
                         rowRefs.current[i] = el;
                       }}
@@ -660,8 +696,9 @@ function Index() {
                             event.stopPropagation();
                             void lookupTrackInCollection(t);
                           }}
+                          aria-expanded={expandedLookupTrackId === t.id}
                           aria-label={`${t.rekordbox_id ? "Open exact Rekordbox match for" : "Look up similar tracks for"} ${t.title}`}
-                          title={t.rekordbox_id ? "Open exact Rekordbox match" : "Search by artist and title"}
+                          title={expandedLookupTrackId === t.id ? "Collapse lookup results" : "Search in Rekordbox collection"}
                         >
                           <Search size={14} />
                         </Button>
@@ -720,6 +757,21 @@ function Index() {
                         </Button>
                       </td>
                     </tr>
+                    {expandedLookupTrackId === t.id && lookupTrack && (
+                      <tr>
+                        <td colSpan={12} className="px-3 py-2">
+                          <CollectionLookupResults
+                            sourceTrack={lookupTrack}
+                            matches={lookupMatches}
+                            loading={lookupLoading}
+                            error={lookupError}
+                            onPlay={playCollectionMatch}
+                            onCollapse={() => setExpandedLookupTrackId(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
                 {view.length === 0 && (
@@ -764,67 +816,6 @@ function Index() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={lookupOpen} onOpenChange={setLookupOpen}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{lookupTrack?.rekordbox_id ? "Rekordbox track" : "Similar Rekordbox tracks"}</DialogTitle>
-            <DialogDescription>
-              {lookupTrack ? `${lookupTrack.artist} — ${lookupTrack.title}` : ""}
-            </DialogDescription>
-          </DialogHeader>
-          {lookupLoading ? (
-            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground" role="status">
-              <LoaderCircle size={16} className="animate-spin" />
-              Searching the collection…
-            </div>
-          ) : lookupError ? (
-            <p className="py-4 text-sm text-destructive" role="alert">{lookupError}</p>
-          ) : lookupMatches.length ? (
-            <ul className="divide-y divide-border">
-              {lookupMatches.map((match) => (
-                <li key={match.id} className="flex items-start justify-between gap-4 py-3">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{match.title}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {match.artist}{match.album ? ` — ${match.album}` : ""}
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-[10px]">
-                      <span
-                        className="flex gap-0.5"
-                        role="img"
-                        aria-label={`Rating: ${match.rating ?? 0} out of 5 stars`}
-                      >
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <Star
-                            key={star}
-                            size={11}
-                            className={star <= (match.rating ?? 0) ? "fill-gold text-gold" : "text-border"}
-                          />
-                        ))}
-                      </span>
-                      <span className="font-mono text-muted-foreground">
-                        {(match.play_count ?? 0).toLocaleString()} plays
-                      </span>
-                    </div>
-                    <div className="mt-1 font-mono text-[10px] text-muted-foreground">
-                      {fmtTime(match.duration)}{match.bpm ? ` · ${match.bpm} BPM` : ""}{match.key ? ` · ${match.key}` : ""}
-                    </div>
-                  </div>
-                  <span className="shrink-0 rounded bg-secondary px-2 py-1 font-mono text-xs text-accent">
-                    {lookupTrack?.rekordbox_id ? "Exact" : `${match.similarity}%`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              {lookupTrack?.rekordbox_id
-                ? "No Rekordbox track found for this ID."
-                : "No similar tracks found in the collection."}
-            </p>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

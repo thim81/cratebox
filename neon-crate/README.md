@@ -24,20 +24,25 @@ PLAYLIST_DIR="/absolute/path/to/playlists" uv --directory ../rekordbx-mcp run --
 Then set the app's API URL to `http://localhost:8000` and enable API mode.
 The server provides `GET /api/playlists`, `GET /api/playlists/{playlist_id}`,
 `GET /api/stream?playlist_id=...&track_id=...`, `GET /api/collection/status`,
-and `POST /api/collection/lookup`. Export JSON contains an ordered `tracks`
+`GET /api/collection/stream/{track_id}`, and `POST /api/collection/lookup`.
+Export JSON contains an ordered `tracks`
 array with each Rekordbox track ID and its absolute file path together. The API
-uses those entries directly; older ID-only plans still pair with M3U8 entries
-by order.
+validates those entries against the M3U8; older ID-only plans still pair with
+M3U8 entries by order.
 Rows with an ID use an exact collection lookup; playlists without a matching
-plan fall back to artist/title lookup. Audio streaming is restricted to files
-referenced by playlists in the configured folder. Track removal uses
+plan fall back to artist/title lookup. Playlist streaming is restricted to
+files referenced by playlists in the configured folder; collection streaming
+resolves only active snapshot track IDs. Track removal uses
 `DELETE /api/playlists/{playlist_id}/tracks` with a JSON `track_ids` list and
 updates both playlist and plan files; it only works with the repository's
 `playlists/` folder.
 
-Each track row has a Lookup action that returns the exact Rekordbox record when
-a plan ID is available, including its rating and play count. For standalone
-playlists it searches by artist and title.
+Each track row has a Lookup action that expands inline results: it returns the
+exact Rekordbox record when a plan ID is available, including its rating and
+play count, or searches by artist and title for standalone playlists. A result's
+Play button loads that exact collection track into the main deck. The local API
+uses paths from the CrateDeck-only MCP lookup internally to stream that track,
+without sending the paths to the browser.
 The MCP worker starts on the first lookup, so
 CrateDeck can browse and play playlists without it. Close Rekordbox and its
 background agents before the first lookup; the worker creates a fresh verified

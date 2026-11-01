@@ -156,6 +156,11 @@ project installation. No export path argument is exposed to the model. Add
 `export_playlist` to an existing client's tool allowlist and restart the MCP to
 make the new tool available.
 
+`lookup_similar_tracks_for_cratedeck` is reserved for the local CrateDeck API.
+It returns file paths for immediate server-side playback and must stay out of
+conversational MCP client allowlists; the API removes paths before responding to
+the browser.
+
 ## Protection boundaries
 
 - **Source copier:** ordinary binary reads of the original, outside the worker.

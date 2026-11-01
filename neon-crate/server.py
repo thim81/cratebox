@@ -36,6 +36,7 @@ class CollectionMcp:
         self.client = None
         self.lock = asyncio.Lock()
         self.project = Path(__file__).resolve().parents[1] / "rekordbx-mcp"
+        self.track_paths: dict[str, Path] = {}
 
     async def status(self):
         if self.client:
@@ -48,6 +49,7 @@ class CollectionMcp:
                 self.client = None
                 self.state = "error"
                 self.message = "Collection connection was lost. Try Lookup again or restart the local API."
+                self.track_paths.clear()
         return {"state": self.state, "message": self.message}
 
     async def connect(self):
@@ -65,7 +67,7 @@ class CollectionMcp:
             try:
                 await client.__aenter__()
                 tool_names = {tool.name for tool in await client.list_tools()}
-                if not {"lookup_similar_tracks", "get_track_details"} <= tool_names:
+                if not {"lookup_similar_tracks_for_cratedeck", "get_track_details"} <= tool_names:
                     raise RuntimeError("Lookup tool is unavailable.")
                 self.client = client
                 self.state = "connected"
@@ -75,6 +77,7 @@ class CollectionMcp:
                     await client.close()
                 self.state = "error"
                 self.message = "Could not connect to the Rekordbox collection. Close Rekordbox and its background agents, then try again."
+                self.track_paths.clear()
                 raise HTTPException(503, self.message) from None
 
     async def close(self):
@@ -83,6 +86,7 @@ class CollectionMcp:
                 with suppress(Exception):
                     await self.client.close()
                 self.client = None
+            self.track_paths.clear()
             if self.state in ("starting", "connected"):
                 self.state = "idle"
             self.message = None
@@ -122,39 +126,72 @@ async def collection_lookup(request: CollectionLookup):
         raise HTTPException(400, "Provide a Rekordbox track ID or both artist and title.")
     client = await collection_mcp.connect()
     try:
-        result = await client.call_tool(
-            "get_track_details", {"track_id": track_id},
-        ) if track_id else await client.call_tool(
-            "lookup_similar_tracks", {"artist": artist, "title": title},
-        )
-        structured = result.structured_content
-        value = structured.get("result") if isinstance(structured, dict) and "result" in structured else structured
-        if value is None:
-            value = result.data
-        if value is None and result.content:
-            value = json.loads(result.content[0].text)
+        async def result_value(tool_result):
+            structured = tool_result.structured_content
+            value = structured.get("result") if isinstance(structured, dict) and "result" in structured else structured
+            if value is None:
+                value = tool_result.data
+            if value is None and tool_result.content:
+                value = json.loads(tool_result.content[0].text)
+            return value
+
         if track_id:
-            if isinstance(value, list):
-                value = value[0] if value else None
-            matches = [] if not isinstance(value, dict) else [{
-                "id": str(value.get("id") or track_id),
-                "title": str(value.get("title") or ""),
-                "artist": str(value.get("artist") or ""),
-                "album": str(value.get("album") or ""),
-                "duration": value.get("duration") or value.get("length") or 0,
-                "bpm": value.get("bpm") or 0,
-                "key": str(value.get("key") or ""),
-                "rating": value.get("rating") or 0,
-                "play_count": value.get("play_count") or 0,
-                "similarity": 100,
-            }]
+            details = await client.call_tool("get_track_details", {"track_id": track_id})
+            source = await result_value(details)
+            if isinstance(source, list):
+                source = source[0] if source else None
+            if isinstance(source, dict):
+                artist = str(source.get("artist") or artist).strip()
+                title = str(source.get("title") or title).strip()
+            if artist and title:
+                result = await client.call_tool(
+                    "lookup_similar_tracks_for_cratedeck", {"artist": artist, "title": title},
+                )
+                matches = await result_value(result)
+            elif isinstance(source, dict):
+                matches = [{
+                    "id": str(source.get("id") or track_id),
+                    "title": str(source.get("title") or ""),
+                    "artist": str(source.get("artist") or ""),
+                    "album": str(source.get("album") or ""),
+                    "duration": source.get("duration") or source.get("length") or 0,
+                    "bpm": source.get("bpm") or 0,
+                    "key": str(source.get("key") or ""),
+                    "rating": source.get("rating") or 0,
+                    "play_count": source.get("play_count") or 0,
+                    "similarity": 100,
+                }]
+            else:
+                matches = []
         else:
-            matches = value
+            result = await client.call_tool(
+                "lookup_similar_tracks_for_cratedeck", {"artist": artist, "title": title},
+            )
+            matches = await result_value(result)
         if not isinstance(matches, list):
             raise ValueError("Unexpected collection lookup response.")
+        collection_mcp.track_paths.clear()
+        public_matches = []
+        for match in matches:
+            if not isinstance(match, dict):
+                raise ValueError("Unexpected collection lookup response.")
+            public_match = dict(match)
+            raw_path = public_match.pop("file_path", None)
+            match_id = str(public_match.get("id") or "")
+            playable = False
+            if (
+                match_id and isinstance(raw_path, str) and Path(raw_path).is_absolute()
+                and not any(character in raw_path for character in "\r\n\x00\x85\u2028\u2029")
+            ):
+                audio_path = Path(raw_path)
+                if audio_path.is_file():
+                    collection_mcp.track_paths[match_id] = audio_path
+                    playable = True
+            public_match["playable"] = playable
+            public_matches.append(public_match)
         collection_mcp.state = "connected"
         collection_mcp.message = None
-        return {"matches": matches or []}
+        return {"matches": public_matches}
     except Exception:
         error_message = "Collection lookup failed."
         if collection_mcp.client:
@@ -171,6 +208,14 @@ async def collection_lookup(request: CollectionLookup):
                 collection_mcp.message = "Collection connection was lost. Try Lookup again or restart the local API."
                 error_message = collection_mcp.message
         raise HTTPException(502, error_message) from None
+
+
+@app.get("/api/collection/stream/{track_id}")
+def collection_stream(track_id: str):
+    audio_path = collection_mcp.track_paths.get(track_id)
+    if audio_path is None or not audio_path.is_file():
+        raise HTTPException(404, "Rekordbox track not found in the latest lookup.")
+    return FileResponse(audio_path, headers={"Cache-Control": "no-store"})
 
 
 def playlist_files():

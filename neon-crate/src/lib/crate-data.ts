@@ -38,6 +38,7 @@ export interface CollectionMatch {
   rating: number;
   play_count: number;
   similarity: number;
+  playable?: boolean;
 }
 
 export function fmtTime(sec: number) {
