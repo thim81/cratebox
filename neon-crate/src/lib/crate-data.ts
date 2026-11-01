@@ -34,6 +34,8 @@ export interface CollectionMatch {
   duration: number;
   bpm: number;
   key: string;
+  rating: number;
+  play_count: number;
   similarity: number;
 }
 

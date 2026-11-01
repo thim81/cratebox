@@ -59,7 +59,7 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type SortKey = "title" | "artist" | "duration" | "rating" | "bpm" | "key";
+type SortKey = "number" | "title" | "artist" | "duration" | "rating" | "bpm" | "key";
 const SEEK_SECONDS = 5;
 const camelot = (k: string) => parseInt(k) * 2 + (k.endsWith("B") ? 1 : 0);
 
@@ -206,6 +206,11 @@ function Index() {
   const activePl = playlists.find((p) => p.id === activeId);
   const crates = playlists.filter((p) => p.name.toLowerCase().includes(crateQ.toLowerCase()));
 
+  const trackNumbers = useMemo(
+    () => new Map(tracks.map((track, index) => [track.id, index + 1])),
+    [tracks],
+  );
+
   const view = useMemo(() => {
     const s = q.toLowerCase();
     let list = tracks.filter(
@@ -218,8 +223,8 @@ function Index() {
     if (sort.k) {
       const k = sort.k;
       list = [...list].sort((a, b) => {
-        const va = k === "key" ? camelot(a.key) : a[k],
-          vb = k === "key" ? camelot(b.key) : b[k];
+        const va = k === "key" ? camelot(a.key) : k === "number" ? trackNumbers.get(a.id) ?? 0 : a[k],
+          vb = k === "key" ? camelot(b.key) : k === "number" ? trackNumbers.get(b.id) ?? 0 : b[k];
         return (
           (typeof va === "string"
             ? va.localeCompare(vb as string)
@@ -228,7 +233,7 @@ function Index() {
       });
     }
     return list;
-  }, [tracks, q, sort]);
+  }, [tracks, q, sort, trackNumbers]);
 
   const selectedRange = useMemo(() => {
     if (rangeAnchor === null || !view.length) return [];
@@ -238,6 +243,14 @@ function Index() {
     () => new Set(selectedRange.map((track) => track.id)),
     [selectedRange],
   );
+  const collectionStatusLabel =
+    collectionStatus.state === "idle"
+      ? "MCP not started"
+      : collectionStatus.state === "starting"
+        ? "MCP connecting"
+        : collectionStatus.state === "connected"
+          ? "MCP connected"
+          : "MCP error";
 
   const load = useCallback(
     (t: Track | undefined, play = true) => {
@@ -320,7 +333,7 @@ function Index() {
             if (rangeAnchor === null) setRangeAnchor(sel);
           } else {
             setRangeAnchor(null);
-            load(view[next]);
+            if (e.metaKey) load(view[next]);
           }
         }
       } else if (e.key === "ArrowLeft" && loaded) {
@@ -385,8 +398,10 @@ function Index() {
         <div className="ml-auto flex items-center gap-3 text-xs">
           <div
             role="status"
-            aria-label={`MCP ${collectionStatus.state}`}
-            title={collectionStatus.message ?? `MCP ${collectionStatus.state}`}
+            aria-label={collectionStatusLabel}
+            title={collectionStatus.message
+              ? `${collectionStatusLabel}: ${collectionStatus.message}`
+              : collectionStatusLabel}
             className={`flex items-center gap-1.5 ${collectionStatus.state === "connected" ? "text-accent" : collectionStatus.state === "error" ? "text-destructive" : "text-muted-foreground"}`}
           >
             {collectionStatus.state === "starting" ? (
@@ -398,15 +413,6 @@ function Index() {
             ) : (
               <Circle size={14} />
             )}
-            <span className="hidden sm:inline">
-              {collectionStatus.state === "idle"
-                ? "MCP not started"
-                : collectionStatus.state === "starting"
-                  ? "MCP connecting"
-                  : collectionStatus.state === "connected"
-                    ? "MCP connected"
-                    : "MCP error"}
-            </span>
           </div>
           <Button
             size="icon"
@@ -521,7 +527,7 @@ function Index() {
             ))}
           </div>
           <div className="border-t border-sidebar-border p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
-            ↑↓ browse & play · ⇧↑↓ select · ⌘⌫ remove · ←→ seek 5s
+            ↑↓ browse · ⌘↑↓ load · ⇧↑↓ select · ⌘⌫ remove · ←→ seek 5s
           </div>
         </aside>
 
@@ -550,8 +556,9 @@ function Index() {
             <table className="w-full border-collapse text-xs">
               <thead className="text-[10px] text-muted-foreground">
                 <tr>
+                  <Th className="w-10">{""}</Th>
+                  <Th k="number" className="w-8">#</Th>
                   <Th className="w-6">{""}</Th>
-                  <Th className="w-8">#</Th>
                   <Th k="title">Title</Th>
                   <Th k="artist">Artist</Th>
                   <Th>Album</Th>
@@ -567,6 +574,22 @@ function Index() {
                 {view.map((t, i) => {
                   const isLoaded = loaded?.track.id === t.id;
                   const isRangeSelected = selectedIds.has(t.id);
+                  const mp3Bitrate = /\bMP3\s+(\d+)\s*kbps/i.exec(t.quality)?.[1];
+                  const bitrate = Number(mp3Bitrate);
+                  const qualityClass = mp3Bitrate
+                    ? bitrate >= 320
+                      ? "border-accent text-accent"
+                      : bitrate === 128
+                        ? "border-muted-foreground text-muted-foreground"
+                        : bitrate > 128
+                          ? "border-primary text-primary"
+                          : "border-destructive text-destructive"
+                    : /FLAC|WAV|AIFF/.test(t.quality)
+                      ? "border-accent/40 bg-accent/15 text-accent"
+                      : "border-border bg-secondary text-muted-foreground";
+                  const qualityTitle = mp3Bitrate
+                    ? `${bitrate} kbps · ${bitrate >= 320 ? "Perfect" : bitrate === 128 ? "Minimal" : bitrate > 128 ? "OK" : "Warn"}`
+                    : t.quality;
                   return (
                     <tr
                       key={t.id}
@@ -581,6 +604,22 @@ function Index() {
                       aria-selected={i === sel || isRangeSelected}
                       className={`cursor-default border-b border-border/40 ${i === sel ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : i % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
                     >
+                      <td className="w-10 px-1 py-1 text-center">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-7 text-muted-foreground hover:bg-primary hover:text-primary-foreground"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void lookupTrackInCollection(t);
+                          }}
+                          aria-label={`Look up similar tracks for ${t.title}`}
+                          title="Look up in Rekordbox collection"
+                        >
+                          <Search size={14} />
+                        </Button>
+                      </td>
+                      <td className="px-2 py-1 font-mono text-muted-foreground">{trackNumbers.get(t.id)}</td>
                       <td className="w-6 px-1 py-1">
                         <span className="flex h-4 w-4 items-center justify-center">
                           {isLoaded &&
@@ -591,7 +630,6 @@ function Index() {
                             ))}
                         </span>
                       </td>
-                      <td className="px-2 py-1 font-mono text-muted-foreground">{i + 1}</td>
                       <td className="max-w-[16rem] truncate px-2 py-1 font-medium">{t.title}</td>
                       <td className="max-w-[12rem] truncate px-2 py-1">{t.artist}</td>
                       <td className="max-w-[12rem] truncate px-2 py-1 text-muted-foreground">
@@ -613,25 +651,13 @@ function Index() {
                       <td className="px-2 py-1 font-mono font-semibold text-primary">{t.key}</td>
                       <td className="px-2 py-1">
                         <span
-                          className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[10px] ${/FLAC|WAV|AIFF/.test(t.quality) ? "bg-accent/15 text-accent" : "bg-secondary text-muted-foreground"}`}
+                          className={`whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] ${qualityClass}`}
+                          title={qualityTitle}
                         >
                           {t.quality}
                         </span>
                       </td>
                       <td className="px-1 py-1 text-right">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-7 text-muted-foreground hover:text-primary"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void lookupTrackInCollection(t);
-                          }}
-                          aria-label={`Look up similar tracks for ${t.title}`}
-                          title="Look up in Rekordbox collection"
-                        >
-                          <Search size={14} />
-                        </Button>
                         <Button
                           size="icon"
                           variant="ghost"
@@ -651,7 +677,7 @@ function Index() {
                 })}
                 {view.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="p-8 text-center text-muted-foreground">
+                    <td colSpan={12} className="p-8 text-center text-muted-foreground">
                       No tracks
                     </td>
                   </tr>
@@ -714,6 +740,24 @@ function Index() {
                     <div className="truncate font-medium">{match.title}</div>
                     <div className="truncate text-xs text-muted-foreground">
                       {match.artist}{match.album ? ` — ${match.album}` : ""}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[10px]">
+                      <span
+                        className="flex gap-0.5"
+                        role="img"
+                        aria-label={`Rating: ${match.rating ?? 0} out of 5 stars`}
+                      >
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star
+                            key={star}
+                            size={11}
+                            className={star <= (match.rating ?? 0) ? "fill-gold text-gold" : "text-border"}
+                          />
+                        ))}
+                      </span>
+                      <span className="font-mono text-muted-foreground">
+                        {(match.play_count ?? 0).toLocaleString()} plays
+                      </span>
                     </div>
                     <div className="mt-1 font-mono text-[10px] text-muted-foreground">
                       {fmtTime(match.duration)}{match.bpm ? ` · ${match.bpm} BPM` : ""}{match.key ? ` · ${match.key}` : ""}

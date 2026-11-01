@@ -120,9 +120,14 @@ async def collection_lookup(request: CollectionLookup):
         result = await client.call_tool(
             "lookup_similar_tracks", {"artist": artist, "title": title},
         )
-        matches = result.data
+        structured = result.structured_content
+        matches = structured.get("result") if isinstance(structured, dict) else None
+        if matches is None:
+            matches = result.data
         if matches is None and result.content:
             matches = json.loads(result.content[0].text)
+        if not isinstance(matches, list):
+            raise ValueError("Unexpected collection lookup response.")
         collection_mcp.state = "connected"
         collection_mcp.message = None
         return {"matches": matches or []}

@@ -13,7 +13,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 from loguru import logger
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from rekordbox_mcp import server as upstream
 
 from .database import SnapshotDatabase
@@ -30,6 +30,19 @@ READ_TOOLS = (
     "get_recent_sessions", "get_history_stats", "search_history_sessions",
 )
 _upstream_lock = asyncio.Lock()
+
+
+class LookupTrack(BaseModel):
+    id: str
+    title: str
+    artist: str
+    album: str
+    duration: int
+    bpm: float
+    key: str
+    rating: int
+    play_count: int
+    similarity: float
 
 
 class ExportInputPrivacy(Middleware):
@@ -115,7 +128,9 @@ def build_server(
         )(wrap(original))
 
     @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
-    async def lookup_similar_tracks(artist: str, title: str, limit: int = 10) -> list[dict]:
+    async def lookup_similar_tracks(
+        artist: str, title: str, limit: int = 10,
+    ) -> list[LookupTrack]:
         """Find collection tracks matching an artist and a fuzzy title."""
         artist = artist.strip()
         title = title.strip()
@@ -159,17 +174,19 @@ def build_server(
         ranked.sort(key=lambda item: item[0], reverse=True)
         results = []
         for score, candidate in ranked[:limit]:
-            results.append({
-                "id": str(candidate.get("id") or ""),
-                "title": str(candidate.get("title") or ""),
-                "artist": str(candidate.get("artist") or ""),
-                "album": str(candidate.get("album") or ""),
-                "duration": candidate.get("length") or candidate.get("duration") or 0,
-                "bpm": candidate.get("bpm") or 0,
-                "key": str(candidate.get("key") or ""),
-                "similarity": round(score * 100, 1),
-            })
-        return redact_paths(results)
+            results.append(LookupTrack(
+                id=str(candidate.get("id") or ""),
+                title=str(candidate.get("title") or ""),
+                artist=str(candidate.get("artist") or ""),
+                album=str(candidate.get("album") or ""),
+                duration=candidate.get("length") or candidate.get("duration") or 0,
+                bpm=candidate.get("bpm") or 0,
+                key=str(candidate.get("key") or ""),
+                rating=candidate.get("rating") or 0,
+                play_count=candidate.get("play_count") or 0,
+                similarity=round(score * 100, 1),
+            ))
+        return results
 
     @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
     async def export_playlist(

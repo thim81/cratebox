@@ -8,7 +8,8 @@ From this folder, run:
 
 ```sh
 uv --directory ../rekordbx-mcp run --locked --with fastapi --with uvicorn --with mutagen \
-  uvicorn --app-dir ../neon-crate server:app --port 8000 --reload
+  uvicorn --app-dir ../neon-crate --reload-dir ../neon-crate --reload-dir src \
+  server:app --port 8000 --reload
 ```
 
 By default, playlists are read from the repository root `playlists/` folder. To use another folder:
@@ -16,7 +17,8 @@ By default, playlists are read from the repository root `playlists/` folder. To 
 ```sh
 PLAYLIST_DIR="/absolute/path/to/playlists" uv --directory ../rekordbx-mcp run --locked \
   --with fastapi --with uvicorn --with mutagen \
-  uvicorn --app-dir ../neon-crate server:app --port 8000 --reload
+  uvicorn --app-dir ../neon-crate --reload-dir ../neon-crate --reload-dir src \
+  server:app --port 8000 --reload
 ```
 
 Then set the app's API URL to `http://localhost:8000` and enable API mode.
@@ -28,7 +30,8 @@ referenced by playlists in the configured folder. Track removal uses
 only works with the repository's `playlists/` folder.
 
 Each track row has a Lookup action that searches the Rekordbox collection for
-similar artist/title matches. The MCP worker starts on the first lookup, so
+similar artist/title matches, including their collection ratings and play counts.
+The MCP worker starts on the first lookup, so
 CrateDeck can browse and play playlists without it. Close Rekordbox and its
 background agents before the first lookup; the worker creates a fresh verified
 snapshot, stays connected while the API runs, and stops with the API. The header
