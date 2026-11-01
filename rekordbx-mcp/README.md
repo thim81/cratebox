@@ -162,6 +162,17 @@ project installation. No export path argument is exposed to the model. Add
 `export_playlist` to an existing client's tool allowlist and restart the MCP to
 make the new tool available.
 
+`create_sockseek_list` writes a new Sockseek list under
+`output/sockseek-lists/` from ordered artist/title entries. It uses Sockseek's
+`s:"Artist - Title"` list syntax so each entry is a song search. It never
+overwrites an existing list and never runs Sockseek; the response includes a
+command that runs the repository's `sockseek/sockseek` binary and downloads
+into `~/Downloads/Soulseek/<name>/`. The binary uses its adjacent
+`sockseek/sockseek.conf`. Run the returned command from the repository root;
+its binary and input-list arguments are relative paths. Add
+`create_sockseek_list` to the client tool allowlist and restart the MCP to
+enable it.
+
 `lookup_similar_tracks_for_cratedeck` is reserved for the local CrateDeck API.
 It returns file paths for immediate server-side playback and must stay out of
 conversational MCP client allowlists; the API removes paths before responding to

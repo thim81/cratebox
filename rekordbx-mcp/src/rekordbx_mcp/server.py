@@ -19,6 +19,7 @@ from rekordbox_mcp import server as upstream
 
 from .database import SnapshotDatabase, content_by_ids
 from .export import OUTPUT_DIRECTORY, PLAYLISTS_DIRECTORY, export_playlist as write_playlist
+from .sockseek import create_sockseek_list as write_sockseek_list
 from .snapshot import verify_snapshot
 
 
@@ -58,6 +59,11 @@ class TrackLocation(BaseModel):
 class PlaylistSeparator(BaseModel):
     type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
     before_track: int
+
+
+class SockseekTrack(BaseModel):
+    artist: str
+    title: str
 
 
 class ExportInputPrivacy(Middleware):
@@ -270,6 +276,22 @@ def build_server(
             except Exception:
                 logger.exception("Track location lookup failed")
                 raise ToolError("Track location lookup failed; check the local server logs.") from None
+
+    @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
+    async def create_sockseek_list(name: str, tracks: list[SockseekTrack]) -> dict:
+        """Create a Sockseek song-search list and a ready-to-run command.
+
+        Writes a new list under the repository's output/sockseek-lists/. The command is
+        returned for manual execution; this tool never runs Sockseek or downloads audio.
+        Existing lists are never overwritten.
+        """
+        try:
+            return write_sockseek_list(name, [track.model_dump() for track in tracks])
+        except (ValueError, FileExistsError) as error:
+            raise ToolError(str(error)) from None
+        except OSError:
+            logger.exception("Sockseek list creation failed")
+            raise ToolError("Cannot write the Sockseek list; check output/sockseek-lists and permissions.") from None
 
     @server.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
     async def export_playlist(
