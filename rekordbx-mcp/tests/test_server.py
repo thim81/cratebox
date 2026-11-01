@@ -37,8 +37,8 @@ async def test_export_tool_creates_local_artifacts_without_returning_audio_paths
         exported = json.loads(result.content[0].text)
         assert exported["track_count"] == 2
         assert str(playable_snapshot / "music") not in result.content[0].text
-        assert (playlists / "House-v001.m3u8").is_file()
-        assert json.loads((output / "House-v001.json").read_text())["track_ids"] == ["2", "1"]
+        assert (playlists / "House.m3u8").is_file()
+        assert [item["track_id"] for item in json.loads((output / "House.json").read_text())["tracks"]] == ["2", "1"]
         error = await client.call_tool("export_playlist", {"name": "Bad", "track_ids": ["3"]}, raise_on_error=False)
         assert error.is_error
         assert str(playable_snapshot / "music") not in error.content[0].text
@@ -52,8 +52,8 @@ async def test_export_tool_accepts_file_paths_as_an_alternative(playable_snapsho
         result = await client.call_tool("export_playlist", {"name": "Locations", "file_paths": locations})
         exported = json.loads(result.content[0].text)
         assert exported["track_count"] == 2
-        assert (playlists / "Locations-v001.m3u8").read_text(encoding="utf-8").splitlines() == ["#EXTM3U", *locations]
-        assert json.loads((output / "Locations-v001.json").read_text())["track_ids"] == ["2", "1"]
+        assert (playlists / "Locations.m3u8").read_text(encoding="utf-8").splitlines() == ["#EXTM3U", *locations]
+        assert [item["track_id"] for item in json.loads((output / "Locations.json").read_text())["tracks"]] == ["2", "1"]
         assert str(playable_snapshot / "music") not in result.content[0].text
         for arguments in [
             {"name": "Both", "track_ids": ["1"], "file_paths": locations},
@@ -63,8 +63,8 @@ async def test_export_tool_accepts_file_paths_as_an_alternative(playable_snapsho
             error = await client.call_tool("export_playlist", arguments, raise_on_error=False)
             assert error.is_error
             assert str(playable_snapshot / "music") not in error.content[0].text
-        assert {path.name for path in output.iterdir()} == {"Locations-v001.json"}
-        assert {path.name for path in playlists.iterdir()} == {"Locations-v001.m3u8"}
+        assert {path.name for path in output.iterdir()} == {"Locations.json"}
+        assert {path.name for path in playlists.iterdir()} == {"Locations.m3u8"}
 
 
 @pytest.mark.parametrize("malformed", ["string_list", "element_type", "missing_name", "extra_argument"])

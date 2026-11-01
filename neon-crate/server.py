@@ -184,32 +184,55 @@ def playlist_entry_count(lines: list[str]):
     return sum(1 for line in lines if line.strip() and not line.lstrip().startswith("#"))
 
 
-def read_plan_ids(path: Path, entry_count: int):
+def read_plan_ids(path: Path, lines: list[str]):
     plan_path = PLAN_DIRECTORY / f"{path.stem}.json"
-    if not plan_path.is_file():
+    if PLAN_DIRECTORY.is_symlink() or plan_path.is_symlink():
+        raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+    if not plan_path.exists():
         return plan_path, None
     try:
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        entries = plan.get("tracks")
-        if isinstance(entries, list):
+        if not isinstance(plan, dict):
+            raise ValueError
+        if "tracks" in plan:
+            entries = plan["tracks"]
+            if not isinstance(entries, list):
+                raise ValueError
             track_ids = [entry.get("track_id") for entry in entries if isinstance(entry, dict)]
             if len(track_ids) != len(entries):
-                return plan_path, None
+                raise ValueError
             file_paths = [entry.get("file_path") for entry in entries if isinstance(entry, dict)]
-            if any(not isinstance(item, str) or not Path(item).is_absolute() for item in file_paths):
-                return plan_path, None
+            if any(
+                not isinstance(item, str) or not Path(item).is_absolute()
+                or any(character in item for character in "\r\n\x00\x85\u2028\u2029")
+                for item in file_paths
+            ):
+                raise ValueError
         else:
             track_ids = plan.get("track_ids")
             file_paths = None
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return plan_path, None
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        raise HTTPException(409, "The playlist and its track-ID plan are out of sync") from None
+    entry_count = playlist_entry_count(lines)
     if (
         not isinstance(track_ids, list)
         or len(track_ids) != entry_count
         or any(not isinstance(track_id, str) or not track_id for track_id in track_ids)
         or (file_paths is not None and len(file_paths) != entry_count)
     ):
-        return plan_path, None
+        raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+    if file_paths is not None:
+        playlist_paths = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+        for playlist_path, plan_path_value in zip(playlist_paths, file_paths, strict=True):
+            current_path = Path(playlist_path).expanduser()
+            if not current_path.is_absolute():
+                current_path = path.parent / current_path
+            try:
+                paths_match = current_path.resolve() == Path(plan_path_value).resolve()
+            except (OSError, RuntimeError, ValueError):
+                paths_match = False
+            if not paths_match:
+                raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
     return plan_path, (track_ids, file_paths)
 
 
@@ -264,7 +287,7 @@ def parse_playlist(path: Path):
     except (OSError, UnicodeError) as exc:
         raise HTTPException(500, f"Could not read playlist {path.name}") from exc
 
-    _, plan = read_plan_ids(path, playlist_entry_count(lines))
+    _, plan = read_plan_ids(path, lines)
     for _, _, audio, track_id, rekordbox_id in playlist_entries(path, lines, plan):
         try:
             media = mutagen.File(audio, easy=True)
@@ -285,7 +308,6 @@ def parse_playlist(path: Path):
         tracks.append({
             "id": track_id,
             "rekordbox_id": rekordbox_id,
-            "file_path": str(audio),
             "title": tag("title", audio.stem),
             "artist": tag("artist"),
             "album": tag("album"),
@@ -343,7 +365,7 @@ def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)
     except (OSError, UnicodeError) as exc:
         raise HTTPException(500, "Could not read playlist") from exc
 
-    plan_path, plan = read_plan_ids(path, playlist_entry_count(lines))
+    plan_path, plan = read_plan_ids(path, lines)
     plan_data = None
     if plan_path.is_file():
         if plan is None or plan_path.is_symlink() or PLAN_DIRECTORY.is_symlink():
@@ -398,7 +420,7 @@ def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)
 def stream(playlist_id: str, track_id: str):
     path = find_playlist(playlist_id)
     lines = path.read_text(encoding="utf-8-sig").splitlines()
-    _, plan = read_plan_ids(path, playlist_entry_count(lines))
+    _, plan = read_plan_ids(path, lines)
     for _, _, audio, registered_id, _ in playlist_entries(path, lines, plan):
         if registered_id == track_id:
             return FileResponse(audio)

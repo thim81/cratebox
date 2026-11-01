@@ -188,22 +188,23 @@ def build_server(
             ))
         return results
 
-    @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
+    @server.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
     async def export_playlist(
         name: str, track_ids: list[str] | None = None,
         file_paths: list[str] | None = None,
-        revision: bool = False,
+        update_existing: bool = False,
     ) -> dict:
-        """Export tracks as a numbered M3U8 in playlists/ and matching JSON in output/.
+        """Export tracks as an M3U8 in playlists/ and matching JSON in output/.
 
-        Use a filename-safe base name without an extension. First exports use v001.
-        If the base name already exists, ask whether to create its next numbered
-        revision or use a different name. To create the confirmed revision, call
-        again with revision=true. Never use revision=true without user confirmation.
+        Use a filename-safe name without an extension. If an export with that
+        name already exists, ask whether to update it or create a separate
+        playlist with a different name. To update the confirmed existing export,
+        call again with update_existing=true. Never update without confirmation.
         Supply exactly one of track_ids or file_paths, with 1–1000 entries.
         File paths must be absolute and match exactly one active snapshot track.
-        Rejects unknown/deleted IDs and missing audio. Existing files are never replaced.
-        Returns artifact paths only; JSON saves resolved IDs, not audio paths.
+        Rejects unknown/deleted IDs and missing audio. New names never replace files.
+        Returns artifact paths only; the JSON plan pairs each ID with its audio path.
+        Audio paths are not returned in this tool response.
         Prefer track_ids to avoid sending audio paths in tool arguments.
         Creates external files only; never imports or edits Rekordbox data.
         """
@@ -213,7 +214,7 @@ def build_server(
                 return write_playlist(
                     database.db, name, track_ids, output_directory,
                     file_paths=file_paths, playlists_directory=playlists_directory,
-                    revision=revision,
+                    update_existing=update_existing,
                 )
             except ValueError as error:
                 raise ToolError(str(error)) from None

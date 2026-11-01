@@ -24,9 +24,9 @@ collection data read-only.
 - **Shape a set in conversation.** Ask Codex to select tracks, explain the order,
   estimate duration, and refine the proposal.
 - **Keep selections grounded.** Validate proposed track IDs against your collection snapshot.
-- **Export your set.** Create a numbered M3U8 playlist in `playlists/` and a
-  matching JSON record of its ordered track IDs and paths in `output/`, ready for you to
-  import manually. The highest numbered revision is the latest.
+- **Export your set.** Create an M3U8 playlist in `playlists/` and a matching
+  JSON record in `output/`, ready for you to import manually. Choose whether to
+  update an existing playlist or save a separate one under a new name.
 - **Stay current.** Create a fresh collection copy at startup and update the
   upstream MCP with one command.
 
@@ -113,13 +113,13 @@ More examples are in the [playlist guide](docs/user-guide.md#4-ask-for-playlists
 > preserving the agreed track order. Give me links to the M3U8 and JSON files.
 
 The M3U8 appears in `playlists/`; its matching JSON plan appears in `output/`.
-Exports use numbered names (`House warm-up-v001`, then `-v002`), so the highest
-number is the latest. The exporter resolves audio paths locally from the
-current snapshot and checks that every selected file exists. Unknown/deleted
-IDs, missing files, unsafe names, and existing export names stop the first
-attempt. Codex asks whether to create the next revision or use a new name for a
-separate playlist. Confirming a revision of an older unnumbered export starts
-the numbered sequence at `v001` and preserves the old files.
+The exporter uses the requested name as-is, without adding a version suffix.
+It resolves audio paths locally from the current snapshot and checks that every
+selected file exists. Unknown/deleted IDs, missing files, and unsafe names stop
+the export. If that name already exists, Codex asks whether to update it or use
+a different name for a separate playlist. Updating replaces the M3U8 and JSON
+pair at the same paths; older `-vNNN` exports are updated in place under their
+existing filename.
 
 Use either an ordered `track_ids` list or an ordered `file_paths` list. File
 locations must be absolute local paths matching exactly one active track in the

@@ -341,7 +341,9 @@ function Index() {
             setLoaded(null);
           } else {
             const refreshedLoaded = updatedTracks.find(
-              (track) => track.file_path === loaded.track.file_path && track.rekordbox_id === loaded.track.rekordbox_id,
+              (track) => loaded.track.rekordbox_id
+                ? track.rekordbox_id === loaded.track.rekordbox_id
+                : track.id === loaded.track.id,
             );
             if (refreshedLoaded) {
               setLoaded({ ...loaded, track: refreshedLoaded });

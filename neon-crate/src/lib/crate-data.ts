@@ -1,7 +1,6 @@
 export interface Track {
   id: string;
   rekordbox_id?: string | null;
-  file_path?: string;
   title: string;
   artist: string;
   album: string;

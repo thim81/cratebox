@@ -26,19 +26,21 @@ def test_export_preserves_order_unicode_and_inputs(collection, playable_snapshot
     playlist = Path(result["playlist_path"])
     assert playlist.parent == output.parent / "playlists"
     assert playlist.suffix == ".m3u8"
-    assert result["revision_name"] == "Été house-v001"
+    assert result["name"] == "Été house"
     assert playlist.read_text(encoding="utf-8").splitlines() == [
         "#EXTM3U", str(playable_snapshot / "music/Second track.mp3"),
         str(playable_snapshot / "music/Été #1.mp3"),
         str(playable_snapshot / "music/Second track.mp3"),
     ]
     plan = json.loads(Path(result["plan_path"]).read_text(encoding="utf-8"))
-    assert plan["name"] == "Été house-v001"
-    assert plan["revision_of"] == "Été house"
-    assert plan["track_ids"] == ["2", "1", "2"]
+    assert plan["name"] == "Été house"
+    assert plan["tracks"] == [
+        {"track_id": "2", "file_path": str(playable_snapshot / "music/Second track.mp3")},
+        {"track_id": "1", "file_path": str(playable_snapshot / "music/Été #1.mp3")},
+        {"track_id": "2", "file_path": str(playable_snapshot / "music/Second track.mp3")},
+    ]
     assert result["track_count"] == 3
     assert "music/" not in json.dumps(result)
-    assert "music/" not in json.dumps(plan)
     assert [sha256(path) for path in originals] == before
 
 
@@ -73,16 +75,26 @@ def test_unsafe_names_never_write(collection, playable_snapshot, name):
     assert not output.exists()
 
 
-@pytest.mark.parametrize("existing", ["House.m3u8", "House.json"])
-def test_export_never_overwrites_or_leaves_partial_files(collection, playable_snapshot, existing):
+def test_export_updates_existing_pair_only_after_confirmation(collection, playable_snapshot):
     from rekordbx_mcp.export import export_playlist
     output = playable_snapshot / "output"
+    playlists = playable_snapshot / "playlists"
     output.mkdir()
-    (output / existing).write_text("keep me")
+    playlists.mkdir()
+    playlist = playlists / "House.m3u8"
+    plan = output / "House.json"
+    playlist.write_text("old playlist")
+    plan.write_text("old plan")
     with pytest.raises(FileExistsError):
         export_playlist(collection, "House", ["1"], output)
-    assert (output / existing).read_text() == "keep me"
-    assert {path.name for path in output.iterdir()} == {existing}
+    assert playlist.read_text() == "old playlist"
+    assert plan.read_text() == "old plan"
+    result = export_playlist(collection, "House", ["1"], output, update_existing=True)
+    assert result["updated_existing"] is True
+    assert playlist.read_text(encoding="utf-8").splitlines()[-1] == str(playable_snapshot / "music/Été #1.mp3")
+    assert json.loads(plan.read_text(encoding="utf-8"))["tracks"][0]["track_id"] == "1"
+    assert {path.name for path in output.iterdir()} == {"House.json"}
+    assert {path.name for path in playlists.iterdir()} == {"House.m3u8"}
 
 
 def test_symlink_output_cannot_redirect_writes_to_originals(collection, playable_snapshot):
@@ -100,11 +112,14 @@ def test_existing_symlink_file_is_not_followed(collection, playable_snapshot):
     from rekordbx_mcp.export import export_playlist
     output = playable_snapshot / "output"
     output.mkdir()
+    playlists = playable_snapshot / "playlists"
+    playlists.mkdir()
     audio = playable_snapshot / "music/Été #1.mp3"
     before = sha256(audio)
-    (output / "House.m3u8").symlink_to(audio)
-    with pytest.raises(FileExistsError):
-        export_playlist(collection, "House", ["1"], output)
+    (playlists / "House.m3u8").symlink_to(audio)
+    (output / "House.json").write_text("old plan")
+    with pytest.raises(ValueError, match="symlink or non-file"):
+        export_playlist(collection, "House", ["1"], output, update_existing=True)
     assert sha256(audio) == before
 
 
@@ -133,10 +148,9 @@ def test_file_locations_resolve_to_ids_and_preserve_order(collection, playable_s
     assert playlist.parent == output.parent / "playlists"
     assert playlist.read_text(encoding="utf-8").splitlines() == ["#EXTM3U", *locations]
     plan = json.loads(Path(result["plan_path"]).read_text(encoding="utf-8"))
-    assert plan["track_ids"] == ["2", "1", "2"]
+    assert [item["track_id"] for item in plan["tracks"]] == ["2", "1", "2"]
     assert result["track_count"] == 3
     assert str(playable_snapshot / "music") not in json.dumps(result)
-    assert str(playable_snapshot / "music") not in json.dumps(plan)
     assert [sha256(path) for path in originals] == before
 
 

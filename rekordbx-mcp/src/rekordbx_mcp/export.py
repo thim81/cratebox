@@ -3,8 +3,10 @@
 import json
 import os
 import re
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from .database import SnapshotMasterDatabase
 
@@ -21,7 +23,7 @@ def export_playlist(
     *,
     file_paths: list[str] | None = None,
     playlists_directory: Path | None = None,
-    revision: bool = False,
+    update_existing: bool = False,
 ) -> dict:
     name = name.strip()
     if (
@@ -102,58 +104,110 @@ def export_playlist(
         os.close(output_fd)
         raise
     try:
-        revision_pattern = re.compile(rf"{re.escape(name)}-v(\d+)\.(?:m3u8|json)")
-
-        def existing_revision_numbers():
-            output_names = set(os.listdir(output_fd))
-            playlist_names = set(os.listdir(playlists_fd))
-            numbers = [
-                int(match.group(1))
-                for filename in output_names | playlist_names
-                if (match := revision_pattern.fullmatch(filename))
-            ]
-            legacy = (
-                f"{name}.json" in output_names
-                or f"{name}.m3u8" in output_names
-                or f"{name}.m3u8" in playlist_names
+        old_name_pattern = re.compile(rf"{re.escape(name)}-v(\d+)")
+        output_names = set(os.listdir(output_fd))
+        playlist_names = set(os.listdir(playlists_fd))
+        existing_names = {
+            Path(filename).stem
+            for filename in output_names | playlist_names
+            if Path(filename).suffix in (".m3u8", ".json")
+            and (
+                Path(filename).stem == name
+                or old_name_pattern.fullmatch(Path(filename).stem)
             )
-            return numbers, legacy
-
-        existing_revisions, has_legacy_export = existing_revision_numbers()
-        has_existing_export = bool(existing_revisions) or has_legacy_export
-        if has_existing_export and not revision:
+        }
+        if existing_names and not update_existing:
+            existing_name = name if name in existing_names else max(
+                existing_names, key=lambda item: int(old_name_pattern.fullmatch(item).group(1)),
+            )
             raise FileExistsError(
-                f"An export named {name!r} already exists. Ask whether to create its next numbered revision "
-                "or start a separate playlist with a new name. If revising, call again with revision=true."
+                f"An export named {existing_name!r} already exists. Ask whether to update that playlist "
+                "or create a separate playlist with a different name. If updating, call again with "
+                "update_existing=true."
             )
-        if revision and not has_existing_export:
-            raise ValueError("Cannot revise this playlist because no earlier local export was found.")
+        if update_existing and not existing_names:
+            raise ValueError("Cannot update this playlist because no earlier local export was found.")
+        target_name = name if name in existing_names else (
+            max(existing_names, key=lambda item: int(old_name_pattern.fullmatch(item).group(1)))
+            if update_existing else name
+        )
     except BaseException:
         os.close(playlists_fd)
         os.close(output_fd)
         raise
 
+    plan = {
+        "format": 1,
+        "name": target_name,
+        "tracks": [
+            {"track_id": track_id, "file_path": path}
+            for track_id, path in zip(track_ids, paths, strict=True)
+        ],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    artifacts = [
+        (playlists_fd, f"{target_name}.m3u8", "#EXTM3U\n" + "\n".join(paths) + "\n"),
+        (output_fd, f"{target_name}.json", json.dumps(plan, ensure_ascii=False, indent=2) + "\n"),
+    ]
     try:
-        for attempt in range(8):
-            existing_revisions, has_legacy_export = existing_revision_numbers()
-            if not revision and (existing_revisions or has_legacy_export):
-                raise FileExistsError(
-                    f"An export named {name!r} already exists. Ask whether to create its next numbered revision "
-                    "or start a separate playlist with a new name. If revising, call again with revision=true."
-                )
-            revision_name = f"{name}-v{max(existing_revisions, default=0) + 1:03d}"
-            plan = {
-                "format": 1, "name": revision_name, "revision_of": name,
-                "tracks": [
-                    {"track_id": track_id, "file_path": path}
-                    for track_id, path in zip(track_ids, paths, strict=True)
-                ],
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-            artifacts = [
-                (playlists_fd, f"{revision_name}.m3u8", "#EXTM3U\n" + "\n".join(paths) + "\n"),
-                (output_fd, f"{revision_name}.json", json.dumps(plan, ensure_ascii=False, indent=2) + "\n"),
-            ]
+        if update_existing:
+            backups = []
+            temporaries = []
+            installed = []
+            try:
+                for directory_fd, filename, _ in artifacts:
+                    try:
+                        current = os.stat(filename, dir_fd=directory_fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        continue
+                    if not stat.S_ISREG(current.st_mode):
+                        raise ValueError("Cannot update an export containing a symlink or non-file artifact.")
+                    backup = f".{filename}.{uuid4().hex}.bak"
+                    os.link(
+                        filename, backup, src_dir_fd=directory_fd,
+                        dst_dir_fd=directory_fd, follow_symlinks=False,
+                    )
+                    backups.append((directory_fd, backup, filename))
+                for directory_fd, filename, content in artifacts:
+                    temporary = f".{filename}.{uuid4().hex}.tmp"
+                    fd = os.open(
+                        temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600, dir_fd=directory_fd,
+                    )
+                    temporaries.append((directory_fd, temporary))
+                    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+                        stream.write(content)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                for (directory_fd, filename, _), (_, temporary) in zip(artifacts, temporaries, strict=True):
+                    os.replace(temporary, filename, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+                    installed.append((directory_fd, filename))
+                    temporaries = [item for item in temporaries if item[1] != temporary]
+            except BaseException:
+                backed_up_names = {(directory_fd, filename) for directory_fd, _, filename in backups}
+                for directory_fd, filename in reversed(installed):
+                    if (directory_fd, filename) not in backed_up_names:
+                        try:
+                            os.unlink(filename, dir_fd=directory_fd)
+                        except OSError:
+                            pass
+                for directory_fd, backup, filename in reversed(backups):
+                    try:
+                        os.replace(backup, filename, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+                    except OSError:
+                        pass
+                for directory_fd, temporary in temporaries:
+                    try:
+                        os.unlink(temporary, dir_fd=directory_fd)
+                    except OSError:
+                        pass
+                raise
+            for directory_fd, backup, _ in backups:
+                try:
+                    os.unlink(backup, dir_fd=directory_fd)
+                except OSError:
+                    pass
+        else:
             created = []
             try:
                 for directory_fd, filename, content in artifacts:
@@ -166,19 +220,6 @@ def export_playlist(
                         stream.write(content)
                         stream.flush()
                         os.fsync(stream.fileno())
-            except FileExistsError:
-                for directory_fd, filename in created:
-                    try:
-                        os.unlink(filename, dir_fd=directory_fd)
-                    except OSError:
-                        pass
-                if not revision:
-                    raise FileExistsError(
-                        f"An export named {name!r} already exists. Ask whether to create its next numbered revision "
-                        "or start a separate playlist with a new name. If revising, call again with revision=true."
-                    ) from None
-                if attempt == 7:
-                    raise FileExistsError("Could not reserve a revision after repeated concurrent exports.") from None
             except BaseException:
                 for directory_fd, filename in created:
                     try:
@@ -186,14 +227,13 @@ def export_playlist(
                     except OSError:
                         pass
                 raise
-            else:
-                break
     finally:
         os.close(playlists_fd)
         os.close(output_fd)
     return {
-        "playlist_path": str(playlists_directory / f"{revision_name}.m3u8"),
-        "plan_path": str(output_directory / f"{revision_name}.json"),
-        "revision_name": revision_name,
+        "playlist_path": str(playlists_directory / f"{target_name}.m3u8"),
+        "plan_path": str(output_directory / f"{target_name}.json"),
+        "name": target_name,
+        "updated_existing": update_existing,
         "track_count": len(track_ids),
     }

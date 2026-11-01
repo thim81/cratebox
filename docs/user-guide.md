@@ -230,20 +230,19 @@ visible in your Codex conversation; prefer IDs to keep paths local. Neither
 success nor error responses return audio paths. Unmatched or ambiguous file
 locations are reported by their position in the supplied list.
 
-Exports use matching revision names in two repository folders:
+Exports use the requested playlist name in two repository folders:
 
-- `playlists/House warm-up-v001.m3u8`: UTF-8 playlist containing absolute local
+- `playlists/House warm-up.m3u8`: UTF-8 playlist containing absolute local
   audio paths.
-- `output/House warm-up-v001.json`: playlist name, ordered IDs, creation time
-  and format version. The highest numbered revision is the latest.
+- `output/House warm-up.json`: playlist name, ordered IDs, creation time and
+  format version.
 
 If an export with the requested base name already exists, Codex asks whether
-you want the next numbered revision or a separate playlist under a new name.
-After you confirm a revision, Codex creates the next number and keeps all prior
-files intact. If the existing export has no version number, its confirmed
-revision starts the numbered sequence at `v001`. To revise a saved selection,
-ask Codex to read its JSON, adjust the IDs, validate them against the current
-snapshot, and export the revision.
+you want to update it or create a separate playlist under a different name.
+After you confirm an update, Codex replaces the M3U8 and JSON files at the same
+paths. Existing `-vNNN` exports are updated in place under their current names.
+To revise a saved selection, ask Codex to read its JSON, adjust the IDs,
+validate them against the current snapshot, and export with the update choice.
 
 Track order and intentional repeated IDs are preserved. An export accepts
 1–1000 tracks via either input. Every ID must exist and not be marked deleted,
@@ -251,8 +250,9 @@ and every referenced audio file must be present. Errors report affected IDs with
 paths. Nothing is silently skipped and validation failures create no artifacts.
 
 Names must be a single filename stem without slashes or control characters,
-up to 200 UTF-8 bytes. Existing filenames and symlink destinations are never
-replaced. The destinations are fixed by the adapter, not chosen by the model.
+up to 200 UTF-8 bytes. Existing files are replaced only after you confirm an
+update, and symlink destinations are refused. The destinations are fixed by the
+adapter, not chosen by the model.
 Exports are ignored by Git. Treat M3U8 files as private because they contain
 local filesystem paths.
 

@@ -131,16 +131,15 @@ After restarting the configured MCP connection, try:
 > choices. Flag uncertainty about energy or mood.
 
 The MCP supplies search and metadata; Codex makes the conversational proposal.
-Once the selection is final, ask Codex to call `export_playlist` with a base
-name and exactly one ordered list: `track_ids` or `file_paths`. File locations
-must be absolute local paths matching exactly one active snapshot track. The
-first export uses a `-v001` suffix; later revisions use the next number. M3U8
-files go in `playlists/`, and matching JSON plans go in `output/`. Both use the
-same revision name, and the highest numbered revision is latest. If that base
-name already exists, Codex asks whether to create its next revision or use a
-new name for a separate playlist. The tool never replaces existing files.
-Older unnumbered exports also trigger this choice; confirming a revision
-starts the numbered sequence at `v001` and leaves the older files intact.
+Once the selection is final, ask Codex to call `export_playlist` with a name
+and exactly one ordered list: `track_ids` or `file_paths`. File locations must
+be absolute local paths matching exactly one active snapshot track. M3U8 files
+go in `playlists/`, and matching JSON plans go in `output/`, using the requested
+name without an automatic version suffix. If that name already exists, Codex
+asks whether to update it or use a different name for a separate playlist. On
+confirmation, it calls the tool again with `update_existing=true` to replace the
+existing pair at the same paths. Existing numbered exports are updated in place
+under their current filename.
 
 It checks every ID and audio file, preserves order and repeats, and refuses
 symlink destination directories. Errors identify problematic IDs without
@@ -149,8 +148,8 @@ position. JSON saves an ordered `tracks` array pairing each resolved ID with
 its absolute file path. Supplying file paths makes them visible in tool
 inputs; IDs keep paths local.
 
-The JSON saves the revision name, base playlist name, ordered ID/path pairs,
-format version and creation time. The M3U8 contains absolute audio paths for manual
+The JSON saves the name, ordered IDs and ID/path pairs, format version and
+creation time. The M3U8 contains absolute audio paths for manual
 import, so treat it as private. Both destination directories are fixed relative
 to this repository's source layout; run the adapter using the documented uv
 project installation. No export path argument is exposed to the model. Add
