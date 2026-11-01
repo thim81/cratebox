@@ -3,6 +3,22 @@ import { ArrowLeftRight, Play, Star, Volume2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
 
+function qualityBadgeClass(quality: string) {
+  const bitrate = Number(/\bMP3\s+(\d+)\s*kbps/i.exec(quality)?.[1]);
+  if (bitrate) {
+    return bitrate >= 320
+      ? "border-accent text-accent"
+      : bitrate === 128
+        ? "border-muted-foreground text-muted-foreground"
+        : bitrate > 128
+          ? "border-primary text-primary"
+          : "border-destructive text-destructive";
+  }
+  return /FLAC|WAV|AIFF/.test(quality)
+    ? "border-accent/40 bg-accent/15 text-accent"
+    : "border-border bg-secondary text-muted-foreground";
+}
+
 interface Props {
   sourceTrack: Track;
   matches: CollectionMatch[];
@@ -63,7 +79,7 @@ export function CollectionLookupResults({
       ) : matches.length ? (
         <ul className="divide-y divide-border">
           {shownMatches.map((match) => (
-            <li key={match.id} className={`grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_minmax(5.5rem,.8fr)_3.5rem_3rem_2.75rem_3rem_2rem_3rem_4.5rem_4rem] items-center gap-1.5 py-2 ${match.id === sourceTrack.rekordbox_id ? "bg-primary/5" : ""} ${activeTrackId === `collection-${match.id}` ? "text-accent" : ""}`}>
+            <li key={match.id} className={`grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem] items-center gap-1.5 py-2 ${match.id === sourceTrack.rekordbox_id ? "bg-primary/5" : ""} ${activeTrackId === `collection-${match.id}` ? "text-accent" : ""}`}>
               <span className="flex h-4 items-center justify-center">
                 {activeTrackId === `collection-${match.id}` && (playing
                   ? <Volume2 size={12} className="animate-pulse text-accent" />
@@ -71,8 +87,7 @@ export function CollectionLookupResults({
               </span>
               <span className="truncate text-xs font-medium" title={match.title}>{match.title}</span>
               <span className="truncate text-xs text-muted-foreground" title={match.artist}>{match.artist}</span>
-              <span className="truncate text-xs text-muted-foreground" title={match.album}>{match.album || "—"}</span>
-              <span className="truncate font-mono text-[10px] text-muted-foreground" title={match.quality || "Quality unavailable"}>{match.quality || "—"}</span>
+              <span className={`truncate text-xs text-muted-foreground ${match.album ? "" : "text-center"}`} title={match.album}>{match.album || "—"}</span>
               <span className="flex justify-center gap-0.5" role="img" aria-label={`Rating: ${match.rating ?? 0} out of 5 stars`}>
                   {[1, 2, 3, 4, 5].map((star) => (
                     <Star key={star} size={10} className={star <= (match.rating ?? 0) ? "fill-gold text-gold" : "text-border"} />
@@ -82,6 +97,16 @@ export function CollectionLookupResults({
               <span className="text-right font-mono text-[10px] text-muted-foreground">{fmtTime(match.duration)}</span>
               <span className="text-right font-mono text-[10px] text-muted-foreground">{match.bpm || "—"}</span>
               <span className="text-right font-mono text-[10px] text-muted-foreground">{match.key || "—"}</span>
+              {match.quality ? (
+                <span
+                  className={`w-fit max-w-full truncate whitespace-nowrap rounded border px-1 py-px font-mono text-[9px] ${qualityBadgeClass(match.quality)}`}
+                  title={match.quality}
+                >
+                  {match.quality}
+                </span>
+              ) : (
+                <span>—</span>
+              )}
               <span className="text-right font-mono text-[10px] text-accent">{match.similarity}%</span>
               {match.id === sourceTrack.rekordbox_id ? (
                 <span className="whitespace-nowrap rounded bg-primary/10 px-1 py-1 text-center text-[10px] text-primary">In playlist</span>

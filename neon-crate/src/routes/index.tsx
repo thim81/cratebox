@@ -1,26 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
   Circle,
   CircleAlert,
   CircleCheck,
   Disc3,
-  ListMusic,
   LoaderCircle,
   Search,
   Settings,
   Sun,
   Moon,
-  Star,
   Volume2,
   VolumeX,
-  RefreshCw,
-  Trash2,
 } from "lucide-react";
 import { Deck, type DeckHandle } from "@/components/Deck";
-import { CollectionLookupResults } from "@/components/CollectionLookupResults";
+import { CrateSidebar } from "@/components/CrateSidebar";
+import { TrackTable, type SortKey, type SortState } from "@/components/TrackTable";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +26,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import {
+  collectionStreamUrl,
+  deletePlaylistTracks,
+  getCollectionStatus,
+  getPlaylist,
+  getPlaylists,
+  lookupCollection,
+  swapPlaylistTrack,
+} from "@/lib/cratedeck-api";
 import {
   fmtTime,
   type CollectionMatch,
@@ -60,7 +64,6 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type SortKey = "number" | "title" | "artist" | "duration" | "rating" | "bpm" | "key";
 const SEEK_SECONDS = 5;
 const camelot = (k: string) => parseInt(k) * 2 + (k.endsWith("B") ? 1 : 0);
 
@@ -85,7 +88,7 @@ function Index() {
   const [refreshing, setRefreshing] = useState(false);
   const [crateQ, setCrateQ] = useState("");
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState<{ k: SortKey | null; dir: 1 | -1 }>({ k: null, dir: 1 });
+  const [sort, setSort] = useState<SortState>({ k: null, dir: 1 });
   const [sel, setSel] = useState(0);
   const [rangeAnchor, setRangeAnchor] = useState<number | null>(null);
   const [loaded, setLoaded] = useState<{ track: Track; playlist: string } | null>(null);
@@ -94,7 +97,6 @@ function Index() {
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const deck = useRef<DeckHandle>(null);
-  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
 
   useEffect(() => {
     if (localStorage.getItem("crate-deck-theme") === "light") {
@@ -113,9 +115,7 @@ function Index() {
   const refreshPlaylists = useCallback(async () => {
     setRefreshing(true);
     try {
-      const response = await fetch(`${apiUrl}/api/playlists`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data: Playlist[] = await response.json();
+      const data = await getPlaylists(apiUrl);
       setPlaylists(data);
       setApiError(null);
       setActiveId((current) =>
@@ -132,9 +132,7 @@ function Index() {
 
   const refreshCollectionStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/collection/status`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setCollectionStatus((await response.json()) as CollectionStatus);
+      setCollectionStatus(await getCollectionStatus(apiUrl));
     } catch {
       setCollectionStatus({ state: "error", message: "Local API unavailable" });
     }
@@ -153,22 +151,8 @@ function Index() {
       setLookupError(null);
       setLookupLoading(true);
       try {
-        const response = await fetch(`${apiUrl}/api/collection/lookup`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            track_id: track.rekordbox_id,
-            artist: track.artist,
-            title: track.title,
-          }),
-        });
-        const data = (await response.json()) as {
-          matches?: CollectionMatch[];
-          detail?: string;
-        };
-        if (!response.ok) throw new Error(data.detail ?? `HTTP ${response.status}`);
+        const matches = await lookupCollection(apiUrl, track);
         if (lookupRequestId.current === requestId) {
-          const matches = data.matches ?? [];
           setLookupMatches(matches);
           const exact = track.rekordbox_id
             ? matches.find((match) => match.id === track.rekordbox_id)
@@ -184,19 +168,19 @@ function Index() {
               key: exact.key || current.key,
               duration: exact.duration || current.duration,
             });
-            setTracks((current) => current.map((item) =>
-              item.id === track.id ? applyMetadata(item) : item,
-            ));
-            setLoaded((current) => current?.track.id === track.id
-              ? { ...current, track: applyMetadata(current.track) }
-              : current);
+            setTracks((current) =>
+              current.map((item) => (item.id === track.id ? applyMetadata(item) : item)),
+            );
+            setLoaded((current) =>
+              current?.track.id === track.id
+                ? { ...current, track: applyMetadata(current.track) }
+                : current,
+            );
           }
         }
       } catch (error) {
         if (lookupRequestId.current === requestId) {
-          setLookupError(
-            error instanceof Error ? error.message : "Collection lookup failed.",
-          );
+          setLookupError(error instanceof Error ? error.message : "Collection lookup failed.");
         }
       } finally {
         if (lookupRequestId.current === requestId) setLookupLoading(false);
@@ -206,28 +190,31 @@ function Index() {
     [apiUrl, expandedLookupTrackId, refreshCollectionStatus],
   );
 
-  const playCollectionMatch = useCallback((match: CollectionMatch) => {
-    const id = `collection-${match.id}`;
-    if (loaded?.track.id === id) {
-      if (!playing) deck.current?.toggle();
-      return;
-    }
-    const track: Track = {
-      id,
-      rekordbox_id: match.id,
-      title: match.title,
-      artist: match.artist,
-      album: match.album,
-      duration: match.duration,
-      rating: match.rating,
-      bpm: match.bpm,
-      key: match.key,
-      quality: "Rekordbox collection",
-      url: `${apiUrl}/api/collection/stream/${encodeURIComponent(match.id)}`,
-    };
-    setAutoPlay(true);
-    setLoaded({ track, playlist: "Rekordbox collection" });
-  }, [apiUrl, loaded, playing]);
+  const playCollectionMatch = useCallback(
+    (match: CollectionMatch) => {
+      const id = `collection-${match.id}`;
+      if (loaded?.track.id === id) {
+        if (!playing) deck.current?.toggle();
+        return;
+      }
+      const track: Track = {
+        id,
+        rekordbox_id: match.id,
+        title: match.title,
+        artist: match.artist,
+        album: match.album,
+        duration: match.duration,
+        rating: match.rating,
+        bpm: match.bpm,
+        key: match.key,
+        quality: "Rekordbox collection",
+        url: collectionStreamUrl(apiUrl, match.id),
+      };
+      setAutoPlay(true);
+      setLoaded({ track, playlist: "Rekordbox collection" });
+    },
+    [apiUrl, loaded, playing],
+  );
 
   useEffect(() => {
     void refreshPlaylists();
@@ -246,22 +233,12 @@ function Index() {
       setTracks([]);
       return;
     }
-    fetch(`${apiUrl}/api/playlists/${encodeURIComponent(activeId)}`)
-      .then((r) => r.json())
-      .then((d: Playlist) =>
-        setTracks(
-          (d.tracks ?? []).map((track) => ({
-            ...track,
-            url: new URL(track.url, `${apiUrl}/`).toString(),
-          })),
-        ),
-      )
+    getPlaylist(apiUrl, activeId)
+      .then((playlist) => setTracks(playlist.tracks ?? []))
       .catch(() => setTracks([]));
   }, [activeId, apiUrl]);
 
   const activePl = playlists.find((p) => p.id === activeId);
-  const crates = playlists.filter((p) => p.name.toLowerCase().includes(crateQ.toLowerCase()));
-
   const trackNumbers = useMemo(
     () => new Map(tracks.map((track, index) => [track.id, index + 1])),
     [tracks],
@@ -279,8 +256,9 @@ function Index() {
     if (sort.k) {
       const k = sort.k;
       list = [...list].sort((a, b) => {
-        const va = k === "key" ? camelot(a.key) : k === "number" ? trackNumbers.get(a.id) ?? 0 : a[k],
-          vb = k === "key" ? camelot(b.key) : k === "number" ? trackNumbers.get(b.id) ?? 0 : b[k];
+        const va =
+            k === "key" ? camelot(a.key) : k === "number" ? (trackNumbers.get(a.id) ?? 0) : a[k],
+          vb = k === "key" ? camelot(b.key) : k === "number" ? (trackNumbers.get(b.id) ?? 0) : b[k];
         return (
           (typeof va === "string"
             ? va.localeCompare(vb as string)
@@ -292,48 +270,46 @@ function Index() {
   }, [tracks, q, sort, trackNumbers]);
 
   const activePlaylistName = activePl?.name ?? "";
-  const swapCollectionMatch = useCallback(async (sourceTrack: Track, match: CollectionMatch) => {
-    if (!activeId || !window.confirm(
-      `Replace “${sourceTrack.title}” in “${activePlaylistName || "this playlist"}” with “${match.title}”?`,
-    )) return;
-    try {
-      const response = await fetch(
-        `${apiUrl}/api/playlists/${encodeURIComponent(activeId)}/tracks/swap`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source_track_id: sourceTrack.id, replacement_track_id: match.id }),
-        },
-      );
-      const result = (await response.json()) as { track_id?: string; detail?: string };
-      if (!response.ok) throw new Error(result.detail ?? `HTTP ${response.status}`);
-      const playlistResponse = await fetch(
-        `${apiUrl}/api/playlists/${encodeURIComponent(activeId)}`,
-      );
-      if (!playlistResponse.ok) throw new Error(`HTTP ${playlistResponse.status}`);
-      const playlist = (await playlistResponse.json()) as Playlist;
-      const updatedTracks = (playlist.tracks ?? []).map((track) => ({
-        ...track,
-        url: new URL(track.url, `${apiUrl}/`).toString(),
-      }));
-      setTracks(updatedTracks);
-      setRangeAnchor(null);
-      setSel(Math.max(0, view.findIndex((track) => track.id === sourceTrack.id)));
-      const replacementTrack = updatedTracks.find((track) => track.id === result.track_id);
-      if (replacementTrack) {
-        setLookupTrack(replacementTrack);
-        setExpandedLookupTrackId(replacementTrack.id);
-        if (loaded?.track.id === sourceTrack.id) {
-          setAutoPlay(true);
-          setLoaded({ track: replacementTrack, playlist: activePlaylistName });
+  const swapCollectionMatch = useCallback(
+    async (sourceTrack: Track, match: CollectionMatch) => {
+      if (
+        !activeId ||
+        !window.confirm(
+          `Replace “${sourceTrack.title}” in “${activePlaylistName || "this playlist"}” with “${match.title}”?`,
+        )
+      )
+        return;
+      try {
+        const result = await swapPlaylistTrack(apiUrl, activeId, sourceTrack.id, match.id);
+        const playlist = await getPlaylist(apiUrl, activeId, true);
+        const updatedTracks = playlist.tracks ?? [];
+        setTracks(updatedTracks);
+        setRangeAnchor(null);
+        setSel(
+          Math.max(
+            0,
+            view.findIndex((track) => track.id === sourceTrack.id),
+          ),
+        );
+        const replacementTrack = updatedTracks.find((track) => track.id === result.track_id);
+        if (replacementTrack) {
+          setLookupTrack(replacementTrack);
+          setExpandedLookupTrackId(replacementTrack.id);
+          if (loaded?.track.id === sourceTrack.id) {
+            setAutoPlay(true);
+            setLoaded({ track: replacementTrack, playlist: activePlaylistName });
+          }
         }
+        setApiError(null);
+        await refreshPlaylists();
+      } catch (error) {
+        setApiError(
+          `Couldn't swap track (${error instanceof Error ? error.message : "request failed"})`,
+        );
       }
-      setApiError(null);
-      await refreshPlaylists();
-    } catch (error) {
-      setApiError(`Couldn't swap track (${error instanceof Error ? error.message : "request failed"})`);
-    }
-  }, [activeId, activePlaylistName, apiUrl, loaded, refreshPlaylists, view]);
+    },
+    [activeId, activePlaylistName, apiUrl, loaded, refreshPlaylists, view],
+  );
 
   const selectedRange = useMemo(() => {
     if (rangeAnchor === null || !view.length) return [];
@@ -388,15 +364,11 @@ function Index() {
           : `Remove ${toRemove.length} selected tracks from “${activePl?.name ?? "this playlist"}”? The audio files will stay on disk.`;
       if (!window.confirm(prompt)) return;
       try {
-        const response = await fetch(
-          `${apiUrl}/api/playlists/${encodeURIComponent(activeId)}/tracks`,
-          {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ track_ids: toRemove.map((track) => track.id) }),
-          },
+        await deletePlaylistTracks(
+          apiUrl,
+          activeId,
+          toRemove.map((track) => track.id),
         );
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const removedIds = new Set(toRemove.map((track) => track.id));
         const positions = toRemove
           .map((track) => view.findIndex((item) => item.id === track.id))
@@ -404,15 +376,8 @@ function Index() {
         const firstIndex = positions.length ? Math.min(...positions) : 0;
         const remainingView = view.filter((track) => !removedIds.has(track.id));
         const nextIndex = Math.max(0, Math.min(firstIndex, remainingView.length - 1));
-        const playlistResponse = await fetch(
-          `${apiUrl}/api/playlists/${encodeURIComponent(activeId)}`,
-        );
-        if (!playlistResponse.ok) throw new Error(`HTTP ${playlistResponse.status}`);
-        const updatedPlaylist = (await playlistResponse.json()) as Playlist;
-        const updatedTracks = (updatedPlaylist.tracks ?? []).map((track) => ({
-          ...track,
-          url: new URL(track.url, `${apiUrl}/`).toString(),
-        }));
+        const updatedPlaylist = await getPlaylist(apiUrl, activeId, true);
+        const updatedTracks = updatedPlaylist.tracks ?? [];
         setTracks(updatedTracks);
         setRangeAnchor(null);
         setSel(nextIndex);
@@ -420,8 +385,8 @@ function Index() {
           if (removedIds.has(loaded.track.id)) {
             setLoaded(null);
           } else {
-            const refreshedLoaded = updatedTracks.find(
-              (track) => loaded.track.rekordbox_id
+            const refreshedLoaded = updatedTracks.find((track) =>
+              loaded.track.rekordbox_id
                 ? track.rekordbox_id === loaded.track.rekordbox_id
                 : track.id === loaded.track.id,
             );
@@ -483,38 +448,12 @@ function Index() {
     return () => window.removeEventListener("keydown", h);
   }, [view, sel, loaded, load, settingsOpen, rangeAnchor, selectedRange, removeTracks]);
 
-  useEffect(() => {
-    rowRefs.current[sel]?.scrollIntoView({ block: "nearest" });
-  }, [sel]);
-
   const toggleSort = (k: SortKey) => {
     setRangeAnchor(null);
     setSort((s) =>
       s.k === k ? (s.dir === 1 ? { k, dir: -1 } : { k: null, dir: 1 }) : { k, dir: 1 },
     );
   };
-  const Th = ({
-    k,
-    children,
-    className = "",
-  }: {
-    k?: SortKey;
-    children: React.ReactNode;
-    className?: string;
-  }) => (
-    <th
-      onClick={k ? () => toggleSort(k) : undefined}
-      className={`sticky top-0 z-10 bg-card px-2 py-1.5 text-left font-semibold uppercase tracking-wider ${k ? "cursor-pointer select-none hover:text-primary" : ""} ${sort.k === k && k ? "text-primary" : ""} ${className}`}
-    >
-      <span className="inline-flex items-center gap-0.5">
-        {children}
-        {sort.k === k &&
-          k &&
-          (sort.dir === 1 ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
-      </span>
-    </th>
-  );
-
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <header className="flex items-center gap-3 border-b border-border bg-sidebar px-4 py-2">
@@ -526,9 +465,11 @@ function Index() {
           <div
             role="status"
             aria-label={collectionStatusLabel}
-            title={collectionStatus.message
-              ? `${collectionStatusLabel}: ${collectionStatus.message}`
-              : collectionStatusLabel}
+            title={
+              collectionStatus.message
+                ? `${collectionStatusLabel}: ${collectionStatus.message}`
+                : collectionStatusLabel
+            }
             className={`flex items-center gap-1.5 ${collectionStatus.state === "connected" ? "text-accent" : collectionStatus.state === "error" ? "text-destructive" : "text-muted-foreground"}`}
           >
             {collectionStatus.state === "starting" ? (
@@ -595,68 +536,16 @@ function Index() {
       />
 
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-          <div className="p-2">
-            <div className="relative">
-              <Search
-                size={14}
-                className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                value={crateQ}
-                onChange={(e) => setCrateQ(e.target.value)}
-                placeholder="Filter crates…"
-                className="h-8 pl-7 text-xs"
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-between px-3 pb-1">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Crates
-            </span>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="size-7"
-              onClick={() => void refreshPlaylists()}
-              disabled={refreshing}
-              aria-label="Refresh playlists"
-              title="Refresh playlists"
-            >
-              <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
-            </Button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {apiError && (
-              <div className="m-2 rounded border border-destructive/50 p-2 text-xs text-destructive">
-                {apiError}
-              </div>
-            )}
-            {crates.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setActiveId(p.id)}
-                className={`block w-full border-l-2 px-3 py-2 text-left transition-colors ${p.id === activeId ? "border-primary bg-sidebar-accent" : "border-transparent hover:bg-sidebar-accent/60"}`}
-              >
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <ListMusic
-                    size={14}
-                    className={p.id === activeId ? "text-primary" : "text-muted-foreground"}
-                  />
-                  <span className="truncate">{p.name}</span>
-                </div>
-                <div className="mt-0.5 flex gap-3 pl-6 font-mono text-[10px] text-muted-foreground">
-                  <span>{p.trackCount} trk</span>
-                  <span>{fmtTime(p.duration)}</span>
-                  <span>{p.created}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-          <div className="border-t border-sidebar-border p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
-            ↑↓ browse · ⌘↑↓ load · ⇧↑↓ select · ⌘⌫ remove · ←→ seek 5s
-          </div>
-        </aside>
+        <CrateSidebar
+          playlists={playlists}
+          activeId={activeId}
+          filter={crateQ}
+          apiError={apiError}
+          refreshing={refreshing}
+          onFilterChange={setCrateQ}
+          onRefresh={() => void refreshPlaylists()}
+          onSelectPlaylist={setActiveId}
+        />
 
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center gap-3 border-b border-border px-3 py-2">
@@ -679,158 +568,31 @@ function Index() {
               />
             </div>
           </div>
-          <div className="flex-1 overflow-auto">
-            <table className="w-full border-collapse text-xs">
-              <thead className="text-[10px] text-muted-foreground">
-                <tr>
-                  <Th className="w-10">{""}</Th>
-                  <Th k="number" className="w-8">#</Th>
-                  <Th className="w-6">{""}</Th>
-                  <Th k="title">Title</Th>
-                  <Th k="artist">Artist</Th>
-                  <Th>Album</Th>
-                  <Th k="duration">Time</Th>
-                  <Th k="rating">Rating</Th>
-                  <Th k="bpm">BPM</Th>
-                  <Th k="key">Key</Th>
-                  <Th>Quality</Th>
-                  <Th className="w-10">{""}</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {view.map((t, i) => {
-                  const isLoaded = loaded?.track.id === t.id;
-                  const isRangeSelected = selectedIds.has(t.id);
-                  const mp3Bitrate = /\bMP3\s+(\d+)\s*kbps/i.exec(t.quality)?.[1];
-                  const bitrate = Number(mp3Bitrate);
-                  const qualityClass = mp3Bitrate
-                    ? bitrate >= 320
-                      ? "border-accent text-accent"
-                      : bitrate === 128
-                        ? "border-muted-foreground text-muted-foreground"
-                        : bitrate > 128
-                          ? "border-primary text-primary"
-                          : "border-destructive text-destructive"
-                    : /FLAC|WAV|AIFF/.test(t.quality)
-                      ? "border-accent/40 bg-accent/15 text-accent"
-                      : "border-border bg-secondary text-muted-foreground";
-                  const qualityTitle = mp3Bitrate
-                    ? `${bitrate} kbps · ${bitrate >= 320 ? "Perfect" : bitrate === 128 ? "Minimal" : bitrate > 128 ? "OK" : "Warn"}`
-                    : t.quality;
-                  return (
-                    <Fragment key={t.id}>
-                    <tr
-                      ref={(el) => {
-                        rowRefs.current[i] = el;
-                      }}
-                      onClick={() => {
-                        setSel(i);
-                        setRangeAnchor(null);
-                      }}
-                      onDoubleClick={() => load(t)}
-                      aria-selected={i === sel || isRangeSelected}
-                      className={`cursor-default border-b border-border/40 ${i === sel ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : i % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
-                    >
-                      <td className="w-10 px-1 py-1 text-center">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-7 text-muted-foreground hover:bg-primary hover:text-primary-foreground"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void lookupTrackInCollection(t);
-                          }}
-                          aria-expanded={expandedLookupTrackId === t.id}
-                          aria-label={`${t.rekordbox_id ? "Open exact Rekordbox match for" : "Look up similar tracks for"} ${t.title}`}
-                          title={expandedLookupTrackId === t.id ? "Collapse lookup results" : "Search in Rekordbox collection"}
-                        >
-                          <Search size={14} />
-                        </Button>
-                      </td>
-                      <td className="px-2 py-1 font-mono text-muted-foreground">{trackNumbers.get(t.id)}</td>
-                      <td className="w-6 px-1 py-1">
-                        <span className="flex h-4 w-4 items-center justify-center">
-                          {isLoaded &&
-                            (playing ? (
-                              <Volume2 size={12} className="animate-pulse text-accent" />
-                            ) : (
-                              <span className="text-accent">▸</span>
-                            ))}
-                        </span>
-                      </td>
-                      <td className="max-w-[16rem] truncate px-2 py-1 font-medium">{t.title}</td>
-                      <td className="max-w-[12rem] truncate px-2 py-1">{t.artist}</td>
-                      <td className="max-w-[12rem] truncate px-2 py-1 text-muted-foreground">
-                        {t.album}
-                      </td>
-                      <td className="px-2 py-1 font-mono tabular-nums">{fmtTime(t.duration)}</td>
-                      <td className="px-2 py-1">
-                        <span className="flex">
-                          {[1, 2, 3, 4, 5].map((n) => (
-                            <Star
-                              key={n}
-                              size={11}
-                              className={n <= t.rating ? "fill-gold text-gold" : "text-border"}
-                            />
-                          ))}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1 font-mono tabular-nums text-accent">{t.bpm}</td>
-                      <td className="px-2 py-1 font-mono font-semibold text-primary">{t.key}</td>
-                      <td className="px-2 py-1">
-                        <span
-                          className={`whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] ${qualityClass}`}
-                          title={qualityTitle}
-                        >
-                          {t.quality}
-                        </span>
-                      </td>
-                      <td className="px-1 py-1 text-right">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-7 text-muted-foreground hover:text-destructive"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void removeTracks([t]);
-                          }}
-                          aria-label={`Remove ${t.title} from playlist`}
-                          title="Remove from playlist"
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </td>
-                    </tr>
-                    {expandedLookupTrackId === t.id && lookupTrack && (
-                      <tr>
-                        <td colSpan={12} className="px-3 py-2">
-                          <CollectionLookupResults
-                            sourceTrack={lookupTrack}
-                            matches={lookupMatches}
-                            loading={lookupLoading}
-                            error={lookupError}
-                            activeTrackId={loaded?.track.id ?? null}
-                            playing={playing}
-                            onPlay={playCollectionMatch}
-                            onSwap={swapCollectionMatch}
-                            onCollapse={() => setExpandedLookupTrackId(null)}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                    </Fragment>
-                  );
-                })}
-                {view.length === 0 && (
-                  <tr>
-                    <td colSpan={12} className="p-8 text-center text-muted-foreground">
-                      No tracks
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <TrackTable
+            tracks={view}
+            trackNumbers={trackNumbers}
+            sort={sort}
+            selectedIndex={sel}
+            selectedIds={selectedIds}
+            loadedTrackId={loaded?.track.id ?? null}
+            playing={playing}
+            expandedLookupTrackId={expandedLookupTrackId}
+            lookupTrack={lookupTrack}
+            lookupMatches={lookupMatches}
+            lookupLoading={lookupLoading}
+            lookupError={lookupError}
+            onSort={toggleSort}
+            onSelect={(index) => {
+              setSel(index);
+              setRangeAnchor(null);
+            }}
+            onLoad={load}
+            onLookup={(track) => void lookupTrackInCollection(track)}
+            onRemove={(track) => void removeTracks([track])}
+            onPlayCollectionMatch={playCollectionMatch}
+            onSwapCollectionMatch={swapCollectionMatch}
+            onCollapseLookup={() => setExpandedLookupTrackId(null)}
+          />
         </main>
       </div>
 
@@ -862,7 +624,6 @@ function Index() {
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
