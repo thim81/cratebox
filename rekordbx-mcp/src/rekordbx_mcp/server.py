@@ -17,7 +17,7 @@ from loguru import logger
 from pydantic import BaseModel, ValidationError
 from rekordbox_mcp import server as upstream
 
-from .database import SnapshotDatabase
+from .database import SnapshotDatabase, content_by_ids
 from .export import OUTPUT_DIRECTORY, PLAYLISTS_DIRECTORY, export_playlist as write_playlist
 from .snapshot import verify_snapshot
 
@@ -251,13 +251,18 @@ def build_server(
                 await ensure_connected()
 
                 def resolve_locations():
-                    by_id = {
-                        str(database._content_to_track(content).id): str(content.FolderPath or "")
-                        for content in database._get_active_content()
-                    }
-                    if any(track_id not in by_id or not by_id[track_id] for track_id in track_ids):
+                    contents = content_by_ids(database.db, track_ids)
+                    if any(
+                        track_id not in contents
+                        or contents[track_id].rb_local_deleted
+                        or not contents[track_id].FolderPath
+                        for track_id in track_ids
+                    ):
                         raise ValueError
-                    return [TrackLocation(track_id=track_id, file_path=by_id[track_id]) for track_id in track_ids]
+                    return [
+                        TrackLocation(track_id=track_id, file_path=str(contents[track_id].FolderPath))
+                        for track_id in track_ids
+                    ]
 
                 return await asyncio.to_thread(resolve_locations)
             except ValueError:

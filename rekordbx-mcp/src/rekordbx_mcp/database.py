@@ -15,6 +15,19 @@ from sqlcipher3 import dbapi2 as sqlite
 from .snapshot import verify_snapshot
 
 
+def content_by_ids(database: MasterDatabase, track_ids: list[str]):
+    query = database.get_content()
+    content_model = query.column_descriptions[0]["entity"]
+    ids = [
+        int(track_id) if track_id.isascii() and track_id.isdigit() else track_id
+        for track_id in track_ids
+    ]
+    return {
+        str(content.ID): content
+        for content in query.filter(content_model.ID.in_(ids)).all()
+    }
+
+
 def open_readonly_connection(database: Path):
     database = Path(database).resolve(strict=True)
     connection = sqlite.connect(

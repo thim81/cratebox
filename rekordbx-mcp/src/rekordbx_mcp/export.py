@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .database import SnapshotMasterDatabase
+from .database import SnapshotMasterDatabase, content_by_ids
 
 
 OUTPUT_DIRECTORY = Path(__file__).resolve().parents[3] / "output"
@@ -72,10 +72,11 @@ def export_playlist(
     ):
         raise ValueError("Select up to 1000 nonempty string track IDs.")
 
+    contents_by_id = content_by_ids(database, track_ids)
     paths = []
     unknown, missing, unsafe = [], [], []
     for track_id in track_ids:
-        track = database.get_content(ID=track_id)
+        track = contents_by_id.get(track_id)
         if track is None or track.rb_local_deleted:
             unknown.append(track_id)
             continue

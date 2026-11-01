@@ -8,8 +8,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .collection import collection_mcp
-from .config import DEFAULT_PLAYLIST_DIR, PLAYLIST_DIR
+from .config import DEFAULT_PLAYLIST_DIR, PLAN_DIRECTORY, PLAYLIST_DIR
 from .playlists import (
+    atomic_write,
     playlist_entries,
     playlist_files,
     playlist_mutation_lock,
@@ -44,6 +45,15 @@ SEPARATOR_TRACK_TYPES = {
     "244354734": "Salsa",
     "247266859": "Party",
     "32984962": "Dance",
+}
+SEPARATOR_TRACK_FILES = {
+    "generic": "Separator.wav",
+    "90s": "Separator-90.wav",
+    "R&B": "Separator-RB.wav",
+    "Ambi": "Separator-Ambi.wav",
+    "Salsa": "Separator-Salsa.wav",
+    "Party": "Separator-Party.wav",
+    "Dance": "Separator-Dance.wav",
 }
 
 
@@ -248,48 +258,106 @@ async def replace_playlist_separator(playlist_id: str, request: ReplaceSeparator
         raise HTTPException(400, "A separator row ID is required.")
 
     async with playlist_mutation_lock(playlist_id):
-        path, plan, _ = local_playlist_with_plan(playlist_id)
-        await validate_plan_locations(plan)
+        path, plan, lines = local_playlist_with_plan(playlist_id)
         separator_occurrences: dict[str, int] = {}
-        regular_track_ids = []
-        replacement_position = None
-        separators = []
-        for track_id in plan[0]:
+        target_entry = None
+        plan_index = None
+        for plan_index, track_id in enumerate(plan[0]):
             if track_id in SEPARATOR_TRACK_TYPES:
                 occurrence = separator_occurrences.get(track_id, 0) + 1
                 separator_occurrences[track_id] = occurrence
                 row_id = f"{track_id}-{occurrence}"
-                separator_type = (
-                    request.type if row_id == request.separator_row_id
-                    else SEPARATOR_TRACK_TYPES[track_id]
-                )
                 if row_id == request.separator_row_id:
-                    replacement_position = len(regular_track_ids) + 1
-                separators.append({
-                    "type": separator_type,
-                    "before_track": len(regular_track_ids) + 1,
-                })
-            else:
-                regular_track_ids.append(track_id)
+                    target_entry = next(
+                        (
+                            entry for entry in playlist_entries(path, lines, plan)
+                            if entry[3] == row_id
+                        ),
+                        None,
+                    )
+                    break
 
-        if replacement_position is None:
+        if plan_index is None or target_entry is None:
             raise HTTPException(404, "Separator not found in playlist.")
-        exported = await call_tool(
-            "export_playlist",
-            {
-                "name": path.stem,
-                "track_ids": regular_track_ids,
-                "update_existing": True,
-                "separators": separators,
-            },
+
+        replacement_track_id = next(
+            track_id for track_id, separator_type in SEPARATOR_TRACK_TYPES.items()
+            if separator_type == request.type
         )
-        if not isinstance(exported, dict):
-            raise HTTPException(502, "Unexpected playlist export response.")
+        locations = await call_tool(
+            "get_track_locations",
+            {"track_ids": [plan[0][plan_index], replacement_track_id]},
+        )
+        if (
+            not isinstance(locations, list)
+            or len(locations) != 2
+            or any(not isinstance(item, dict) for item in locations)
+            or str(locations[0].get("track_id")) != plan[0][plan_index]
+            or str(locations[1].get("track_id")) != replacement_track_id
+        ):
+            raise HTTPException(502, "Unexpected Rekordbox track locations.")
+        try:
+            current_path = Path(locations[0]["file_path"])
+            replacement_path = Path(locations[1]["file_path"])
+            if (
+                current_path.resolve() != Path(plan[1][plan_index]).resolve()
+                or not replacement_path.is_absolute()
+                or not replacement_path.is_file()
+                or replacement_path.name != SEPARATOR_TRACK_FILES[request.type]
+                or replacement_path.resolve().parent != current_path.resolve().parent
+            ):
+                raise HTTPException(409, "The separator and its track-ID plan are out of sync")
+        except (KeyError, OSError, RuntimeError, TypeError, ValueError):
+            raise HTTPException(409, "The separator and its track-ID plan are out of sync") from None
+
+        plan_path = PLAN_DIRECTORY / f"{path.stem}.json"
+        try:
+            plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan_items = plan_data["tracks"]
+            if not isinstance(plan_items[plan_index], dict):
+                raise ValueError
+            plan_items[plan_index]["track_id"] = replacement_track_id
+            plan_items[plan_index]["file_path"] = str(replacement_path)
+            plan_items[plan_index]["separator_type"] = request.type
+        except (
+            AttributeError,
+            IndexError,
+            KeyError,
+            TypeError,
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            ValueError,
+        ):
+            raise HTTPException(409, "The playlist and its track-ID plan are out of sync") from None
+
+        line_number = target_entry[0]
+        old_playlist_text = "".join(lines)
+        line_ending = (
+            "\r\n" if lines[line_number].endswith("\r\n")
+            else "\n" if lines[line_number].endswith("\n") else ""
+        )
+        lines[line_number] = f"{replacement_path}{line_ending}"
+        plan_text = json.dumps(plan_data, ensure_ascii=False, indent=2) + "\n"
+        playlist_updated = False
+        try:
+            atomic_write(path, "".join(lines))
+            playlist_updated = True
+            atomic_write(plan_path, plan_text)
+        except OSError as exc:
+            if playlist_updated:
+                try:
+                    atomic_write(path, old_playlist_text)
+                except OSError:
+                    raise HTTPException(500, "Playlist and track-ID plan may be out of sync") from None
+            raise HTTPException(500, "Could not update playlist") from exc
+
+        separator_count = sum(item in SEPARATOR_TRACK_TYPES for item in plan[0])
         return {
-            "name": str(exported.get("name") or path.stem),
-            "track_count": int(exported.get("track_count") or len(regular_track_ids)),
-            "separator_count": int(exported.get("separator_count") or len(separators)),
-            "updated_existing": bool(exported.get("updated_existing")),
+            "name": path.stem,
+            "track_count": len(plan[0]) - separator_count,
+            "separator_count": separator_count,
+            "updated_existing": True,
         }
 
 
