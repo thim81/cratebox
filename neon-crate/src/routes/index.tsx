@@ -291,6 +291,50 @@ function Index() {
     return list;
   }, [tracks, q, sort, trackNumbers]);
 
+  const activePlaylistName = activePl?.name ?? "";
+  const swapCollectionMatch = useCallback(async (sourceTrack: Track, match: CollectionMatch) => {
+    if (!activeId || !window.confirm(
+      `Replace “${sourceTrack.title}” in “${activePlaylistName || "this playlist"}” with “${match.title}”?`,
+    )) return;
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/playlists/${encodeURIComponent(activeId)}/tracks/swap`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source_track_id: sourceTrack.id, replacement_track_id: match.id }),
+        },
+      );
+      const result = (await response.json()) as { track_id?: string; detail?: string };
+      if (!response.ok) throw new Error(result.detail ?? `HTTP ${response.status}`);
+      const playlistResponse = await fetch(
+        `${apiUrl}/api/playlists/${encodeURIComponent(activeId)}`,
+      );
+      if (!playlistResponse.ok) throw new Error(`HTTP ${playlistResponse.status}`);
+      const playlist = (await playlistResponse.json()) as Playlist;
+      const updatedTracks = (playlist.tracks ?? []).map((track) => ({
+        ...track,
+        url: new URL(track.url, `${apiUrl}/`).toString(),
+      }));
+      setTracks(updatedTracks);
+      setRangeAnchor(null);
+      setSel(Math.max(0, view.findIndex((track) => track.id === sourceTrack.id)));
+      const replacementTrack = updatedTracks.find((track) => track.id === result.track_id);
+      if (replacementTrack) {
+        setLookupTrack(replacementTrack);
+        setExpandedLookupTrackId(replacementTrack.id);
+        if (loaded?.track.id === sourceTrack.id) {
+          setAutoPlay(true);
+          setLoaded({ track: replacementTrack, playlist: activePlaylistName });
+        }
+      }
+      setApiError(null);
+      await refreshPlaylists();
+    } catch (error) {
+      setApiError(`Couldn't swap track (${error instanceof Error ? error.message : "request failed"})`);
+    }
+  }, [activeId, activePlaylistName, apiUrl, loaded, refreshPlaylists, view]);
+
   const selectedRange = useMemo(() => {
     if (rangeAnchor === null || !view.length) return [];
     return view.slice(Math.min(rangeAnchor, sel), Math.max(rangeAnchor, sel) + 1);
@@ -765,7 +809,10 @@ function Index() {
                             matches={lookupMatches}
                             loading={lookupLoading}
                             error={lookupError}
+                            activeTrackId={loaded?.track.id ?? null}
+                            playing={playing}
                             onPlay={playCollectionMatch}
+                            onSwap={swapCollectionMatch}
                             onCollapse={() => setExpandedLookupTrackId(null)}
                           />
                         </td>

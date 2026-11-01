@@ -29,6 +29,11 @@ class CollectionLookup(BaseModel):
     track_id: str | None = None
 
 
+class PlaylistSwap(BaseModel):
+    source_track_id: str
+    replacement_track_id: str
+
+
 class CollectionMcp:
     def __init__(self):
         self.state = "idle"
@@ -187,6 +192,9 @@ async def collection_lookup(request: CollectionLookup):
                 if audio_path.is_file():
                     collection_mcp.track_paths[match_id] = audio_path
                     playable = True
+                    media = mutagen.File(audio_path, easy=True)
+                    bitrate = getattr(getattr(media, "info", None), "bitrate", 0) or 0
+                    public_match["quality"] = f"{audio_path.suffix[1:].upper()} {bitrate // 1000}kbps".strip()
             public_match["playable"] = playable
             public_matches.append(public_match)
         collection_mcp.state = "connected"
@@ -459,6 +467,76 @@ def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)
                 raise HTTPException(500, "Playlist and track-ID plan may be out of sync") from None
         raise HTTPException(500, "Could not update playlist") from exc
     return {"removed": len(track_ids)}
+
+
+@app.post("/api/playlists/{playlist_id}/tracks/swap")
+def swap_track(playlist_id: str, request: PlaylistSwap):
+    if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
+        raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
+    if not request.source_track_id or not request.replacement_track_id:
+        raise HTTPException(400, "Both playlist and replacement track IDs are required")
+    replacement_audio = collection_mcp.track_paths.get(request.replacement_track_id)
+    if replacement_audio is None or not replacement_audio.is_file():
+        raise HTTPException(404, "Replacement track is unavailable; run lookup again")
+
+    path = find_playlist(playlist_id)
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as playlist:
+            lines = playlist.readlines()
+    except (OSError, UnicodeError) as exc:
+        raise HTTPException(500, "Could not read playlist") from exc
+
+    plan_path, plan = read_plan_ids(path, lines)
+    entries = list(playlist_entries(path, lines, plan))
+    source = next(
+        (entry for entry in entries if entry[3] == request.source_track_id), None,
+    )
+    if source is None:
+        raise HTTPException(404, "Source track not found in playlist")
+    line_number, plan_index = source[0], source[1]
+    original_text = "".join(lines)
+    line_ending = "\r\n" if lines[line_number].endswith("\r\n") else "\n" if lines[line_number].endswith("\n") else ""
+    lines[line_number] = f"{replacement_audio}{line_ending}"
+
+    plan_data = None
+    if plan_path.is_file():
+        if plan is None or plan_path.is_symlink() or PLAN_DIRECTORY.is_symlink():
+            raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+        try:
+            plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+            if isinstance(plan_data.get("tracks"), list):
+                plan_data["tracks"][plan_index]["track_id"] = request.replacement_track_id
+                plan_data["tracks"][plan_index]["file_path"] = str(replacement_audio)
+            else:
+                plan_data["track_ids"][plan_index] = request.replacement_track_id
+        except (AttributeError, IndexError, KeyError, TypeError, OSError, UnicodeError, json.JSONDecodeError):
+            raise HTTPException(409, "The playlist and its track-ID plan are out of sync") from None
+
+    playlist_updated = False
+    try:
+        atomic_write(path, "".join(lines))
+        playlist_updated = True
+        if plan_data is not None:
+            atomic_write(plan_path, json.dumps(plan_data, ensure_ascii=False, indent=2) + "\n")
+    except OSError as exc:
+        if playlist_updated:
+            try:
+                atomic_write(path, original_text)
+            except OSError:
+                raise HTTPException(500, "Playlist and track-ID plan may be out of sync") from None
+        raise HTTPException(500, "Could not update playlist") from exc
+
+    updated_plan = None
+    if plan is not None:
+        track_ids = list(plan[0])
+        track_ids[plan_index] = request.replacement_track_id
+        file_paths = list(plan[1]) if plan[1] is not None else None
+        if file_paths is not None:
+            file_paths[plan_index] = str(replacement_audio)
+        updated_plan = (track_ids, file_paths)
+    updated_entries = playlist_entries(path, lines, updated_plan)
+    updated_track = next((entry for entry in updated_entries if entry[1] == plan_index), None)
+    return {"track_id": updated_track[3] if updated_track else None}
 
 
 @app.get("/api/stream")

@@ -1,7 +1,7 @@
 # CrateDeck local playlist API
 
 The app reads `.m3u` and `.m3u8` playlists through a small local FastAPI server.
-In the repository's `playlists/` folder, tracks can be removed from a playlist;
+In the repository's `playlists/` folder, tracks can be removed or replaced in a playlist;
 the audio file is never deleted. Other configured playlist folders remain read-only.
 
 From this folder, run:
@@ -24,7 +24,8 @@ PLAYLIST_DIR="/absolute/path/to/playlists" uv --directory ../rekordbx-mcp run --
 Then set the app's API URL to `http://localhost:8000` and enable API mode.
 The server provides `GET /api/playlists`, `GET /api/playlists/{playlist_id}`,
 `GET /api/stream?playlist_id=...&track_id=...`, `GET /api/collection/status`,
-`GET /api/collection/stream/{track_id}`, and `POST /api/collection/lookup`.
+`GET /api/collection/stream/{track_id}`, `POST /api/collection/lookup`, and
+`POST /api/playlists/{playlist_id}/tracks/swap`.
 Export JSON contains an ordered `tracks`
 array with each Rekordbox track ID and its absolute file path together. The API
 validates those entries against the M3U8; older ID-only plans still pair with
@@ -35,14 +36,16 @@ files referenced by playlists in the configured folder; collection streaming
 resolves only active snapshot track IDs. Track removal uses
 `DELETE /api/playlists/{playlist_id}/tracks` with a JSON `track_ids` list and
 updates both playlist and plan files; it only works with the repository's
-`playlists/` folder.
+`playlists/` folder. Swapping a track also requires confirmation and updates its
+M3U8 entry and matching JSON plan when one exists.
 
 Each track row has a Lookup action that expands inline results: it returns the
 exact Rekordbox record when a plan ID is available, including its rating and
 play count, or searches by artist and title for standalone playlists. A result's
-Play button loads that exact collection track into the main deck. The local API
-uses paths from the CrateDeck-only MCP lookup internally to stream that track,
-without sending the paths to the browser.
+Play loads the collection track into the main deck. Swap replaces the source
+track in the selected playlist after confirmation. The local API uses collection
+file locations internally for playback and playlist updates without sending
+paths to the browser.
 The MCP worker starts on the first lookup, so
 CrateDeck can browse and play playlists without it. Close Rekordbox and its
 background agents before the first lookup; the worker creates a fresh verified

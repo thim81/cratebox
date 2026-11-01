@@ -38,6 +38,7 @@ export interface CollectionMatch {
   rating: number;
   play_count: number;
   similarity: number;
+  quality?: string;
   playable?: boolean;
 }
 
