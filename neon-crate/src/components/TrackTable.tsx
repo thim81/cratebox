@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useRef, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, Search, Star, Trash2, Volume2 } from "lucide-react";
 import { CollectionLookupResults } from "@/components/CollectionLookupResults";
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
+import { PLAYLIST_SEPARATORS, type SeparatorType } from "@/lib/cratedeck-api";
 
 export type SortKey = "number" | "title" | "artist" | "duration" | "rating" | "bpm" | "key";
 export type SortState = { k: SortKey | null; dir: 1 | -1 };
@@ -28,6 +29,8 @@ interface TrackTableProps {
   onPlayCollectionMatch: (match: CollectionMatch) => void;
   onSwapCollectionMatch: (sourceTrack: Track, match: CollectionMatch) => void;
   onCollapseLookup: () => void;
+  onInsertSeparator: (type: SeparatorType, track: Track) => void;
+  separatorInserting: boolean;
   readOnly?: boolean;
 }
 
@@ -52,9 +55,12 @@ export function TrackTable({
   onPlayCollectionMatch,
   onSwapCollectionMatch,
   onCollapseLookup,
+  onInsertSeparator,
+  separatorInserting,
   readOnly = false,
 }: TrackTableProps) {
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const [separatorSelection, setSeparatorSelection] = useState("");
 
   useEffect(() => {
     rowRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
@@ -84,6 +90,29 @@ export function TrackTable({
 
   return (
     <div className="flex-1 overflow-auto">
+      {!readOnly && (
+        <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-border/60 bg-card px-2 py-1.5 text-xs">
+          <span className="text-muted-foreground">Insert separator before selected</span>
+          <select
+            aria-label="Insert separator before selected track"
+            className="h-7 rounded border border-input bg-background px-2 text-xs text-foreground"
+            value={separatorSelection}
+            disabled={!tracks[selectedIndex] || separatorInserting}
+            onChange={(event) => {
+              const type = event.currentTarget.value as SeparatorType;
+              setSeparatorSelection("");
+              const track = tracks[selectedIndex];
+              if (type && track) onInsertSeparator(type, track);
+            }}
+          >
+            <option value="">Add separator…</option>
+            {PLAYLIST_SEPARATORS.map(({ type, label }) => (
+              <option key={type} value={type}>{label}</option>
+            ))}
+          </select>
+          {separatorInserting && <span className="text-muted-foreground">Inserting…</span>}
+        </div>
+      )}
       <table className="w-full border-collapse text-xs">
         <thead className="text-[10px] text-muted-foreground">
           <tr>

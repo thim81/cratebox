@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { fmtTime, type Playlist, type RekordboxPlaylist } from "@/lib/crate-data";
 
 interface CrateSidebarProps {
+  lightMode: boolean;
   playlists: Playlist[];
   rekordboxPlaylists: RekordboxPlaylist[];
   activeId: string;
@@ -26,6 +27,7 @@ interface CrateSidebarProps {
 }
 
 export function CrateSidebar({
+  lightMode,
   playlists,
   rekordboxPlaylists,
   activeId,
@@ -59,11 +61,15 @@ export function CrateSidebar({
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-      <div className="grid grid-cols-2 gap-1 p-2 pb-1" role="tablist" aria-label="Playlist sources">
+      <div
+        className="grid grid-cols-2 gap-1 border-b border-sidebar-border px-2 pt-2"
+        role="tablist"
+        aria-label="Playlist sources"
+      >
         <Button
           size="sm"
-          variant={source === "crate" ? "secondary" : "ghost"}
-          className="gap-1.5"
+          variant="ghost"
+          className={`gap-1.5 rounded-none border-b-2 hover:text-sidebar-accent-foreground ${source === "crate" ? "border-primary bg-primary/15 text-primary hover:bg-primary/20" : "border-transparent bg-sidebar-accent hover:bg-sidebar-accent/80"}`}
           role="tab"
           aria-selected={source === "crate"}
           onClick={() => onSourceChange("crate")}
@@ -73,13 +79,18 @@ export function CrateSidebar({
         </Button>
         <Button
           size="sm"
-          variant={source === "rekordbox" ? "secondary" : "ghost"}
-          className="gap-1.5"
+          variant="ghost"
+          className={`gap-1.5 rounded-none border-b-2 hover:text-sidebar-accent-foreground ${source === "rekordbox" ? "border-primary bg-primary/15 text-primary hover:bg-primary/20" : "border-transparent bg-sidebar-accent hover:bg-sidebar-accent/80"}`}
           role="tab"
           aria-selected={source === "rekordbox"}
           onClick={() => onSourceChange("rekordbox")}
         >
-          <img src="/rekordbox.ico" alt="" aria-hidden="true" className="size-4" />
+          <img
+            src={lightMode ? "/rekordbox_light.png" : "/rekordbox_dark.png"}
+            alt=""
+            aria-hidden="true"
+            className="size-4"
+          />
           Rekordbox
         </Button>
       </div>

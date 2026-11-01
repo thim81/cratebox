@@ -133,7 +133,13 @@ After restarting the configured MCP connection, try:
 The MCP supplies search and metadata; Codex makes the conversational proposal.
 Once the selection is final, ask Codex to call `export_playlist` with a name
 and exactly one ordered list: `track_ids` or `file_paths`. File locations must
-be absolute local paths matching exactly one active snapshot track. M3U8 files
+be absolute local paths matching exactly one active snapshot track. To place a
+separator in the sequence, also pass `separators` entries with a `type` and a
+1-based `before_track` position (use one past the last track to append). The
+available types are `generic`, `90s`, `R&B`, `Ambi`, `Salsa`, `Party`, and
+`Dance`. The exporter resolves each fixed WAV reference from the supplied
+separator folder and requires it to match exactly one active snapshot track.
+M3U8 files
 go in `playlists/`, and matching JSON plans go in `output/`, using the requested
 name without an automatic version suffix. If that name already exists, Codex
 asks whether to update it or use a different name for a separate playlist. On

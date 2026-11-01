@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Circle,
   CircleAlert,
@@ -37,7 +37,9 @@ import {
   getPlaylists,
   getRekordboxPlaylists,
   getRekordboxPlaylistTracks,
+  insertPlaylistSeparator,
   lookupCollection,
+  PLAYLIST_SEPARATORS,
   revealTrackInFinder,
   swapPlaylistTrack,
   saveArtwork,
@@ -51,6 +53,7 @@ import {
   type RekordboxPlaylist,
   type Track,
 } from "@/lib/crate-data";
+import type { SeparatorType } from "@/lib/cratedeck-api";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -84,6 +87,10 @@ function Index() {
   const [activeId, setActiveId] = useState("");
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlistSource, setPlaylistSource] = useState<"crate" | "rekordbox">("crate");
+  const activePlaylistContext = useRef({ id: activeId, source: playlistSource });
+  useLayoutEffect(() => {
+    activePlaylistContext.current = { id: activeId, source: playlistSource };
+  }, [activeId, playlistSource]);
   const [rekordboxPlaylists, setRekordboxPlaylists] = useState<RekordboxPlaylist[]>([]);
   const [activeRekordboxId, setActiveRekordboxId] = useState("");
   const [rekordboxFolderId, setRekordboxFolderId] = useState<string | null>(null);
@@ -104,6 +111,7 @@ function Index() {
   const lookupRequestId = useRef(0);
   const [apiError, setApiError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [separatorInserting, setSeparatorInserting] = useState(false);
   const [crateQ, setCrateQ] = useState("");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortState>({ k: null, dir: 1 });
@@ -121,6 +129,7 @@ function Index() {
     artist?: string;
     album?: string;
     searchTrack?: string;
+    sourceTrack?: Track;
     currentImageUrl?: string;
   } | null>(null);
   const deck = useRef<DeckHandle>(null);
@@ -376,6 +385,7 @@ function Index() {
         artist: track.artist,
         album: track.album,
         searchTrack: track.title,
+        sourceTrack: track,
         currentImageUrl: track.artwork_url,
       });
     }
@@ -503,6 +513,82 @@ function Index() {
       }
     },
     [activeId, activePlaylistName, apiUrl, loaded, refreshPlaylists, view],
+  );
+
+  const addSeparator = useCallback(
+    async (type: SeparatorType, track: Track) => {
+      if (!activeId || playlistSource !== "crate") return;
+      const requestPlaylistId = activeId;
+      const separator = PLAYLIST_SEPARATORS.find((item) => item.type === type);
+      if (
+        !separator ||
+        !window.confirm(
+          `Insert the ${separator.label} separator before “${track.title}” in “${activePlaylistName || "this playlist"}”? The playlist and its JSON plan will be updated.`,
+        )
+      )
+        return;
+
+      setSeparatorInserting(true);
+      try {
+        await insertPlaylistSeparator(apiUrl, requestPlaylistId, type, track.id);
+        const playlist = await getPlaylist(apiUrl, requestPlaylistId, true);
+        await refreshPlaylists();
+        if (
+          activePlaylistContext.current.id !== requestPlaylistId ||
+          activePlaylistContext.current.source !== "crate"
+        )
+          return;
+        const updatedTracks = playlist.tracks ?? [];
+        setTracks(updatedTracks);
+        setRangeAnchor(null);
+        const query = q.toLowerCase();
+        const nextView = updatedTracks.filter(
+          (item) =>
+            !query ||
+            [item.title, item.artist, item.album, item.key, String(item.bpm), item.quality].some(
+              (value) => value.toLowerCase().includes(query),
+            ),
+        );
+        if (sort.k) {
+          const nextNumbers = new Map(updatedTracks.map((item, index) => [item.id, index + 1]));
+          const key = sort.k;
+          nextView.sort((a, b) => {
+            const left =
+              key === "key"
+                ? camelot(a.key)
+                : key === "number"
+                  ? (nextNumbers.get(a.id) ?? 0)
+                  : a[key];
+            const right =
+              key === "key"
+                ? camelot(b.key)
+                : key === "number"
+                  ? (nextNumbers.get(b.id) ?? 0)
+                  : b[key];
+            return (
+              (typeof left === "string"
+                ? left.localeCompare(right as string)
+                : (left as number) - (right as number)) * sort.dir
+            );
+          });
+        }
+        const targetIndex = nextView.findIndex((item) => item.id === track.id);
+        setSel(targetIndex >= 0 ? targetIndex : 0);
+        setApiError(null);
+      } catch (error) {
+        if (
+          activePlaylistContext.current.id === requestPlaylistId &&
+          activePlaylistContext.current.source === "crate"
+        ) {
+          setApiError(
+            `Couldn't insert separator (${error instanceof Error ? error.message : "request failed"})`,
+          );
+        }
+      } finally {
+        setSeparatorInserting(false);
+      }
+    },
+    [activeId, activePlaylistName, apiUrl, playlistSource, q, refreshPlaylists, sort],
   );
 
   const selectedRange = useMemo(() => {
@@ -663,6 +749,7 @@ function Index() {
       s.k === k ? (s.dir === 1 ? { k, dir: -1 } : { k: null, dir: 1 }) : { k, dir: 1 },
     );
   };
+  const sourceTrackToReveal = imageTarget?.sourceTrack;
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <header className="flex items-center gap-3 border-b border-border bg-sidebar px-4 py-2">
@@ -755,6 +842,9 @@ function Index() {
         track={imageTarget?.searchTrack}
         currentImageUrl={imageTarget?.currentImageUrl}
         embedIntoMp3={Boolean(imageTarget?.trackId)}
+        onRevealTrack={
+          sourceTrackToReveal ? () => void showTrackInFinder(sourceTrackToReveal) : undefined
+        }
         onOpenChange={(open) => {
           if (!open) setImageTarget(null);
         }}
@@ -763,6 +853,7 @@ function Index() {
 
       <div className="flex min-h-0 flex-1">
         <CrateSidebar
+          lightMode={lightMode}
           playlists={playlists}
           rekordboxPlaylists={rekordboxPlaylists}
           activeId={activeId}
@@ -861,6 +952,8 @@ function Index() {
             onPlayCollectionMatch={playCollectionMatch}
             onSwapCollectionMatch={swapCollectionMatch}
             onCollapseLookup={() => setExpandedLookupTrackId(null)}
+            onInsertSeparator={(type, track) => void addSeparator(type, track)}
+            separatorInserting={separatorInserting}
             readOnly={playlistSource === "rekordbox"}
           />
         </main>

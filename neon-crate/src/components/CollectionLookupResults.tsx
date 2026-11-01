@@ -3,6 +3,8 @@ import { ArrowLeftRight, Play, Star, Volume2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
 
+const resultGrid = "grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem] items-center gap-1.5";
+
 function qualityBadgeClass(quality: string) {
   const bitrate = Number(/\bMP3\s+(\d+)\s*kbps/i.exec(quality)?.[1]);
   if (bitrate) {
@@ -78,8 +80,23 @@ export function CollectionLookupResults({
         <p className="py-3 text-xs text-destructive" role="alert">{error}</p>
       ) : matches.length ? (
         <ul className="divide-y divide-border">
+          <li className={`${resultGrid} pb-1 text-[8px] font-medium uppercase tracking-wide text-muted-foreground`}>
+            <span />
+            <span>Title</span>
+            <span>Artist</span>
+            <span>Album</span>
+            <span className="text-center">Stars</span>
+            <span className="text-right">Plays</span>
+            <span className="text-right">Time</span>
+            <span className="text-right">BPM</span>
+            <span className="text-right">Key</span>
+            <span>Quality</span>
+            <span className="text-right">Match</span>
+            <span />
+            <span />
+          </li>
           {shownMatches.map((match) => (
-            <li key={match.id} className={`grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem] items-center gap-1.5 py-2 ${match.id === sourceTrack.rekordbox_id ? "bg-primary/5" : ""} ${activeTrackId === `collection-${match.id}` ? "text-accent" : ""}`}>
+            <li key={match.id} className={`${resultGrid} py-2 ${match.id === sourceTrack.rekordbox_id ? "bg-primary/5" : ""} ${activeTrackId === `collection-${match.id}` ? "text-accent" : ""}`}>
               <span className="flex h-4 items-center justify-center">
                 {activeTrackId === `collection-${match.id}` && (playing
                   ? <Volume2 size={12} className="animate-pulse text-accent" />

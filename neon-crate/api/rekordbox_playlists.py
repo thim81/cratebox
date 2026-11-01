@@ -1,11 +1,14 @@
 """Read-only Rekordbox playlist browsing and local copy operations."""
 
 import json
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .collection import collection_mcp
+from .config import DEFAULT_PLAYLIST_DIR, PLAYLIST_DIR
+from .playlists import playlist_entries, playlist_files, read_plan_ids
 
 router = APIRouter()
 
@@ -13,6 +16,12 @@ router = APIRouter()
 class CopyPlaylistRequest(BaseModel):
     name: str
     update_existing: bool = False
+
+
+class InsertSeparatorRequest(BaseModel):
+    type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
+    before_track_id: str
+    confirm_update: bool = False
 
 
 def result_value(result):
@@ -129,5 +138,49 @@ async def copy_rekordbox_playlist(playlist_id: str, request: CopyPlaylistRequest
     return {
         "name": str(exported.get("name") or name),
         "track_count": int(exported.get("track_count") or len(track_ids)),
+        "updated_existing": bool(exported.get("updated_existing")),
+    }
+
+
+@router.post("/api/playlists/{playlist_id}/separators")
+async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRequest):
+    if not request.confirm_update:
+        raise HTTPException(400, "Confirm updating this playlist before inserting a separator.")
+    if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
+        raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
+
+    matches = [item for item in playlist_files() if item.stem == playlist_id]
+    if len(matches) != 1 or matches[0].suffix.lower() != ".m3u8":
+        raise HTTPException(409, "Separator insertion requires one unambiguous .m3u8 playlist")
+    path = matches[0]
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as playlist:
+            lines = playlist.readlines()
+    except (OSError, UnicodeError) as exc:
+        raise HTTPException(500, "Could not read playlist") from exc
+
+    _, plan = read_plan_ids(path, lines)
+    if plan is None or plan[1] is None:
+        raise HTTPException(409, "A valid track-ID and file-path plan is required to insert a separator")
+    entries = list(playlist_entries(path, lines, plan))
+    target = next((entry for entry in entries if entry[3] == request.before_track_id), None)
+    if target is None:
+        raise HTTPException(404, "Selected track not found in playlist")
+
+    exported = await call_tool(
+        "export_playlist",
+        {
+            "name": path.stem,
+            "track_ids": plan[0],
+            "update_existing": True,
+            "separators": [{"type": request.type, "before_track": target[1] + 1}],
+        },
+    )
+    if not isinstance(exported, dict):
+        raise HTTPException(502, "Unexpected playlist export response.")
+    return {
+        "name": str(exported.get("name") or path.stem),
+        "track_count": int(exported.get("track_count") or len(plan[0])),
+        "separator_count": int(exported.get("separator_count") or 0),
         "updated_existing": bool(exported.get("updated_existing")),
     }

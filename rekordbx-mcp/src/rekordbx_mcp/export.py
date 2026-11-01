@@ -13,6 +13,16 @@ from .database import SnapshotMasterDatabase
 
 OUTPUT_DIRECTORY = Path(__file__).resolve().parents[3] / "output"
 PLAYLISTS_DIRECTORY = Path(__file__).resolve().parents[3] / "playlists"
+SEPARATOR_DIRECTORY = Path("/Users/thim/Library/CloudStorage/OneDrive-Personal/Music/iTunes 2022-03")
+SEPARATOR_FILES = {
+    "generic": "Separator.wav",
+    "90s": "Separator-90.wav",
+    "R&B": "Separator-RB.wav",
+    "Ambi": "Separator-Ambi.wav",
+    "Salsa": "Separator-Salsa.wav",
+    "Party": "Separator-Party.wav",
+    "Dance": "Separator-Dance.wav",
+}
 
 
 def export_playlist(
@@ -24,6 +34,7 @@ def export_playlist(
     file_paths: list[str] | None = None,
     playlists_directory: Path | None = None,
     update_existing: bool = False,
+    separators: list[dict] | None = None,
 ) -> dict:
     name = name.strip()
     if (
@@ -52,6 +63,9 @@ def export_playlist(
             track_ids.append(str(matches[0].ID))
     if not track_ids:
         raise ValueError("Select at least one track ID.")
+    separators = separators or []
+    if not isinstance(separators, list) or len(track_ids) + len(separators) > 1000:
+        raise ValueError("Select up to 1000 tracks and separators combined.")
     if len(track_ids) > 1000 or any(
         not isinstance(item, str) or not item or not item.isprintable()
         or "/" in item or "\\" in item for item in track_ids
@@ -87,6 +101,49 @@ def export_playlist(
             problems.append(f"{label}: {', '.join(dict.fromkeys(ids))}")
     if problems:
         raise ValueError("Cannot export; " + "; ".join(problems))
+
+    separators_before: dict[int, list[dict]] = {}
+    for position, separator in enumerate(separators, 1):
+        if not isinstance(separator, dict) or set(separator) != {"type", "before_track"}:
+            raise ValueError(
+                f"Invalid separator at position {position}; provide only type and before_track."
+            )
+        separator_type = separator["type"]
+        before_track = separator["before_track"]
+        if not isinstance(separator_type, str) or separator_type not in SEPARATOR_FILES:
+            raise ValueError(
+                f"Invalid separator type at position {position}; choose one of "
+                f"{', '.join(SEPARATOR_FILES)}."
+            )
+        if (
+            not isinstance(before_track, int) or isinstance(before_track, bool)
+            or not 1 <= before_track <= len(track_ids) + 1
+        ):
+            raise ValueError(
+                f"Invalid before_track at separator position {position}; use 1 through {len(track_ids) + 1}."
+            )
+        separator_path = SEPARATOR_DIRECTORY / SEPARATOR_FILES[separator_type]
+        try:
+            separator_exists = separator_path.is_file()
+        except OSError:
+            separator_exists = False
+        if not separator_exists:
+            raise ValueError(
+                f"Separator {separator_type!r} is unavailable in the configured music folder."
+            )
+        separator_matches = [
+            track for track in database.get_content().filter_by(FolderPath=str(separator_path))
+            if not track.rb_local_deleted
+        ]
+        if len(separator_matches) != 1:
+            raise ValueError(
+                f"Separator {separator_type!r} must match exactly one active snapshot track."
+            )
+        separators_before.setdefault(before_track, []).append({
+            "track_id": str(separator_matches[0].ID),
+            "file_path": str(separator_path),
+            "separator_type": separator_type,
+        })
 
     output_directory = Path(output_directory).absolute()
     playlists_directory = Path(
@@ -136,17 +193,22 @@ def export_playlist(
         os.close(output_fd)
         raise
 
+    playlist_items = []
+    for track_position, (track_id, path) in enumerate(zip(track_ids, paths, strict=True), 1):
+        playlist_items.extend(separators_before.get(track_position, []))
+        playlist_items.append({"track_id": track_id, "file_path": path})
+    playlist_items.extend(separators_before.get(len(track_ids) + 1, []))
     plan = {
         "format": 1,
         "name": target_name,
-        "tracks": [
-            {"track_id": track_id, "file_path": path}
-            for track_id, path in zip(track_ids, paths, strict=True)
-        ],
+        "tracks": playlist_items,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     artifacts = [
-        (playlists_fd, f"{target_name}.m3u8", "#EXTM3U\n" + "\n".join(paths) + "\n"),
+        (
+            playlists_fd, f"{target_name}.m3u8",
+            "#EXTM3U\n" + "\n".join(item["file_path"] for item in playlist_items) + "\n",
+        ),
         (output_fd, f"{target_name}.json", json.dumps(plan, ensure_ascii=False, indent=2) + "\n"),
     ]
     try:
@@ -236,4 +298,5 @@ def export_playlist(
         "name": target_name,
         "updated_existing": update_existing,
         "track_count": len(track_ids),
+        "separator_count": len(separators),
     }

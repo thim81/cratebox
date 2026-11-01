@@ -230,6 +230,13 @@ visible in your Codex conversation; prefer IDs to keep paths local. Neither
 success nor error responses return audio paths. Unmatched or ambiguous file
 locations are reported by their position in the supplied list.
 
+Optional `separators` entries insert a supplied separator before a 1-based
+`before_track` position; use one past the final track to append. Choose `generic`,
+`90s`, `R&B`, `Ambi`, `Salsa`, `Party`, or `Dance`. Each fixed WAV file must
+exist in the configured separator folder and match exactly one active snapshot
+track. The M3U8 and JSON include separators in the requested order, and the JSON
+records each separator type.
+
 Exports use the requested playlist name in two repository folders:
 
 - `playlists/House warm-up.m3u8`: UTF-8 playlist containing absolute local

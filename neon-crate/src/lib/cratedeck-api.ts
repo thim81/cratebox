@@ -17,7 +17,14 @@ async function requestJson<T>(apiUrl: string, path: string, init?: RequestInit):
 export function searchImages(
   apiUrl: string,
   query: string,
-  options: { artist?: string; album?: string; track?: string; coverArt?: boolean } = {},
+  options: {
+    artist?: string;
+    album?: string;
+    track?: string;
+    coverArt?: boolean;
+    spotify?: boolean;
+    soundcloud?: boolean;
+  } = {},
 ): Promise<ImageResult[]> {
   return requestJson(apiUrl, "/api/images/search", {
     method: "POST",
@@ -28,6 +35,8 @@ export function searchImages(
       album: options.album ?? "",
       track: options.track ?? "",
       cover_art: options.coverArt ?? true,
+      spotify: options.spotify ?? false,
+      soundcloud: options.soundcloud ?? false,
     }),
   });
 }
@@ -191,6 +200,35 @@ export async function swapPlaylistTrack(
   const data = (await response.json()) as { track_id?: string; detail?: string };
   if (!response.ok) throw new Error(data.detail ?? `HTTP ${response.status}`);
   return data;
+}
+
+export const PLAYLIST_SEPARATORS = [
+  { type: "generic", label: "Generic" },
+  { type: "90s", label: "90s" },
+  { type: "R&B", label: "R&B" },
+  { type: "Ambi", label: "Ambi" },
+  { type: "Salsa", label: "Salsa" },
+  { type: "Party", label: "Party" },
+  { type: "Dance", label: "Dance" },
+] as const;
+
+export type SeparatorType = (typeof PLAYLIST_SEPARATORS)[number]["type"];
+
+export async function insertPlaylistSeparator(
+  apiUrl: string,
+  playlistId: string,
+  type: SeparatorType,
+  beforeTrackId: string,
+): Promise<void> {
+  await requestJson(
+    apiUrl,
+    `/api/playlists/${encodeURIComponent(playlistId)}/separators`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, before_track_id: beforeTrackId, confirm_update: true }),
+    },
+  );
 }
 
 export function collectionStreamUrl(apiUrl: string, trackId: string): string {

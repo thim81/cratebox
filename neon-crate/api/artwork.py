@@ -21,6 +21,8 @@ class ImageSearch(BaseModel):
     album: str = ""
     track: str = ""
     cover_art: bool = True
+    spotify: bool = False
+    soundcloud: bool = False
 
 class ArtworkUpdate(BaseModel):
     playlist_id: str
@@ -45,6 +47,8 @@ async def search_images(request: ImageSearch):
             album=request.album[:200],
             track=request.track[:200],
             cover_art=request.cover_art,
+            spotify=request.spotify,
+            soundcloud=request.soundcloud,
         )
     except Exception:
         raise HTTPException(502, "Image search is temporarily unavailable. Try again later.") from None
@@ -52,7 +56,8 @@ async def search_images(request: ImageSearch):
 
 
 def search_image_results(
-    query: str, *, artist: str = "", album: str = "", track: str = "", cover_art: bool = True
+    query: str, *, artist: str = "", album: str = "", track: str = "", cover_art: bool = True,
+    spotify: bool = False, soundcloud: bool = False,
 ):
     catalogue_results = []
     seen_urls = set()
@@ -70,6 +75,10 @@ def search_image_results(
         if len(catalogue_results) == 24:
             return catalogue_results
         query = f"{query[:180]} album cover artwork"
+    if spotify:
+        query += " Spotify"
+    if soundcloud:
+        query += " SoundCloud"
     try:
         results = DDGS().images(query, max_results=24, safesearch="moderate")
     except Exception:

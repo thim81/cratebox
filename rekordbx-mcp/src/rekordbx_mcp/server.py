@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from difflib import SequenceMatcher
 from functools import wraps
 from pathlib import Path
+from typing import Literal
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -47,6 +48,11 @@ class LookupTrack(BaseModel):
 
 class CrateDeckLookupTrack(LookupTrack):
     file_path: str
+
+
+class PlaylistSeparator(BaseModel):
+    type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
+    before_track: int
 
 
 class ExportInputPrivacy(Middleware):
@@ -232,6 +238,7 @@ def build_server(
         name: str, track_ids: list[str] | None = None,
         file_paths: list[str] | None = None,
         update_existing: bool = False,
+        separators: list[PlaylistSeparator] | None = None,
     ) -> dict:
         """Export tracks as an M3U8 in playlists/ and matching JSON in output/.
 
@@ -244,6 +251,10 @@ def build_server(
         Rejects unknown/deleted IDs and missing audio. New names never replace files.
         Returns artifact paths only; the JSON plan pairs each ID with its audio path.
         Audio paths are not returned in this tool response.
+        Optionally add separators before 1-based track positions; use
+        before_track=len(track_ids)+1 to append. Separator types are generic,
+        90s, R&B, Ambi, Salsa, Party, and Dance. Each resolves to its fixed
+        supplied WAV file and must match exactly one active snapshot track.
         Prefer track_ids to avoid sending audio paths in tool arguments.
         Creates external files only; never imports or edits Rekordbox data.
         """
@@ -254,6 +265,7 @@ def build_server(
                     database.db, name, track_ids, output_directory,
                     file_paths=file_paths, playlists_directory=playlists_directory,
                     update_existing=update_existing,
+                    separators=[item.model_dump() for item in separators] if separators else None,
                 )
             except ValueError as error:
                 raise ToolError(str(error)) from None

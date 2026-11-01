@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { LoaderCircle, Music2, Search } from "lucide-react";
+import { FolderOpen, LoaderCircle, Music2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +21,7 @@ interface Props {
   track?: string;
   currentImageUrl?: string;
   embedIntoMp3?: boolean;
+  onRevealTrack?: () => void;
   onOpenChange: (open: boolean) => void;
   onChoose: (image: ImageResult) => Promise<void>;
 }
@@ -34,6 +35,7 @@ export function ImageSearchDialog({
   track = "",
   currentImageUrl,
   embedIntoMp3 = false,
+  onRevealTrack,
   onOpenChange,
   onChoose,
 }: Props) {
@@ -44,6 +46,8 @@ export function ImageSearchDialog({
   const [saving, setSaving] = useState(false);
   const [searched, setSearched] = useState(false);
   const [coverArt, setCoverArt] = useState(true);
+  const [spotify, setSpotify] = useState(false);
+  const [soundcloud, setSoundcloud] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,6 +58,8 @@ export function ImageSearchDialog({
       setError(null);
       setSearched(false);
       setCoverArt(true);
+      setSpotify(false);
+      setSoundcloud(false);
     }
   }, [open, initialQuery, artist, album, track]);
 
@@ -64,7 +70,9 @@ export function ImageSearchDialog({
     setError(null);
     setPreview(null);
     try {
-      setResults(await searchImages(apiUrl, query, { artist, album, track, coverArt }));
+      setResults(
+        await searchImages(apiUrl, query, { artist, album, track, coverArt, spotify, soundcloud }),
+      );
     } catch (cause) {
       setResults([]);
       setError(cause instanceof Error ? cause.message : "Image search failed.");
@@ -118,6 +126,11 @@ export function ImageSearchDialog({
                 ? "Compare this image with the search results."
                 : "No artwork is currently set."}
             </p>
+            {embedIntoMp3 && onRevealTrack && (
+              <Button type="button" variant="outline" size="sm" onClick={onRevealTrack}>
+                <FolderOpen size={14} /> Show MP3 in Finder
+              </Button>
+            )}
           </aside>
           <div className="flex min-w-0 flex-col gap-3">
             <form onSubmit={search} className="flex gap-2">
@@ -132,14 +145,25 @@ export function ImageSearchDialog({
                 <Search size={14} /> Search
               </Button>
             </form>
-            <button
-              type="button"
-              aria-pressed={coverArt}
-              onClick={() => setCoverArt((enabled) => !enabled)}
-              className={`w-fit rounded border px-2.5 py-1 text-xs transition-colors ${coverArt ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
-            >
-              Cover art {coverArt ? "on" : "off"}
-            </button>
+            <div className="flex flex-wrap gap-2" aria-label="Search sources">
+              {(
+                [
+                  ["Cover art", coverArt, setCoverArt],
+                  ["Spotify", spotify, setSpotify],
+                  ["SoundCloud", soundcloud, setSoundcloud],
+                ] as const
+              ).map(([label, enabled, setEnabled]) => (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={enabled}
+                  onClick={() => setEnabled((value) => !value)}
+                  className={`rounded border px-2.5 py-1 text-xs transition-colors ${enabled ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                >
+                  {label} {enabled ? "on" : "off"}
+                </button>
+              ))}
+            </div>
             {loading ? (
               <p
                 role="status"
@@ -178,7 +202,9 @@ export function ImageSearchDialog({
                 </div>
                 <div className="flex flex-col justify-between gap-3">
                   <div className="max-w-48 space-y-1">
-                    <p className="text-[10px] font-medium text-muted-foreground">{preview.source}</p>
+                    <p className="text-[10px] font-medium text-muted-foreground">
+                      {preview.source}
+                    </p>
                     <p className="text-xs">{preview.title || "Image preview"}</p>
                   </div>
                   <div className="flex flex-col gap-2">
