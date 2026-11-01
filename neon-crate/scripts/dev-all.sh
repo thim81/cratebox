@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-uv run --with fastapi --with uvicorn --with mutagen uvicorn server:app --port 8000 &
+uv run --with fastapi --with uvicorn --with mutagen uvicorn server:app --port 8000 --reload &
 api_pid=$!
 
 cleanup() {

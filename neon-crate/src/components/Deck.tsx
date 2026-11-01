@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type Ref, useImperativeHandle } from "react";
-import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
+import { Pause, Play, SkipBack, SkipForward, Star, Volume2, VolumeX } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtTime, type Track } from "@/lib/crate-data";
 import type WaveSurferType from "wavesurfer.js";
 
 export interface DeckHandle {
   toggle: () => void;
+  seek: (seconds: number) => void;
 }
 
 interface Props {
@@ -43,7 +44,13 @@ export function Deck({
   const settings = useRef({ vol, muted, rate });
   settings.current = { vol, muted, rate };
 
-  useImperativeHandle(ref, () => ({ toggle: () => ws.current?.playPause() }), []);
+  useImperativeHandle(ref, () => ({
+    toggle: () => ws.current?.playPause(),
+    seek: (seconds) => {
+      const player = ws.current;
+      if (player) player.setTime(Math.max(0, Math.min(player.getDuration(), player.getCurrentTime() + seconds)));
+    },
+  }), []);
 
   useEffect(() => {
     if (!track || !box.current) return;
@@ -150,6 +157,13 @@ export function Deck({
           <div className="truncate text-sm text-muted-foreground">
             {track ? `${track.artist} — ${track.album}` : "Select a track and press Enter"}
           </div>
+          {track && (
+            <div className="mt-1 flex gap-0.5" role="img" aria-label={`Rating: ${track.rating} out of 5 stars`}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Star key={star} size={15} className={star <= track.rating ? "fill-gold text-gold" : "text-muted-foreground"} />
+              ))}
+            </div>
+          )}
         </div>
         {track && (
           <div className="ml-auto flex flex-wrap items-center gap-2 font-mono text-xs">
