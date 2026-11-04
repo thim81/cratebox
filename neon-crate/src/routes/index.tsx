@@ -7,8 +7,10 @@ import {
   CircleCheck,
   Copy,
   Disc3,
+  FolderOpen,
   ImageOff,
   LoaderCircle,
+  Plus,
   Search,
   Settings,
   Sun,
@@ -18,6 +20,7 @@ import {
 } from "lucide-react";
 import { Deck, type DeckHandle } from "@/components/Deck";
 import { ImageSearchDialog } from "@/components/ImageSearchDialog";
+import { CollectionTrackSearchDialog } from "@/components/CollectionTrackSearchDialog";
 import { CrateSidebar } from "@/components/CrateSidebar";
 import { TrackTable, type SortKey, type SortState } from "@/components/TrackTable";
 import {
@@ -134,6 +137,7 @@ function Index() {
   const [separatorType, setSeparatorType] = useState<SeparatorType>("generic");
   const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
   const [addingCollectionTrackId, setAddingCollectionTrackId] = useState<string | null>(null);
+  const [addTrackSearchOpen, setAddTrackSearchOpen] = useState(false);
   const [appendPlaylistId, setAppendPlaylistId] = useState("");
   const [pendingAppendTrack, setPendingAppendTrack] = useState<Track | null>(null);
   const [crateQ, setCrateQ] = useState("");
@@ -550,6 +554,7 @@ function Index() {
     }
     return list;
   }, [currentTracks, missingArtworkOnly, q, sort, trackNumbers]);
+  const selectedTrack = view[sel] ?? null;
 
   const selectionKey = `${playlistSource}:${playlistSource === "crate" ? activeId : activeRekordboxId}`;
   const selectTrackAt = useCallback(
@@ -1143,6 +1148,15 @@ function Index() {
         onChoose={chooseArtwork}
       />
 
+      <CollectionTrackSearchDialog
+        apiUrl={apiUrl}
+        open={addTrackSearchOpen}
+        anchorTrack={selectedTrack}
+        addingTrackId={addingCollectionTrackId}
+        onOpenChange={setAddTrackSearchOpen}
+        onAdd={addCollectionMatch}
+      />
+
       <div className="flex min-h-0 flex-1">
         <CrateSidebar
           lightMode={lightMode}
@@ -1182,6 +1196,18 @@ function Index() {
                   "Rekordbox playlists")
                 : (activePl?.name ?? "—")}
             </h1>
+            {view[sel] && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-7 shrink-0"
+                aria-label={`Show ${view[sel].title} in Finder`}
+                title="Show selected track in Finder"
+                onClick={() => void showTrackInFinder(view[sel])}
+              >
+                <FolderOpen size={14} />
+              </Button>
+            )}
             {playlistSource === "rekordbox" &&
               activeRekordboxPlaylist &&
               !activeRekordboxPlaylist.is_folder && (
@@ -1204,6 +1230,18 @@ function Index() {
               )}
             <span className="font-mono text-xs text-muted-foreground">{view.length} tracks</span>
             <div className="ml-auto flex shrink-0 items-center gap-2">
+              {playlistSource === "crate" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5"
+                  disabled={!selectedTrack || addingCollectionTrackId !== null}
+                  onClick={() => setAddTrackSearchOpen(true)}
+                >
+                  <Plus size={14} />
+                  Add track
+                </Button>
+              )}
               {playlistSource === "crate" && (
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   Insert separator
