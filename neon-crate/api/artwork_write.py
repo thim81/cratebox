@@ -1,4 +1,4 @@
-"""Safe, transactional embedding of cover art in playlist MP3s."""
+"""Safe, transactional embedding of cover art in playlist audio files."""
 
 import hashlib
 import http.client
@@ -18,6 +18,7 @@ import zlib
 from mutagen import MutagenError
 from mutagen.id3 import APIC, ID3
 from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4, MP4Cover
 
 from .config import PLAN_DIRECTORY
 
@@ -50,14 +51,14 @@ def _path_has_symlink(path: Path) -> bool:
 
 def _validate_source(path: Path) -> os.stat_result:
     path = Path(path)
-    if path.suffix.lower() != ".mp3" or _path_has_symlink(path):
-        raise ArtworkWriteError("Select a regular MP3 file from the CrateDeck playlist")
+    if path.suffix.lower() not in {".mp3", ".m4a"} or _path_has_symlink(path):
+        raise ArtworkWriteError("Select a regular MP3 or M4A file from the CrateDeck playlist")
     try:
         info = path.stat()
     except OSError:
-        raise ArtworkWriteError("The selected MP3 is unavailable") from None
+        raise ArtworkWriteError("The selected audio file is unavailable") from None
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not info.st_mode & 0o222:
-        raise ArtworkWriteError("The selected MP3 is not a safe writable file")
+        raise ArtworkWriteError("The selected audio file is not a safe writable file")
     return info
 
 
@@ -90,7 +91,7 @@ def resolve_playlist_mp3(playlist_id: str, track_id: str) -> Path:
             if not candidate.is_absolute():
                 candidate = playlist.parent / candidate
             if _path_has_symlink(playlist_candidate) or _path_has_symlink(candidate):
-                raise ArtworkWriteError("The selected MP3 uses a symlinked path")
+                raise ArtworkWriteError("The selected audio file uses a symlinked path")
             candidate = candidate.resolve(strict=True)
             if candidate != audio:
                 raise ArtworkWriteError("The selected playlist entry does not match its track plan")
@@ -99,9 +100,9 @@ def resolve_playlist_mp3(playlist_id: str, track_id: str) -> Path:
     except (OSError, RuntimeError, ValueError) as exc:
         if isinstance(exc, ArtworkWriteError):
             raise
-        raise ArtworkWriteError("The selected MP3 could not be validated") from None
+        raise ArtworkWriteError("The selected audio file could not be validated") from None
     if len(resolved) != 1:
-        raise ArtworkWriteError("Select exactly one MP3 track from the playlist")
+        raise ArtworkWriteError("Select exactly one supported audio track from the playlist")
     return resolved[0]
 
 
@@ -290,7 +291,7 @@ def _write_backup(source: Path, backup_directory: Path, expected_digest: str) ->
         if _sha256(temporary) != expected_digest or _sha256(source) != expected_digest:
             raise ArtworkWriteError("The source changed while its backup was being made")
         shutil.copystat(source, temporary)
-        backup = backup_directory / f"{source.stem}-{uuid.uuid4().hex}.mp3"
+        backup = backup_directory / f"{source.stem}-{uuid.uuid4().hex}{source.suffix.lower()}"
         os.replace(temporary, backup)
         return backup
     except Exception as exc:
@@ -298,7 +299,7 @@ def _write_backup(source: Path, backup_directory: Path, expected_digest: str) ->
             temporary.unlink(missing_ok=True)
         if isinstance(exc, ArtworkWriteError):
             raise
-        raise ArtworkWriteError("Could not create a verified MP3 backup") from None
+        raise ArtworkWriteError("Could not create a verified audio backup") from None
 
 
 def _fingerprint(path: Path) -> tuple[int, int, int, int, str]:
@@ -331,11 +332,115 @@ def _replace_source(staged: Path, source: Path) -> None:
     os.replace(staged, source)
 
 
+def _mp4_media_data(path: Path) -> tuple[str, ...]:
+    """Hash each MP4 media-data atom so tag writes cannot alter audio payloads."""
+    hashes = []
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            file_size = stream.tell()
+            offset = 0
+            while offset < file_size:
+                stream.seek(offset)
+                header = stream.read(8)
+                if len(header) != 8:
+                    raise ArtworkWriteError("The selected M4A has an invalid container")
+                atom_size = int.from_bytes(header[:4], "big")
+                header_size = 8
+                if atom_size == 1:
+                    extended = stream.read(8)
+                    if len(extended) != 8:
+                        raise ArtworkWriteError("The selected M4A has an invalid container")
+                    atom_size = int.from_bytes(extended, "big")
+                    header_size = 16
+                elif atom_size == 0:
+                    atom_size = file_size - offset
+                if atom_size < header_size or offset + atom_size > file_size:
+                    raise ArtworkWriteError("The selected M4A has an invalid container")
+                if header[4:8] == b"mdat":
+                    digest = hashlib.sha256()
+                    remaining = atom_size - header_size
+                    while remaining:
+                        block = stream.read(min(1024 * 1024, remaining))
+                        if not block:
+                            raise ArtworkWriteError("The selected M4A has an invalid container")
+                        digest.update(block)
+                        remaining -= len(block)
+                    hashes.append(digest.hexdigest())
+                offset += atom_size
+    except OSError:
+        raise ArtworkWriteError("The selected M4A could not be read") from None
+    if not hashes:
+        raise ArtworkWriteError("The selected M4A has no audio data")
+    return tuple(hashes)
+
+
+def _mp4_tags_snapshot(audio: MP4):
+    return {key: value for key, value in (audio.tags or {}).items() if key != "covr"}
+
+
+def _embed_m4a_cover(source: Path, info: os.stat_result, image_data: bytes, mime: str) -> Path:
+    try:
+        original = MP4(source)
+        if original.info is None:
+            raise ArtworkWriteError("The selected M4A is not readable")
+        duration = original.info.length
+        original_tags = _mp4_tags_snapshot(original)
+        media_data = _mp4_media_data(source)
+        fingerprint = _fingerprint(source)
+        backup = _write_backup(source, BACKUP_DIRECTORY, fingerprint[4])
+    except ArtworkWriteError:
+        raise
+    except (OSError, MutagenError, ValueError):
+        raise ArtworkWriteError("The selected file could not be backed up as a valid M4A") from None
+
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile("wb", suffix=".m4a", prefix=".cratedeck-artwork-", dir=source.parent, delete=False) as staged_file:
+            temporary = Path(staged_file.name)
+        shutil.copyfile(source, temporary)
+        os.chmod(temporary, stat.S_IMODE(info.st_mode) | stat.S_IWUSR)
+        staged = MP4(temporary)
+        if staged.tags is None:
+            staged.add_tags()
+        cover_format = MP4Cover.FORMAT_JPEG if mime == "image/jpeg" else MP4Cover.FORMAT_PNG
+        staged.tags["covr"] = [MP4Cover(image_data, imageformat=cover_format)]
+        staged.save()
+        verified = MP4(temporary)
+        covers = (verified.tags or {}).get("covr", [])
+        expected_format = cover_format
+        if (
+            verified.info is None
+            or abs(verified.info.length - duration) > 1e-6
+            or _mp4_tags_snapshot(verified) != original_tags
+            or len(covers) != 1
+            or bytes(covers[0]) != image_data
+            or covers[0].imageformat != expected_format
+            or _mp4_media_data(temporary) != media_data
+        ):
+            raise ArtworkWriteError("The staged M4A failed its audio or artwork integrity check")
+        if _fingerprint(source) != fingerprint:
+            raise ArtworkWriteError("The source M4A changed during the artwork update")
+        shutil.copystat(source, temporary)
+        _replace_source(temporary, source)
+        temporary = None
+        return backup
+    except ArtworkWriteError:
+        raise
+    except (OSError, MutagenError, ValueError, struct.error):
+        raise ArtworkWriteError("Could not update M4A artwork; the original was left unchanged") from None
+    finally:
+        if temporary:
+            temporary.unlink(missing_ok=True)
+
+
 def embed_cover_art(source: Path, image_data: bytes, mime: str) -> Path:
-    """Back up, stage, validate, and atomically replace an MP3's front cover."""
+    """Back up, stage, validate, and atomically replace an MP3 or M4A's cover."""
     source = Path(source)
     info = _validate_source(source)
     _validate_image(image_data, mime)
+    if source.suffix.lower() == ".m4a":
+        return _embed_m4a_cover(source, info, image_data, mime)
     try:
         original_audio = MP3(source)
         if original_audio.info is None:

@@ -130,7 +130,7 @@ export function ImageSearchDialog({
             </p>
             {embedIntoMp3 && onRevealTrack && (
               <Button type="button" variant="outline" size="sm" onClick={onRevealTrack}>
-                <FolderOpen size={14} /> Show MP3 in Finder
+                <FolderOpen size={14} /> Show audio file in Finder
               </Button>
             )}
           </aside>
@@ -211,7 +211,7 @@ export function ImageSearchDialog({
                   </div>
                   <div className="flex flex-col gap-2">
                     <Button onClick={() => void choose(preview)} disabled={saving}>
-                      {saving ? "Saving…" : embedIntoMp3 ? "Embed into MP3" : "Use this image"}
+                      {saving ? "Saving…" : embedIntoMp3 ? "Embed into audio file" : "Use this image"}
                     </Button>
                     <a
                       href={preview.source_url}
