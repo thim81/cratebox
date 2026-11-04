@@ -3,6 +3,7 @@
 import asyncio
 from contextlib import suppress
 import json
+import logging
 from pathlib import Path
 
 import mutagen
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from .config import REPO_ROOT
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class CollectionLookup(BaseModel):
     artist: str | None = None
@@ -69,6 +71,7 @@ class CollectionMcp:
                 self.state = "connected"
                 return client
             except Exception:
+                logger.exception("Failed to start the Rekordbox collection MCP")
                 with suppress(Exception):
                     await client.close()
                 self.state = "error"

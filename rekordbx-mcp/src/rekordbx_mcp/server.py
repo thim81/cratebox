@@ -190,7 +190,8 @@ def build_server(
         return call
 
     for name in READ_TOOLS:
-        original = getattr(upstream, name).fn
+        upstream_tool = getattr(upstream, name)
+        original = getattr(upstream_tool, "fn", upstream_tool)
         server.tool(
             name=name, annotations={"readOnlyHint": True, "destructiveHint": False},
         )(wrap(original, name))
