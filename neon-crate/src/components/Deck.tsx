@@ -176,7 +176,7 @@ export function Deck({
 
   return (
     <div className="border-b border-border bg-deck px-4 py-3">
-      <div className="mb-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">
         <div className="flex min-w-0 items-center gap-3">
           {track && (
             <button

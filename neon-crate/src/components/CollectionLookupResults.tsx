@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
 
 const resultGrid =
-  "grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_2.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem_2rem] items-center gap-1.5";
+  "grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_2.5rem_2.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem_2rem] items-center gap-1.5";
 
 function qualityBadgeClass(quality: string) {
   const bitrate = Number(/\bMP3\s+(\d+)\s*kbps/i.exec(quality)?.[1]);
@@ -152,6 +152,7 @@ export function CollectionLookupResults({
             <span>Album</span>
             <span className="text-center">Stars</span>
             <span className="text-right" title="Cue points">Cues</span>
+            <span className="text-right" title="Number of playlists">Lists</span>
             <span className="text-right">Plays</span>
             <span className="text-right">Time</span>
             <span className="text-right">BPM</span>
@@ -219,6 +220,9 @@ export function CollectionLookupResults({
               </span>
               <span className="text-right font-mono text-[10px] text-muted-foreground">
                 {match.cue_count ?? 0}
+              </span>
+              <span className="text-right font-mono text-[10px] text-muted-foreground">
+                {match.playlist_count ?? 0}
               </span>
               <span className="text-right font-mono text-[10px] text-muted-foreground">
                 {(match.play_count ?? 0).toLocaleString()}
