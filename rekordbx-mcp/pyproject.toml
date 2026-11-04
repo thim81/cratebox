@@ -6,7 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "rekordbox-mcp",
     "pyrekordbox==0.5.0",
-    "fastmcp>=2.14,<3",
+    "fastmcp>=4.1.6,<5",
 ]
 
 [project.scripts]
@@ -16,7 +16,7 @@ rekordbx-mcp = "rekordbx_mcp.cli:main"
 dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
 
 [tool.uv.sources]
-rekordbox-mcp = { git = "https://github.com/thim81/rekordbox-mcp", tag = "v1.0.0" }
+rekordbox-mcp = { git = "https://github.com/thim81/rekordbox-mcp", tag = "v1.0.1" }
 
 [build-system]
 requires = ["hatchling"]
