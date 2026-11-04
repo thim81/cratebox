@@ -7,6 +7,7 @@ import {
   CircleCheck,
   Copy,
   Disc3,
+  ImageOff,
   LoaderCircle,
   Search,
   Settings,
@@ -137,6 +138,7 @@ function Index() {
   const [pendingAppendTrack, setPendingAppendTrack] = useState<Track | null>(null);
   const [crateQ, setCrateQ] = useState("");
   const [q, setQ] = useState("");
+  const [missingArtworkOnly, setMissingArtworkOnly] = useState(false);
   const [sort, setSort] = useState<SortState>({ k: null, dir: 1 });
   const [sel, setSel] = useState(0);
   const [rangeAnchor, setRangeAnchor] = useState<number | null>(null);
@@ -527,10 +529,11 @@ function Index() {
     const s = q.toLowerCase();
     let list = currentTracks.filter(
       (t) =>
-        !s ||
-        [t.title, t.artist, t.album, t.key, String(t.bpm), t.quality].some((v) =>
-          v.toLowerCase().includes(s),
-        ),
+        (!missingArtworkOnly || !t.has_artwork) &&
+        (!s ||
+          [t.title, t.artist, t.album, t.key, String(t.bpm), t.quality].some((v) =>
+            v.toLowerCase().includes(s),
+          )),
     );
     if (sort.k) {
       const k = sort.k;
@@ -546,7 +549,7 @@ function Index() {
       });
     }
     return list;
-  }, [currentTracks, q, sort, trackNumbers]);
+  }, [currentTracks, missingArtworkOnly, q, sort, trackNumbers]);
 
   const selectionKey = `${playlistSource}:${playlistSource === "crate" ? activeId : activeRekordboxId}`;
   const selectTrackAt = useCallback(
@@ -1259,6 +1262,20 @@ function Index() {
                   className="h-8 pl-7 text-xs"
                 />
               </div>
+              <Button
+                size="icon"
+                variant={missingArtworkOnly ? "secondary" : "ghost"}
+                className="size-8 shrink-0"
+                aria-label={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
+                aria-pressed={missingArtworkOnly}
+                title={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
+                onClick={() => {
+                  setMissingArtworkOnly((value) => !value);
+                  setRangeAnchor(null);
+                }}
+              >
+                <ImageOff size={14} />
+              </Button>
             </div>
           </div>
           <TrackTable

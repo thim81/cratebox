@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from .artwork_data import embedded_artwork
 from .collection import collection_mcp
 from .config import DEFAULT_PLAYLIST_DIR, PLAN_DIRECTORY, PLAYLIST_DIR
 from .playlists import (
@@ -201,6 +202,7 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
             "key": str(record.get("key") or ""),
             "quality": "Rekordbox library",
             "url": "",
+            "has_artwork": embedded_artwork(collection_mcp.track_paths[rekordbox_id]) is not None,
         })
     return tracks
 

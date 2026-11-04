@@ -13,7 +13,7 @@ import mutagen
 from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
 
-from .artwork_data import read_artwork_overrides
+from .artwork_data import embedded_artwork, read_artwork_overrides
 from .collection import collection_mcp
 from .config import DEFAULT_PLAYLIST_DIR, PLAN_DIRECTORY, PLAYLIST_DIR
 
@@ -184,6 +184,7 @@ def parse_playlist(path: Path):
             "quality": f"{audio.suffix[1:].upper()} {bitrate // 1000}kbps".strip(),
             "url": f"/api/stream?playlist_id={quote(path.stem)}&track_id={quote(track_id)}",
             "artwork_url": f"/api/playlists/{quote(path.stem)}/tracks/{quote(track_id)}/artwork",
+            "has_artwork": embedded_artwork(audio) is not None,
         })
     return tracks
 
@@ -218,6 +219,7 @@ def get_playlist(playlist_id: str):
         if track["id"] in overrides:
             track["fallback_artwork_url"] = track["artwork_url"]
             track["artwork_url"] = overrides[track["id"]]
+            track["has_artwork"] = True
     return {**playlist_summary(path, tracks), "tracks": tracks}
 
 @router.delete("/api/playlists/{playlist_id}/tracks")

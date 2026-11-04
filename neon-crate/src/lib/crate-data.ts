@@ -13,6 +13,7 @@ export interface Track {
   url: string;
   artwork_url?: string;
   fallback_artwork_url?: string;
+  has_artwork?: boolean;
 }
 export interface Playlist {
   id: string;
