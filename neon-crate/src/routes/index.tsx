@@ -1188,60 +1188,64 @@ function Index() {
         />
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-3 border-b border-border px-3 py-2">
-            <h1 className="truncate text-sm font-semibold">
-              {playlistSource === "rekordbox"
-                ? (activeRekordboxPlaylist?.name ??
-                  activeRekordboxFolder?.name ??
-                  "Rekordbox playlists")
-                : (activePl?.name ?? "—")}
-            </h1>
-            {view[sel] && (
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border px-3 py-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <h1 className="truncate text-sm font-semibold">
+                {playlistSource === "rekordbox"
+                  ? (activeRekordboxPlaylist?.name ??
+                    activeRekordboxFolder?.name ??
+                    "Rekordbox playlists")
+                  : (activePl?.name ?? "—")}
+              </h1>
+              {view[sel] && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 shrink-0"
+                  aria-label={`Show ${view[sel].title} in Finder`}
+                  title="Show selected track in Finder"
+                  onClick={() => void showTrackInFinder(view[sel])}
+                >
+                  <FolderOpen size={14} />
+                </Button>
+              )}
+              {playlistSource === "rekordbox" &&
+                activeRekordboxPlaylist &&
+                !activeRekordboxPlaylist.is_folder && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 shrink-0"
+                    disabled={
+                      rekordboxTracks.length === 0 || copyingRekordboxId === activeRekordboxId
+                    }
+                    onClick={() => void copySelectedRekordboxPlaylist()}
+                  >
+                    {copyingRekordboxId === activeRekordboxId ? (
+                      <LoaderCircle size={13} className="animate-spin" />
+                    ) : (
+                      <Copy size={13} />
+                    )}
+                    Copy to CrateDeck
+                  </Button>
+                )}
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {view.length} tracks
+              </span>
+            </div>
+            {playlistSource === "crate" ? (
               <Button
-                size="icon"
-                variant="ghost"
-                className="size-7 shrink-0"
-                aria-label={`Show ${view[sel].title} in Finder`}
-                title="Show selected track in Finder"
-                onClick={() => void showTrackInFinder(view[sel])}
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                disabled={!selectedTrack || addingCollectionTrackId !== null}
+                onClick={() => setAddTrackSearchOpen(true)}
               >
-                <FolderOpen size={14} />
+                <Plus size={14} />
+                Add track
               </Button>
-            )}
-            {playlistSource === "rekordbox" &&
-              activeRekordboxPlaylist &&
-              !activeRekordboxPlaylist.is_folder && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7"
-                  disabled={
-                    rekordboxTracks.length === 0 || copyingRekordboxId === activeRekordboxId
-                  }
-                  onClick={() => void copySelectedRekordboxPlaylist()}
-                >
-                  {copyingRekordboxId === activeRekordboxId ? (
-                    <LoaderCircle size={13} className="animate-spin" />
-                  ) : (
-                    <Copy size={13} />
-                  )}
-                  Copy to CrateDeck
-                </Button>
-              )}
-            <span className="font-mono text-xs text-muted-foreground">{view.length} tracks</span>
-            <div className="ml-auto flex shrink-0 items-center gap-2">
-              {playlistSource === "crate" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 gap-1.5"
-                  disabled={!selectedTrack || addingCollectionTrackId !== null}
-                  onClick={() => setAddTrackSearchOpen(true)}
-                >
-                  <Plus size={14} />
-                  Add track
-                </Button>
-              )}
+            ) : <span />}
+            <div className="flex shrink-0 items-center justify-end gap-2">
               {playlistSource === "crate" && (
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   Insert separator

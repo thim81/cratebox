@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { LoaderCircle, Plus, Search } from "lucide-react";
+import { LoaderCircle, Plus, Search, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -39,8 +39,8 @@ export function CollectionTrackSearchDialog({
 
   useEffect(() => {
     if (!open) return;
-    setArtist(anchorTrack?.artist ?? "");
-    setTitle(anchorTrack?.title ?? "");
+    setArtist("");
+    setTitle("");
     setMatches([]);
     setError(null);
     setSearched(false);
@@ -79,11 +79,11 @@ export function CollectionTrackSearchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-7xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add a track</DialogTitle>
           <DialogDescription>
-            Search the Rekordbox collection. The selected result will be inserted after
+            Search by artist, title, or both. The selected result will be inserted after
             {anchorTrack ? ` “${anchorTrack.title}”` : " the selected track"}.
           </DialogDescription>
         </DialogHeader>
@@ -100,7 +100,7 @@ export function CollectionTrackSearchDialog({
             placeholder="Track title"
             aria-label="Track title"
           />
-          <Button type="submit" disabled={loading || !artist.trim() || !title.trim()}>
+          <Button type="submit" disabled={loading || (!artist.trim() && !title.trim())}>
             {loading ? <LoaderCircle className="animate-spin" /> : <Search />}
             Search
           </Button>
@@ -109,14 +109,50 @@ export function CollectionTrackSearchDialog({
         {loading && <p className="py-4 text-center text-sm text-muted-foreground">Searching the collection…</p>}
         {!loading && matches.length > 0 && (
           <div className="overflow-x-auto rounded border border-border">
-            <div className="grid min-w-[680px] grid-cols-[minmax(10rem,1.4fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_4rem_4rem_5rem_5rem] gap-2 bg-muted/50 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              <span>Title</span><span>Artist</span><span>Album</span><span className="text-right">Time</span><span className="text-right">Lists</span><span className="text-right">Match</span><span />
+            <div className="grid min-w-[920px] grid-cols-[minmax(10rem,1.4fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_4.5rem_3.5rem_6rem_4rem_4rem_4.5rem_5rem] gap-2 bg-muted/50 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <span>Title</span>
+              <span>Artist</span>
+              <span>Album</span>
+              <span className="text-center">Stars</span>
+              <span className="text-right">Plays</span>
+              <span>Quality</span>
+              <span className="text-right">Time</span>
+              <span className="text-right">Lists</span>
+              <span className="text-right">Match</span>
+              <span />
             </div>
             {matches.map((match) => (
-              <div key={match.id} className="grid min-w-[680px] grid-cols-[minmax(10rem,1.4fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_4rem_4rem_5rem_5rem] items-center gap-2 border-t border-border px-3 py-2 text-xs">
+              <div
+                key={match.id}
+                className="grid min-w-[920px] grid-cols-[minmax(10rem,1.4fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_4.5rem_3.5rem_6rem_4rem_4rem_4.5rem_5rem] items-center gap-2 border-t border-border px-3 py-2 text-xs"
+              >
                 <span className="truncate font-medium" title={match.title}>{match.title}</span>
                 <span className="truncate text-muted-foreground" title={match.artist}>{match.artist}</span>
                 <span className="truncate text-muted-foreground" title={match.album}>{match.album || "—"}</span>
+                <span
+                  className="flex justify-center gap-0.5"
+                  role="img"
+                  aria-label={`Rating: ${match.rating ?? 0} out of 5 stars`}
+                >
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Star
+                      key={star}
+                      size={10}
+                      className={star <= (match.rating ?? 0) ? "fill-gold text-gold" : "text-border"}
+                    />
+                  ))}
+                </span>
+                <span className="text-right font-mono text-muted-foreground">
+                  {(match.play_count ?? 0).toLocaleString()}
+                </span>
+                {match.quality ? (
+                  <span
+                    className="w-fit max-w-full truncate whitespace-nowrap rounded border border-accent px-1 py-px font-mono text-[9px] text-accent"
+                    title={match.quality}
+                  >
+                    {match.quality}
+                  </span>
+                ) : <span className="text-muted-foreground">—</span>}
                 <span className="text-right font-mono text-muted-foreground">{fmtTime(match.duration)}</span>
                 <span className="text-right font-mono text-muted-foreground">{match.playlist_count ?? 0}</span>
                 <span className="text-right font-mono text-accent">{match.similarity}%</span>

@@ -244,8 +244,8 @@ def build_server(
     async def rank_similar_tracks(artist: str, title: str, limit: int):
         artist = artist.strip()
         title = title.strip()
-        if not artist or not title:
-            raise ToolError("Artist and title are required for collection lookup.")
+        if not artist and not title:
+            raise ToolError("Provide an artist, title, or both for collection lookup.")
         if not 1 <= limit <= 50:
             raise ToolError("Limit must be between 1 and 50.")
 
@@ -258,26 +258,31 @@ def build_server(
 
                 def ranked_candidates():
                     ranked = []
-                    source_artists = artist_credits(artist)
+                    source_artists = artist_credits(artist) if artist else set()
+                    source_title = normalize_track_title(title) if title else ""
                     for content in database._get_active_content():
                         candidate_artist = str(getattr(content, "ArtistName", "") or "")
                         candidate_artists = artist_credits(candidate_artist)
                         shared_artists = source_artists & candidate_artists
-                        if not shared_artists:
+                        if source_artists and not shared_artists:
                             continue
-                        artist_score = len(shared_artists) / min(
-                            len(source_artists), len(candidate_artists),
+                        artist_score = (
+                            len(shared_artists) / min(len(source_artists), len(candidate_artists))
+                            if shared_artists else 0
                         )
                         candidate = database._content_to_track(content).model_dump()
                         candidate["_content"] = content
                         candidate["file_path"] = str(getattr(content, "FolderPath", "") or "")
                         candidate["bit_depth"] = int(getattr(content, "BitDepth", 0) or 0)
                         candidate_title = normalize_track_title(str(candidate.get("title") or ""))
-                        source_title = normalize_track_title(title)
                         candidate["_exact_title"] = (
-                            source_title == candidate_title
+                            bool(source_title) and source_title == candidate_title
                         )
-                        score = 0.35 * artist_score + 0.65 * similarity(source_title, candidate_title)
+                        title_score = similarity(source_title, candidate_title) if source_title else 0
+                        score = (
+                            (0.35 * artist_score if source_artists else 0)
+                            + (0.65 * title_score if source_title else 0)
+                        ) / (0.35 * bool(source_artists) + 0.65 * bool(source_title))
                         ranked.append((score, candidate))
                     selected = order_match_candidates(ranked)[:limit]
                     track_ids = [str(candidate.get("id") or "") for _, candidate in selected]

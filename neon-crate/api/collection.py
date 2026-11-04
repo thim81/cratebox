@@ -101,8 +101,8 @@ async def collection_lookup(request: CollectionLookup):
     artist = (request.artist or "").strip()
     title = (request.title or "").strip()
     track_id = (request.track_id or "").strip()
-    if not track_id and (not artist or not title):
-        raise HTTPException(400, "Provide a Rekordbox track ID or both artist and title.")
+    if not track_id and not artist and not title:
+        raise HTTPException(400, "Provide a Rekordbox track ID, artist, title, or both.")
     client = await collection_mcp.connect()
     try:
         async def result_value(tool_result):
