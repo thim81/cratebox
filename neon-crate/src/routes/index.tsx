@@ -459,7 +459,7 @@ function Index() {
         album: track.album,
         searchTrack: track.title,
         sourceTrack: track,
-        currentImageUrl: track.artwork_url,
+        ...(track.artwork_url !== undefined ? { currentImageUrl: track.artwork_url } : {}),
       });
     }
   };
@@ -485,25 +485,27 @@ function Index() {
       );
       if (activeId === imageTarget.playlistId) {
         setTracks((current) =>
-          current.map((track) =>
-            track.id === imageTarget.trackId
-              ? { ...track, artwork_url: result.artwork_url, fallback_artwork_url: undefined }
-              : track,
-          ),
+          current.map((track) => {
+            if (track.id !== imageTarget.trackId) return track;
+            const { fallback_artwork_url: _fallbackArtworkUrl, ...trackWithoutFallback } = track;
+            return { ...trackWithoutFallback, artwork_url: result.artwork_url };
+          }),
         );
       }
-      setLoaded((current) =>
-        current?.playlist === imageTarget.playlistId && current.track.id === imageTarget.trackId
-          ? {
-              ...current,
-              track: {
-                ...current.track,
-                fallback_artwork_url: undefined,
-                artwork_url: result.artwork_url,
-              },
-            }
-          : current,
-      );
+      setLoaded((current) => {
+        if (
+          current?.playlist !== imageTarget.playlistId ||
+          current.track.id !== imageTarget.trackId
+        ) {
+          return current;
+        }
+        const { fallback_artwork_url: _fallbackArtworkUrl, ...trackWithoutFallback } =
+          current.track;
+        return {
+          ...current,
+          track: { ...trackWithoutFallback, artwork_url: result.artwork_url },
+        };
+      });
     } else {
       await saveArtwork(apiUrl, imageTarget.playlistId, image.image_url);
       setPlaylists((current) =>
@@ -558,7 +560,9 @@ function Index() {
 
   useEffect(() => {
     const rememberedId = selectedTrackByPlaylist.current.get(selectionKey);
-    const rememberedIndex = rememberedId ? view.findIndex((track) => track.id === rememberedId) : -1;
+    const rememberedIndex = rememberedId
+      ? view.findIndex((track) => track.id === rememberedId)
+      : -1;
     setSel(rememberedIndex >= 0 ? rememberedIndex : 0);
     setRangeAnchor(null);
   }, [selectionKey, view]);
@@ -721,7 +725,16 @@ function Index() {
         setSeparatorInserting(false);
       }
     },
-    [activeId, activePlaylistName, apiUrl, playlistSource, q, refreshPlaylists, selectTrackAt, sort],
+    [
+      activeId,
+      activePlaylistName,
+      apiUrl,
+      playlistSource,
+      q,
+      refreshPlaylists,
+      selectTrackAt,
+      sort,
+    ],
   );
 
   const selectSeparator = useCallback((track: Track) => {
@@ -785,18 +798,13 @@ function Index() {
       const selectedTrackId = view[sel]?.id;
       setReordering(true);
       try {
-        await reorderPlaylistTrack(
-          apiUrl,
-          requestPlaylistId,
-          sourceTrackId,
-          targetTrackId,
-          before,
-        );
+        await reorderPlaylistTrack(apiUrl, requestPlaylistId, sourceTrackId, targetTrackId, before);
         const playlist = await getPlaylist(apiUrl, requestPlaylistId, true);
         if (
           activePlaylistContext.current.id !== requestPlaylistId ||
           activePlaylistContext.current.source !== "crate"
-        ) return;
+        )
+          return;
         const updatedTracks = playlist.tracks ?? [];
         setTracks(updatedTracks);
         setRangeAnchor(null);
@@ -851,7 +859,9 @@ function Index() {
     if (!loaded) return;
     const stepTracks = view;
     const i = stepTracks.findIndex(
-      (t) => t.id === loaded.track.id || (t.rekordbox_id && t.rekordbox_id === loaded.track.rekordbox_id),
+      (t) =>
+        t.id === loaded.track.id ||
+        (t.rekordbox_id && t.rekordbox_id === loaded.track.rekordbox_id),
     );
     if (i < 0) {
       const targetIndex = d > 0 ? 0 : stepTracks.length - 1;
@@ -916,7 +926,16 @@ function Index() {
         );
       }
     },
-    [activeId, activePl?.name, apiUrl, view, loaded, playlistSource, refreshPlaylists, selectTrackAt],
+    [
+      activeId,
+      activePl?.name,
+      apiUrl,
+      view,
+      loaded,
+      playlistSource,
+      refreshPlaylists,
+      selectTrackAt,
+    ],
   );
 
   useEffect(() => {
@@ -941,7 +960,7 @@ function Index() {
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         const lookupSection = expandedLookupTrackId
           ? Array.from(document.querySelectorAll<HTMLElement>("[data-lookup-source-track]")).find(
-              (element) => element.dataset.lookupSourceTrack === expandedLookupTrackId,
+              (element) => element.dataset["lookupSourceTrack"] === expandedLookupTrackId,
             )
           : null;
         const lookupRows = Array.from(
@@ -952,7 +971,11 @@ function Index() {
           lookupRows[0].focus();
           return;
         }
-        if (e.key === "ArrowUp" && view[sel - 1]?.id === expandedLookupTrackId && lookupRows.length) {
+        if (
+          e.key === "ArrowUp" &&
+          view[sel - 1]?.id === expandedLookupTrackId &&
+          lookupRows.length
+        ) {
           e.preventDefault();
           selectTrackAt(sel - 1);
           lookupRows[lookupRows.length - 1]?.focus();
@@ -1101,14 +1124,16 @@ function Index() {
         apiUrl={apiUrl}
         open={imageTarget !== null}
         query={imageTarget?.query ?? ""}
-        artist={imageTarget?.artist}
-        album={imageTarget?.album}
-        track={imageTarget?.searchTrack}
-        currentImageUrl={imageTarget?.currentImageUrl}
+        {...(imageTarget?.artist !== undefined ? { artist: imageTarget.artist } : {})}
+        {...(imageTarget?.album !== undefined ? { album: imageTarget.album } : {})}
+        {...(imageTarget?.searchTrack !== undefined ? { track: imageTarget.searchTrack } : {})}
+        {...(imageTarget?.currentImageUrl !== undefined
+          ? { currentImageUrl: imageTarget.currentImageUrl }
+          : {})}
         embedIntoMp3={Boolean(imageTarget?.trackId)}
-        onRevealTrack={
-          sourceTrackToReveal ? () => void showTrackInFinder(sourceTrackToReveal) : undefined
-        }
+        {...(sourceTrackToReveal
+          ? { onRevealTrack: () => void showTrackInFinder(sourceTrackToReveal) }
+          : {})}
         onOpenChange={(open) => {
           if (!open) setImageTarget(null);
         }}
@@ -1371,7 +1396,8 @@ function Index() {
           <DialogHeader>
             <DialogTitle>Replace track?</DialogTitle>
             <DialogDescription>
-              Replace “{pendingCollectionSwap?.sourceTrack.title}” in “{activePlaylistName || "this playlist"}” with “{pendingCollectionSwap?.match.title}”?
+              Replace “{pendingCollectionSwap?.sourceTrack.title}” in “
+              {activePlaylistName || "this playlist"}” with “{pendingCollectionSwap?.match.title}”?
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">

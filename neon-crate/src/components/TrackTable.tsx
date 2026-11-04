@@ -274,7 +274,10 @@ export function TrackTable({
                       <span className="flex w-full min-w-0 items-center gap-1 text-muted-foreground">
                         <span className="w-3 shrink-0 border-t border-current" aria-hidden="true" />
                         <span className="shrink-0">{separator.label.toUpperCase()}</span>
-                        <span className="min-w-2 flex-1 border-t border-current" aria-hidden="true" />
+                        <span
+                          className="min-w-2 flex-1 border-t border-current"
+                          aria-hidden="true"
+                        />
                       </span>
                     ) : (
                       <span className="block truncate">{track.title}</span>
@@ -358,7 +361,12 @@ export function TrackTable({
                         loading={lookupLoading}
                         error={lookupError}
                         activeTrackId={loadedTrackId}
-                        activeRekordboxId={loadedTrackId ? tracks.find((item) => item.id === loadedTrackId)?.rekordbox_id ?? null : null}
+                        activeRekordboxId={
+                          loadedTrackId
+                            ? (tracks.find((item) => item.id === loadedTrackId)?.rekordbox_id ??
+                              null)
+                            : null
+                        }
                         playing={playing}
                         addingTrackId={addingCollectionTrackId}
                         onPlay={onPlayCollectionMatch}

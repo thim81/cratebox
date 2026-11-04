@@ -3,7 +3,8 @@ import { ArrowLeftRight, LoaderCircle, Pause, Play, Plus, Star, Volume2, X } fro
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
 
-const resultGrid = "grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem_2rem] items-center gap-1.5";
+const resultGrid =
+  "grid min-w-0 grid-cols-[1rem_minmax(8rem,1.4fr)_minmax(7rem,1fr)_minmax(7rem,1fr)_3.5rem_3rem_2.75rem_3rem_2rem_6rem_3rem_4.5rem_4rem_2rem] items-center gap-1.5";
 
 function qualityBadgeClass(quality: string) {
   const bitrate = Number(/\bMP3\s+(\d+)\s*kbps/i.exec(quality)?.[1]);
@@ -58,7 +59,9 @@ export function CollectionLookupResults({
   const sourceMatch = matches.find((match) => match.id === sourceTrack.rekordbox_id);
   const visibleMatches = matches.filter((match) => match.id !== sourceTrack.rekordbox_id);
   const highMatches = visibleMatches.filter((match) => match.similarity >= 70);
-  const midMatches = visibleMatches.filter((match) => match.similarity >= 50 && match.similarity < 70);
+  const midMatches = visibleMatches.filter(
+    (match) => match.similarity >= 50 && match.similarity < 70,
+  );
   const lowMatches = visibleMatches.filter((match) => match.similarity < 50);
   const isActiveMatch = (match: CollectionMatch) =>
     activeTrackId === `collection-${match.id}` || activeRekordboxId === match.id;
@@ -104,7 +107,12 @@ export function CollectionLookupResults({
   };
 
   return (
-    <section data-lookup-source-track={sourceTrack.id} className="rounded-md border border-border bg-card/70 p-3" aria-label="Rekordbox lookup results" onKeyDown={navigateResults}>
+    <section
+      data-lookup-source-track={sourceTrack.id}
+      className="rounded-md border border-border bg-card/70 p-3"
+      aria-label="Rekordbox lookup results"
+      onKeyDown={navigateResults}
+    >
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-xs font-semibold">
@@ -114,18 +122,30 @@ export function CollectionLookupResults({
             {sourceTrack.artist} — {sourceTrack.title}
           </p>
         </div>
-        <Button size="icon" variant="ghost" className="size-7 shrink-0" onClick={onCollapse} aria-label="Collapse lookup results">
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7 shrink-0"
+          onClick={onCollapse}
+          aria-label="Collapse lookup results"
+        >
           <X size={14} />
         </Button>
       </div>
 
       {loading ? (
-        <p className="py-4 text-center text-xs text-muted-foreground" role="status">Searching the collection…</p>
+        <p className="py-4 text-center text-xs text-muted-foreground" role="status">
+          Searching the collection…
+        </p>
       ) : error ? (
-        <p className="py-3 text-xs text-destructive" role="alert">{error}</p>
+        <p className="py-3 text-xs text-destructive" role="alert">
+          {error}
+        </p>
       ) : matches.length ? (
         <ul className="divide-y divide-border">
-          <li className={`${resultGrid} pb-1 text-[8px] font-medium uppercase tracking-wide text-muted-foreground`}>
+          <li
+            className={`${resultGrid} pb-1 text-[8px] font-medium uppercase tracking-wide text-muted-foreground`}
+          >
             <span />
             <span>Title</span>
             <span>Artist</span>
@@ -153,28 +173,61 @@ export function CollectionLookupResults({
                 setSelectedMatchId(match.id);
               }}
               onDoubleClick={(event) => {
-                if ((event.target as HTMLElement).closest("button") || match.playable === false) return;
+                if ((event.target as HTMLElement).closest("button") || match.playable === false)
+                  return;
                 onPlay(match);
               }}
-              title={match.playable === false ? "Audio file is unavailable" : "Double-click to load and play"}
+              title={
+                match.playable === false
+                  ? "Audio file is unavailable"
+                  : "Double-click to load and play"
+              }
             >
               <span className="flex h-4 items-center justify-center">
-                {isActiveMatch(match) && (playing
-                  ? <Volume2 size={12} className="animate-pulse text-accent" />
-                  : <span className="text-accent">▸</span>)}
-              </span>
-              <span className="truncate text-xs font-medium" title={match.title}>{match.title}</span>
-              <span className="truncate text-xs text-muted-foreground" title={match.artist}>{match.artist}</span>
-              <span className={`truncate text-xs text-muted-foreground ${match.album ? "" : "text-center"}`} title={match.album}>{match.album || "—"}</span>
-              <span className="flex justify-center gap-0.5" role="img" aria-label={`Rating: ${match.rating ?? 0} out of 5 stars`}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star key={star} size={10} className={star <= (match.rating ?? 0) ? "fill-gold text-gold" : "text-border"} />
+                {isActiveMatch(match) &&
+                  (playing ? (
+                    <Volume2 size={12} className="animate-pulse text-accent" />
+                  ) : (
+                    <span className="text-accent">▸</span>
                   ))}
               </span>
-              <span className="text-right font-mono text-[10px] text-muted-foreground">{(match.play_count ?? 0).toLocaleString()}</span>
-              <span className="text-right font-mono text-[10px] text-muted-foreground">{fmtTime(match.duration)}</span>
-              <span className="text-right font-mono text-[10px] text-muted-foreground">{match.bpm || "—"}</span>
-              <span className="text-right font-mono text-[10px] text-muted-foreground">{match.key || "—"}</span>
+              <span className="truncate text-xs font-medium" title={match.title}>
+                {match.title}
+              </span>
+              <span className="truncate text-xs text-muted-foreground" title={match.artist}>
+                {match.artist}
+              </span>
+              <span
+                className={`truncate text-xs text-muted-foreground ${match.album ? "" : "text-center"}`}
+                title={match.album}
+              >
+                {match.album || "—"}
+              </span>
+              <span
+                className="flex justify-center gap-0.5"
+                role="img"
+                aria-label={`Rating: ${match.rating ?? 0} out of 5 stars`}
+              >
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Star
+                    key={star}
+                    size={10}
+                    className={star <= (match.rating ?? 0) ? "fill-gold text-gold" : "text-border"}
+                  />
+                ))}
+              </span>
+              <span className="text-right font-mono text-[10px] text-muted-foreground">
+                {(match.play_count ?? 0).toLocaleString()}
+              </span>
+              <span className="text-right font-mono text-[10px] text-muted-foreground">
+                {fmtTime(match.duration)}
+              </span>
+              <span className="text-right font-mono text-[10px] text-muted-foreground">
+                {match.bpm || "—"}
+              </span>
+              <span className="text-right font-mono text-[10px] text-muted-foreground">
+                {match.key || "—"}
+              </span>
               {match.quality ? (
                 <span
                   className={`w-fit max-w-full truncate whitespace-nowrap rounded border px-1 py-px font-mono text-[9px] ${qualityBadgeClass(match.quality)}`}
@@ -185,9 +238,13 @@ export function CollectionLookupResults({
               ) : (
                 <span>—</span>
               )}
-              <span className="text-right font-mono text-[10px] text-accent">{match.similarity}%</span>
+              <span className="text-right font-mono text-[10px] text-accent">
+                {match.similarity}%
+              </span>
               {match.id === sourceTrack.rekordbox_id ? (
-                <span className="col-span-2 whitespace-nowrap rounded bg-primary/10 px-1 py-1 text-center text-[10px] text-primary">In playlist</span>
+                <span className="col-span-2 whitespace-nowrap rounded bg-primary/10 px-1 py-1 text-center text-[10px] text-primary">
+                  In playlist
+                </span>
               ) : (
                 <Button
                   size="sm"
@@ -196,7 +253,11 @@ export function CollectionLookupResults({
                   disabled={match.playable === false}
                   onClick={() => onSwap(sourceTrack, match)}
                   aria-label={`Replace ${sourceTrack.title} with ${match.title} in playlist`}
-                  title={match.playable === false ? "Audio file is unavailable" : "Replace source track in playlist"}
+                  title={
+                    match.playable === false
+                      ? "Audio file is unavailable"
+                      : "Replace source track in playlist"
+                  }
                 >
                   <ArrowLeftRight size={12} /> Swap
                 </Button>
@@ -209,7 +270,11 @@ export function CollectionLookupResults({
                   disabled={match.playable === false || addingTrackId !== null}
                   onClick={() => onAdd(sourceTrack, match)}
                   aria-label={`Add ${match.title} after ${sourceTrack.title} in playlist`}
-                  title={match.playable === false ? "Audio file is unavailable" : "Add after source track"}
+                  title={
+                    match.playable === false
+                      ? "Audio file is unavailable"
+                      : "Add after source track"
+                  }
                 >
                   {addingTrackId === match.id ? (
                     <LoaderCircle size={12} className="animate-spin" />
@@ -226,24 +291,38 @@ export function CollectionLookupResults({
                 disabled={match.playable === false}
                 onClick={() => onPlay(match)}
                 aria-label={`${isActiveMatch(match) && playing ? "Pause" : "Play"} ${match.artist} — ${match.title} in deck`}
-                title={match.playable === false ? "Audio file is unavailable" : isActiveMatch(match) && playing ? "Pause in main deck" : "Play in main deck"}
+                title={
+                  match.playable === false
+                    ? "Audio file is unavailable"
+                    : isActiveMatch(match) && playing
+                      ? "Pause in main deck"
+                      : "Play in main deck"
+                }
               >
-                {isActiveMatch(match) && playing
-                  ? <Pause size={12} />
-                  : <Play size={12} />}
+                {isActiveMatch(match) && playing ? <Pause size={12} /> : <Play size={12} />}
               </Button>
             </li>
           ))}
           {(midMatches.length > 0 || lowMatches.length > 0) && !showMidMatches && (
             <li className="py-1 text-center">
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowMidMatches(true)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setShowMidMatches(true)}
+              >
                 Show more ({midMatches.length + lowMatches.length} matches below 70%)
               </Button>
             </li>
           )}
           {showMidMatches && lowMatches.length > 0 && !showLowMatches && (
             <li className="py-1 text-center">
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowLowMatches(true)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setShowLowMatches(true)}
+              >
                 Show more ({lowMatches.length} matches below 50%)
               </Button>
             </li>

@@ -111,19 +111,13 @@ export async function revealTrackInFinder(apiUrl: string, track: Track): Promise
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       playlist_id: track.playlist_id,
-      track_id: track.playlist_id ? track.id : track.rekordbox_id ?? track.id,
+      track_id: track.playlist_id ? track.id : (track.rekordbox_id ?? track.id),
     }),
   });
 }
 
-export function getRekordboxPlaylistTracks(
-  apiUrl: string,
-  playlistId: string,
-): Promise<Track[]> {
-  return requestJson(
-    apiUrl,
-    `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/tracks`,
-  );
+export function getRekordboxPlaylistTracks(apiUrl: string, playlistId: string): Promise<Track[]> {
+  return requestJson(apiUrl, `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/tracks`);
 }
 
 export function copyRekordboxPlaylist(
@@ -132,15 +126,11 @@ export function copyRekordboxPlaylist(
   name: string,
   updateExisting = false,
 ): Promise<{ name: string; track_count: number; updated_existing: boolean }> {
-  return requestJson(
-    apiUrl,
-    `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/copy`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, update_existing: updateExisting }),
-    },
-  );
+  return requestJson(apiUrl, `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/copy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, update_existing: updateExisting }),
+  });
 }
 
 export async function getCollectionStatus(apiUrl: string): Promise<CollectionStatus> {
@@ -243,15 +233,11 @@ export async function insertPlaylistSeparator(
   type: SeparatorType,
   beforeTrackId: string,
 ): Promise<void> {
-  await requestJson(
-    apiUrl,
-    `/api/playlists/${encodeURIComponent(playlistId)}/separators`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, before_track_id: beforeTrackId, confirm_update: true }),
-    },
-  );
+  await requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}/separators`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, before_track_id: beforeTrackId, confirm_update: true }),
+  });
 }
 
 export async function replacePlaylistSeparator(
@@ -260,19 +246,15 @@ export async function replacePlaylistSeparator(
   separatorRowId: string,
   type: SeparatorType,
 ): Promise<void> {
-  await requestJson(
-    apiUrl,
-    `/api/playlists/${encodeURIComponent(playlistId)}/separators/replace`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        separator_row_id: separatorRowId,
-        type,
-        confirm_update: true,
-      }),
-    },
-  );
+  await requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}/separators/replace`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      separator_row_id: separatorRowId,
+      type,
+      confirm_update: true,
+    }),
+  });
 }
 
 export async function appendRekordboxTrack(
@@ -280,15 +262,11 @@ export async function appendRekordboxTrack(
   playlistId: string,
   trackId: string,
 ): Promise<void> {
-  await requestJson(
-    apiUrl,
-    `/api/playlists/${encodeURIComponent(playlistId)}/tracks/append`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ track_id: trackId, confirm_update: true }),
-    },
-  );
+  await requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}/tracks/append`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track_id: trackId, confirm_update: true }),
+  });
 }
 
 export async function insertRekordboxTrackAfter(
