@@ -1,5 +1,7 @@
-import { ArrowLeft, Folder, ListMusic, Package, RefreshCw, Search } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { ArrowLeft, Folder, ListMusic, LoaderCircle, Package, Plus, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { fmtTime, type Playlist, type RekordboxPlaylist } from "@/lib/crate-data";
 
@@ -16,10 +18,12 @@ interface CrateSidebarProps {
   rekordboxError: string | null;
   refreshing: boolean;
   rekordboxRefreshing: boolean;
+  creatingPlaylist: boolean;
   onFilterChange: (filter: string) => void;
   onSourceChange: (source: "crate" | "rekordbox") => void;
   onRefresh: () => void;
   onRefreshRekordbox: () => void;
+  onCreatePlaylist: (name: string) => Promise<boolean>;
   onSelectPlaylist: (playlistId: string) => void;
   onSelectRekordboxPlaylist: (playlistId: string) => void;
   onOpenRekordboxFolder: (folderId: string) => void;
@@ -39,15 +43,19 @@ export function CrateSidebar({
   rekordboxError,
   refreshing,
   rekordboxRefreshing,
+  creatingPlaylist,
   onFilterChange,
   onSourceChange,
   onRefresh,
   onRefreshRekordbox,
+  onCreatePlaylist,
   onSelectPlaylist,
   onSelectRekordboxPlaylist,
   onOpenRekordboxFolder,
   onGoUpRekordboxFolder,
 }: CrateSidebarProps) {
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newPlaylistName, setNewPlaylistName] = useState("");
   const crates = playlists.filter((playlist) =>
     playlist.name.toLowerCase().includes(filter.toLowerCase()),
   );
@@ -127,22 +135,36 @@ export function CrateSidebar({
             <ArrowLeft size={13} />
           </Button>
         )}
-        <Button
-          size="icon"
-          variant="ghost"
-          className="size-7"
-          onClick={source === "crate" ? onRefresh : onRefreshRekordbox}
-          disabled={source === "crate" ? refreshing : rekordboxRefreshing}
-          aria-label={source === "crate" ? "Refresh playlists" : "Refresh Rekordbox playlists"}
-          title={source === "crate" ? "Refresh playlists" : "Refresh Rekordbox playlists"}
-        >
-          <RefreshCw
-            size={13}
-            className={
-              (source === "crate" ? refreshing : rekordboxRefreshing) ? "animate-spin" : ""
-            }
-          />
-        </Button>
+        <div className="flex items-center gap-1">
+          {source === "crate" && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7"
+              onClick={() => setCreateDialogOpen(true)}
+              aria-label="Create playlist"
+              title="Create playlist"
+            >
+              <Plus size={14} />
+            </Button>
+          )}
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7"
+            onClick={source === "crate" ? onRefresh : onRefreshRekordbox}
+            disabled={source === "crate" ? refreshing : rekordboxRefreshing}
+            aria-label={source === "crate" ? "Refresh playlists" : "Refresh Rekordbox playlists"}
+            title={source === "crate" ? "Refresh playlists" : "Refresh Rekordbox playlists"}
+          >
+            <RefreshCw
+              size={13}
+              className={
+                (source === "crate" ? refreshing : rekordboxRefreshing) ? "animate-spin" : ""
+              }
+            />
+          </Button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto">
         {apiError && (
@@ -239,6 +261,39 @@ export function CrateSidebar({
           ? "↑↓ browse · ⌘↑↓ load · ⇧↑↓ select · ⌘⌫ remove · ←→ seek 5s"
           : "Read only · Copy to CrateDeck to edit"}
       </div>
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New CrateDeck playlist</DialogTitle>
+            <DialogDescription>Create an empty playlist to add tracks to.</DialogDescription>
+          </DialogHeader>
+          <form
+            className="flex gap-2"
+            onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+              event.preventDefault();
+              const name = newPlaylistName.trim();
+              if (!name || creatingPlaylist) return;
+              if (await onCreatePlaylist(name)) {
+                setCreateDialogOpen(false);
+                setNewPlaylistName("");
+              }
+            }}
+          >
+            <Input
+              autoFocus
+              value={newPlaylistName}
+              onChange={(event) => setNewPlaylistName(event.target.value)}
+              placeholder="Playlist name"
+              aria-label="Playlist name"
+              maxLength={200}
+            />
+            <Button type="submit" disabled={!newPlaylistName.trim() || creatingPlaylist}>
+              {creatingPlaylist ? <LoaderCircle className="animate-spin" /> : <Plus />}
+              Create
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }

@@ -33,6 +33,9 @@ class PlaylistReorder(BaseModel):
     target_track_id: str
     before: bool
 
+class PlaylistCreate(BaseModel):
+    name: str
+
 def playlist_files():
     return sorted(
         (p for p in PLAYLIST_DIR.glob("*.m3u*") if p.is_file() and p.suffix.lower() in {".m3u", ".m3u8"}),
@@ -209,6 +212,52 @@ def find_playlist(playlist_id: str):
 @router.get("/api/playlists")
 def list_playlists():
     return [playlist_summary(path, parse_playlist(path)) for path in playlist_files()]
+
+@router.post("/api/playlists")
+def create_playlist(request: PlaylistCreate):
+    name = request.name.strip()
+    if (
+        not name or name in (".", "..") or len(name.encode("utf-8")) > 200
+        or any(character in name for character in "/\\") or not name.isprintable()
+    ):
+        raise HTTPException(400, "Use a playlist name of up to 200 UTF-8 bytes without path separators or control characters.")
+    if (
+        DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR
+        or PLAN_DIRECTORY.is_symlink()
+    ):
+        raise HTTPException(403, "Playlist creation is limited to the app's playlists and output folders")
+
+    path = PLAYLIST_DIR / f"{name}.m3u8"
+    plan_path = PLAN_DIRECTORY / f"{name}.json"
+    if (
+        any(item.stem.casefold() == name.casefold() for item in playlist_files())
+        or plan_path.exists()
+        or plan_path.is_symlink()
+    ):
+        raise HTTPException(409, "A playlist with this name already exists")
+
+    playlist_created = False
+    plan_created = False
+    try:
+        with path.open("x", encoding="utf-8", newline="\n") as playlist:
+            playlist.write("#EXTM3U\n")
+        playlist_created = True
+        with plan_path.open("x", encoding="utf-8", newline="\n") as plan_file:
+            plan_created = True
+            json.dump({"format": 1, "name": name, "tracks": []}, plan_file, ensure_ascii=False, indent=2)
+            plan_file.write("\n")
+    except FileExistsError:
+        if playlist_created:
+            path.unlink(missing_ok=True)
+        raise HTTPException(409, "A playlist with this name already exists") from None
+    except OSError as exc:
+        if playlist_created:
+            path.unlink(missing_ok=True)
+        if plan_created:
+            plan_path.unlink(missing_ok=True)
+        raise HTTPException(500, "Could not create the playlist") from exc
+
+    return playlist_summary(path, [])
 
 @router.get("/api/playlists/{playlist_id}")
 def get_playlist(playlist_id: str):

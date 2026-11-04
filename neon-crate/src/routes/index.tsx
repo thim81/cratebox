@@ -41,6 +41,7 @@ import {
   copyRekordboxPlaylist,
   deletePlaylistTracks,
   getCollectionStatus,
+  createPlaylist,
   getPlaylist,
   getPlaylists,
   getRekordboxPlaylists,
@@ -111,6 +112,7 @@ function Index() {
   const [rekordboxRefreshing, setRekordboxRefreshing] = useState(false);
   const [rekordboxLoaded, setRekordboxLoaded] = useState(false);
   const [copyingRekordboxId, setCopyingRekordboxId] = useState<string | null>(null);
+  const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [collectionStatus, setCollectionStatus] = useState<CollectionStatus>({
     state: "idle",
     message: null,
@@ -192,6 +194,27 @@ function Index() {
       setApiError(`Can't reach ${apiUrl} (${e instanceof Error ? e.message : "request failed"})`);
     } finally {
       setRefreshing(false);
+    }
+  }, [apiUrl]);
+
+  const createCratePlaylist = useCallback(async (name: string) => {
+    setCreatingPlaylist(true);
+    setApiError(null);
+    try {
+      const created = await createPlaylist(apiUrl, name);
+      setPlaylists(await getPlaylists(apiUrl));
+      setTracks([]);
+      setActiveId(created.id);
+      setPlaylistSource("crate");
+      setSel(0);
+      setQ("");
+      setRangeAnchor(null);
+      return true;
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : "Could not create the playlist.");
+      return false;
+    } finally {
+      setCreatingPlaylist(false);
     }
   }, [apiUrl]);
 
@@ -1171,10 +1194,12 @@ function Index() {
           rekordboxError={rekordboxError}
           refreshing={refreshing}
           rekordboxRefreshing={rekordboxRefreshing}
+          creatingPlaylist={creatingPlaylist}
           onFilterChange={setCrateQ}
           onSourceChange={changePlaylistSource}
           onRefresh={() => void refreshPlaylists()}
           onRefreshRekordbox={() => void refreshRekordboxPlaylists()}
+          onCreatePlaylist={createCratePlaylist}
           onSelectPlaylist={setActiveId}
           onSelectRekordboxPlaylist={setActiveRekordboxId}
           onOpenRekordboxFolder={(folderId) => {

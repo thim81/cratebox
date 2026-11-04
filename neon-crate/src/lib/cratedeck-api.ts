@@ -84,6 +84,14 @@ export async function getPlaylists(apiUrl: string): Promise<Playlist[]> {
   return (await response.json()) as Playlist[];
 }
 
+export function createPlaylist(apiUrl: string, name: string): Promise<Playlist> {
+  return requestJson(apiUrl, "/api/playlists", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
 export async function getPlaylist(
   apiUrl: string,
   playlistId: string,
