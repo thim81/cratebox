@@ -114,10 +114,11 @@ def similarity(left: str, right: str) -> float:
 
 
 def order_match_candidates(candidates: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
-    groups: dict[tuple[int, int, int], list[tuple[float, dict]]] = {}
+    groups: dict[tuple[int, float, int, int], list[tuple[float, dict]]] = {}
     for score, candidate in candidates:
         group = (
             int(candidate.pop("_exact_title", False)),
+            score,
             int(candidate.get("rating") or 0),
             int(candidate.get("play_count") or 0),
         )
@@ -199,8 +200,8 @@ def build_server(
         title = title.strip()
         if not artist or not title:
             raise ToolError("Artist and title are required for collection lookup.")
-        if not 1 <= limit <= 10:
-            raise ToolError("Limit must be between 1 and 10.")
+        if not 1 <= limit <= 50:
+            raise ToolError("Limit must be between 1 and 50.")
 
         async with _upstream_lock:
             upstream.db = database
@@ -244,9 +245,9 @@ def build_server(
 
     @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
     async def lookup_similar_tracks(
-        artist: str, title: str, limit: int = 10,
+        artist: str, title: str, limit: int = 50,
     ) -> list[LookupTrack]:
-        """Find normalized artist/title matches, ranked by match then rating, plays, and quality."""
+        """Find normalized artist/title matches, ranked by exact title, similarity, rating, plays, and quality."""
         ranked = await rank_similar_tracks(artist, title, limit)
         return [LookupTrack(
             id=str(candidate.get("id") or ""),
@@ -263,7 +264,7 @@ def build_server(
 
     @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
     async def lookup_similar_tracks_for_cratedeck(
-        artist: str, title: str, limit: int = 10,
+        artist: str, title: str, limit: int = 50,
     ) -> list[CrateDeckLookupTrack]:
         """App-only lookup that includes paths for CrateDeck's local API playback."""
         ranked = await rank_similar_tracks(artist, title, limit)
