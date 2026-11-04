@@ -156,6 +156,7 @@ async def collection_lookup(request: CollectionLookup):
             public_match = dict(match)
             raw_path = public_match.pop("file_path", None)
             match_id = str(public_match.get("id") or "")
+            public_match["cue_count"] = int(public_match.get("cue_count") or 0)
             playable = False
             if (
                 match_id and isinstance(raw_path, str) and Path(raw_path).is_absolute()

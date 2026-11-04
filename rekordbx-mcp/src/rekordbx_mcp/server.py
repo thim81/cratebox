@@ -62,6 +62,7 @@ class LookupTrack(BaseModel):
     rating: int
     play_count: int
     similarity: float
+    cue_count: int = 0
 
 
 class CrateDeckLookupTrack(LookupTrack):
@@ -265,6 +266,7 @@ def build_server(
                             len(source_artists), len(candidate_artists),
                         )
                         candidate = database._content_to_track(content).model_dump()
+                        candidate["_content"] = content
                         candidate["file_path"] = str(getattr(content, "FolderPath", "") or "")
                         candidate["bit_depth"] = int(getattr(content, "BitDepth", 0) or 0)
                         candidate_title = normalize_track_title(str(candidate.get("title") or ""))
@@ -274,7 +276,14 @@ def build_server(
                         )
                         score = 0.35 * artist_score + 0.65 * similarity(source_title, candidate_title)
                         ranked.append((score, candidate))
-                    return ranked
+                    selected = order_match_candidates(ranked)[:limit]
+                    for _, candidate in selected:
+                        content = candidate.pop("_content")
+                        candidate["cue_count"] = sum(
+                            not getattr(cue, "rb_local_deleted", 0)
+                            for cue in (getattr(content, "Cues", None) or [])
+                        )
+                    return selected
 
                 ranked = await asyncio.to_thread(ranked_candidates)
             except Exception:
@@ -283,7 +292,7 @@ def build_server(
                     "Collection lookup failed; check the local server logs."
                 ) from None
 
-        return order_match_candidates(ranked)[:limit]
+        return ranked
 
     @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
     async def lookup_similar_tracks(
@@ -301,6 +310,7 @@ def build_server(
             key=str(candidate.get("key") or ""),
             rating=candidate.get("rating") or 0,
             play_count=candidate.get("play_count") or 0,
+            cue_count=candidate.get("cue_count") or 0,
             similarity=round(score * 100, 1),
         ) for score, candidate in ranked]
 
@@ -320,6 +330,7 @@ def build_server(
             key=str(candidate.get("key") or ""),
             rating=candidate.get("rating") or 0,
             play_count=candidate.get("play_count") or 0,
+            cue_count=candidate.get("cue_count") or 0,
             similarity=round(score * 100, 1),
             file_path=str(candidate.get("file_path") or ""),
         ) for score, candidate in ranked]
