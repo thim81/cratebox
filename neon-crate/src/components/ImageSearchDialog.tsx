@@ -217,7 +217,7 @@ export function ImageSearchDialog({
                       rel="noreferrer"
                       className="text-center text-xs text-muted-foreground underline"
                     >
-                      Open source
+                      {preview.source === "Google Images" ? "Open Google results" : "Open source"}
                     </a>
                   </div>
                 </div>

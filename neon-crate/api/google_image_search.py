@@ -48,13 +48,19 @@ def search_google_images(query: str, *, limit: int = 24) -> list[dict[str, str]]
     seen = set()
     with _SEARCH_LOCK, sync_playwright() as playwright:
         endpoint = _ensure_chrome()
-        browser = playwright.chromium.connect_over_cdp(endpoint, timeout=10000)
+        browser = playwright.chromium.connect_over_cdp(
+            endpoint, no_defaults=True, timeout=10000
+        )
         try:
             context = browser.contexts[0]
             page = next(
                 (tab for tab in context.pages if urlsplit(tab.url).hostname == "www.google.com"),
                 None,
+            ) or next(
+                (tab for tab in context.pages if tab.url in {"about:blank", "chrome://newtab/"}),
+                None,
             ) or context.new_page()
+            _minimize_chrome_window(browser, page)
             page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
             reject_cookies = page.get_by_role("button", name="Reject all", exact=True)
             if reject_cookies.count() and reject_cookies.is_visible():
@@ -66,10 +72,13 @@ def search_google_images(query: str, *, limit: int = 24) -> list[dict[str, str]]
             except Exception as exc:
                 title = page.title()
                 page_text = " ".join(page.locator("body").inner_text(timeout=2000).split())[:240]
-                if "unusual traffic" in page_text.lower():
+                if (
+                    "unusual traffic" in page_text.lower()
+                    or page.locator('iframe[title="Captcha"]').count()
+                ):
                     raise RuntimeError(
-                        "Google blocked this search as unusual traffic. The Google Chrome window "
-                        "has been left open so you can review it and retry."
+                        "Google requires a human verification for this search. The minimized "
+                        "Chrome window has been left open for you to review."
                     ) from exc
                 raise RuntimeError(
                     f"Google Images cards unavailable (title={title!r}, cards={cards.count()}, "
@@ -82,13 +91,7 @@ def search_google_images(query: str, *, limit: int = 24) -> list[dict[str, str]]
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_timeout(400)
 
-            external_links = set(page.evaluate(
-                """() => [...document.querySelectorAll('a')]
-                  .filter(a => a.href && a.hostname && !a.hostname.endsWith('google.com') &&
-                    !a.hostname.endsWith('gstatic.com'))
-                  .map(a => a.href)"""
-            ))
-            for index in range(min(cards.count(), limit * 2)):
+            for index in range(cards.count()):
                 card = cards.nth(index)
                 image = card.locator('img[src*="encrypted-tbn"]').first
                 image_url = image.get_attribute("src") or ""
@@ -98,37 +101,11 @@ def search_google_images(query: str, *, limit: int = 24) -> list[dict[str, str]]
                 if image_url in seen:
                     continue
 
-                card.click(timeout=3000)
-                source_url = page.evaluate(
-                    """title => {
-                      const links = [...document.querySelectorAll('a')];
-                      const exact = links.find(a => a.innerText.trim() === title &&
-                        a.hostname && !a.hostname.endsWith('google.com') &&
-                        !a.hostname.endsWith('gstatic.com'));
-                      return exact?.href || '';
-                    }""",
-                    title,
-                )
-                if not _web_url(source_url):
-                    new_links = page.evaluate(
-                        """previous => [...document.querySelectorAll('a')]
-                          .filter(a => a.href && a.hostname && !a.hostname.endsWith('google.com') &&
-                            !a.hostname.endsWith('gstatic.com') && !previous.includes(a.href))
-                          .map(a => a.href)""",
-                        list(external_links),
-                    )
-                    source_url = new_links[0] if new_links else search_url
-                external_links.update(page.evaluate(
-                    """() => [...document.querySelectorAll('a')]
-                      .filter(a => a.href && a.hostname && !a.hostname.endsWith('google.com') &&
-                        !a.hostname.endsWith('gstatic.com'))
-                      .map(a => a.href)"""
-                ))
                 results.append({
                     "title": title[:300],
                     "image_url": image_url,
                     "thumbnail_url": image_url,
-                    "source_url": source_url,
+                    "source_url": search_url,
                     "source": "Google Images",
                 })
                 seen.add(image_url)
@@ -161,7 +138,7 @@ def _ensure_chrome() -> str:
             f"--user-data-dir={_CHROME_PROFILE}",
             "--no-first-run",
             "--no-default-browser-check",
-            "about:blank",
+            "--no-startup-window",
         ],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -187,3 +164,28 @@ def _existing_chrome_endpoint() -> str | None:
         return endpoint if str(details.get("Browser", "")).startswith("Chrome/") else None
     except (URLError, TimeoutError, OSError, ValueError, IndexError, json.JSONDecodeError):
         return None
+
+
+def _minimize_chrome_window(browser, page) -> None:
+    """Keep the dedicated search window out of the user's active workspace."""
+    session = browser.new_browser_cdp_session()
+    try:
+        targets = session.send("Target.getTargets").get("targetInfos", [])
+        target = next(
+            (
+                item
+                for item in targets
+                if item.get("type") == "page" and item.get("url") == page.url
+            ),
+            None,
+        )
+        if target:
+            window = session.send(
+                "Browser.getWindowForTarget", {"targetId": target["targetId"]}
+            )
+            session.send(
+                "Browser.setWindowBounds",
+                {"windowId": window["windowId"], "bounds": {"windowState": "minimized"}},
+            )
+    finally:
+        session.detach()
