@@ -1,6 +1,7 @@
 """Image search, artwork overrides, and embedded artwork endpoint."""
 
 import asyncio
+import logging
 from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
@@ -15,6 +16,7 @@ from . import music_artwork
 from .playlists import find_playlist, parse_playlist, playlist_entries, playlist_files, read_plan_ids
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class ImageSearch(BaseModel):
     query: str
@@ -73,7 +75,7 @@ def search_image_results(
             seen_urls.add(image_url)
             if len(catalogue_results) == 24:
                 break
-        query = f"{query[:180]} album cover artwork"
+        query = f"{query[:160]} track single cover artwork"
     if spotify:
         query += " Spotify"
     if soundcloud:
@@ -81,8 +83,11 @@ def search_image_results(
     combined = list(catalogue_results)
     try:
         google_results = google_image_search.search_google_images(query, limit=24)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Google Images search failed: %s", exc)
         google_results = []
+    else:
+        logger.info("Google Images returned %d results", len(google_results))
     for item in google_results:
         image_url = item.get("image_url", "")
         if image_url not in seen_urls:

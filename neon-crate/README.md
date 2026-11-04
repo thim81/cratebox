@@ -42,9 +42,11 @@ audio file in Finder on macOS.
 Use Search Image beside a crate name or active track to search music catalogues
 first. iTunes helps identify track and album metadata; MusicBrainz/Cover Art
 Archive supplies matching cover images. CrateDeck supplements catalogue results
-with Google Images results from a headless Chrome browser and uses DuckDuckGo if
-Google is unavailable or returns too few results. Chrome must be installed for
-Google image search. Each result is labeled with its source. Crate artwork
+with Google Images results from a dedicated visible Chrome profile using a local
+CDP connection, and uses DuckDuckGo if Google is unavailable or returns too few
+results. Chrome must be installed for Google image search. Google results use
+Google-hosted preview images, which may be smaller than the originals. Each
+result is labeled with its source. Crate artwork
 stores the selected image URL in `output/cratedeck-artwork.json`. Track artwork
 is downloaded only when the user
 chooses **Embed into MP3**; CrateDeck accepts public HTTPS JPEG/PNG files up to

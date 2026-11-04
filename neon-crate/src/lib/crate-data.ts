@@ -41,7 +41,7 @@ export interface ImageResult {
   image_url: string;
   thumbnail_url: string;
   source_url: string;
-  source: "Cover Art Archive" | "DuckDuckGo";
+  source: "Cover Art Archive" | "Google Images" | "DuckDuckGo";
 }
 
 export type CollectionState = "idle" | "starting" | "connected" | "error";

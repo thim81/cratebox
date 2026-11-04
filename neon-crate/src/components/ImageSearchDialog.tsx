@@ -100,7 +100,7 @@ export function ImageSearchDialog({
         <DialogHeader>
           <DialogTitle>Search Image</DialogTitle>
           <DialogDescription>
-            Choose a result to use as artwork. Images stay on their original hosts.
+            Choose a result to use as artwork. Some providers return preview-size images rather than originals.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 md:grid-cols-[200px_minmax(0,1fr)]">
