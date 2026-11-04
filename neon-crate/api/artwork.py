@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from .artwork_data import embedded_artwork, is_http_url, read_artwork_overrides, write_artwork_overrides
 from . import artwork_write
+from . import google_image_search
 from . import music_artwork
 from .playlists import find_playlist, parse_playlist, playlist_entries, playlist_files, read_plan_ids
 
@@ -72,22 +73,31 @@ def search_image_results(
             seen_urls.add(image_url)
             if len(catalogue_results) == 24:
                 break
-        if len(catalogue_results) == 24:
-            return catalogue_results
         query = f"{query[:180]} album cover artwork"
     if spotify:
         query += " Spotify"
     if soundcloud:
         query += " SoundCloud"
-    try:
-        results = DDGS().images(query, max_results=24, safesearch="moderate")
-    except Exception:
-        if catalogue_results:
-            return catalogue_results
-        raise
-
     combined = list(catalogue_results)
-    for item in results:
+    try:
+        google_results = google_image_search.search_google_images(query, limit=24)
+    except Exception:
+        google_results = []
+    for item in google_results:
+        image_url = item.get("image_url", "")
+        if image_url not in seen_urls:
+            combined.append(item)
+            seen_urls.add(image_url)
+            if len(combined) == 24:
+                return combined
+
+    try:
+        ddg_results = DDGS().images(query, max_results=24, safesearch="moderate")
+    except Exception:
+        if combined:
+            return combined
+        raise
+    for item in ddg_results:
         if not isinstance(item, dict):
             continue
         image_url = item.get("image", "")
