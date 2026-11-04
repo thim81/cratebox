@@ -23,5 +23,5 @@ export default defineConfig({
     ],
   },
   css: { transformer: "lightningcss" },
-  server: { host: "::", port: 8080 },
+  server: { host: "::", port: 4444 },
 });

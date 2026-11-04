@@ -16,7 +16,7 @@ rekordbx-mcp = "rekordbx_mcp.cli:main"
 dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
 
 [tool.uv.sources]
-rekordbox-mcp = { git = "https://github.com/davehenke/rekordbox-mcp", rev = "d8dce67700911b6bef84b25c5f93ae07f200a1c5" }
+rekordbox-mcp = { git = "https://github.com/thim81/rekordbox-mcp", tag = "v1.0.0" }
 
 [build-system]
 requires = ["hatchling"]

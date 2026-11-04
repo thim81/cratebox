@@ -32,6 +32,10 @@ READ_TOOLS = (
     "get_recent_sessions", "get_history_stats", "search_history_sessions",
 )
 _upstream_lock = asyncio.Lock()
+_MATCH_TRANSLITERATION = str.maketrans({
+    "æ": "ae", "œ": "oe", "ø": "o", "ł": "l", "đ": "d",
+    "ð": "d", "þ": "th", "ħ": "h", "ı": "i",
+})
 
 
 class LookupTrack(BaseModel):
@@ -91,16 +95,45 @@ def redact_paths(value):
 
 
 def normalize_match_text(value: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", value).casefold()
+    value = value.casefold().translate(_MATCH_TRANSLITERATION)
+    decomposed = unicodedata.normalize("NFKD", value)
     unaccented = "".join(char for char in decomposed if not unicodedata.combining(char))
     words = "".join(char if char.isalnum() else " " for char in unaccented)
     return " ".join(words.split())
 
 
 def similarity(left: str, right: str) -> float:
-    return SequenceMatcher(
-        None, normalize_match_text(left), normalize_match_text(right),
-    ).ratio()
+    normalized_left = normalize_match_text(left)
+    normalized_right = normalize_match_text(right)
+    if not normalized_left or not normalized_right:
+        return 0.0
+    sequence_score = SequenceMatcher(None, normalized_left, normalized_right).ratio()
+    left_words, right_words = set(normalized_left.split()), set(normalized_right.split())
+    token_score = 2 * len(left_words & right_words) / (len(left_words) + len(right_words))
+    return max(sequence_score, token_score)
+
+
+def order_match_candidates(candidates: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
+    groups: dict[tuple[int, int, int], list[tuple[float, dict]]] = {}
+    for score, candidate in candidates:
+        group = (
+            int(candidate.pop("_exact_title", False)),
+            int(candidate.get("rating") or 0),
+            int(candidate.get("play_count") or 0),
+        )
+        groups.setdefault(group, []).append((score, candidate))
+
+    ordered = []
+    for group in sorted(groups, reverse=True):
+        matches = groups[group]
+        matches.sort(key=lambda item: item[0], reverse=True)
+        # Missing metadata does not count as lower quality; compare a field only
+        # when every candidate at this rating/play-count tier has it.
+        for field in ("bit_depth", "sample_rate", "bitrate"):
+            if all(int(candidate.get(field) or 0) > 0 for _, candidate in matches):
+                matches.sort(key=lambda item: int(item[1][field]), reverse=True)
+        ordered.extend(matches)
+    return ordered
 
 
 def build_server(
@@ -189,6 +222,11 @@ def build_server(
                             continue
                         candidate = database._content_to_track(content).model_dump()
                         candidate["file_path"] = str(getattr(content, "FolderPath", "") or "")
+                        candidate["bit_depth"] = int(getattr(content, "BitDepth", 0) or 0)
+                        candidate["_exact_title"] = (
+                            normalize_match_text(title)
+                            == normalize_match_text(str(candidate.get("title") or ""))
+                        )
                         score = 0.35 * artist_score + 0.65 * similarity(
                             title, str(candidate.get("title") or ""),
                         )
@@ -202,14 +240,13 @@ def build_server(
                     "Collection lookup failed; check the local server logs."
                 ) from None
 
-        ranked.sort(key=lambda item: item[0], reverse=True)
-        return ranked[:limit]
+        return order_match_candidates(ranked)[:limit]
 
     @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
     async def lookup_similar_tracks(
         artist: str, title: str, limit: int = 10,
     ) -> list[LookupTrack]:
-        """Find collection tracks matching an artist and fuzzy title, without audio paths."""
+        """Find normalized artist/title matches, ranked by match then rating, plays, and quality."""
         ranked = await rank_similar_tracks(artist, title, limit)
         return [LookupTrack(
             id=str(candidate.get("id") or ""),
@@ -281,8 +318,9 @@ def build_server(
     async def create_sockseek_list(name: str, tracks: list[SockseekTrack]) -> dict:
         """Create a Sockseek song-search list and a ready-to-run command.
 
-        Writes a new list under the repository's output/sockseek-lists/. The command is
-        returned for manual execution; this tool never runs Sockseek or downloads audio.
+        Writes a new list under downloads/<name>/. The returned command uses
+        repository-relative paths and is for manual execution; this tool never
+        runs Sockseek or downloads audio.
         Existing lists are never overwritten.
         """
         try:
@@ -291,7 +329,7 @@ def build_server(
             raise ToolError(str(error)) from None
         except OSError:
             logger.exception("Sockseek list creation failed")
-            raise ToolError("Cannot write the Sockseek list; check output/sockseek-lists and permissions.") from None
+            raise ToolError("Cannot write the Sockseek list under downloads/; check permissions.") from None
 
     @server.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
     async def export_playlist(

@@ -140,7 +140,7 @@ def embed_artwork(request: ArtworkEmbed, http_request: Request):
         or parsed_origin.hostname not in {"localhost", "127.0.0.1", "::1"}
         or parsed_origin.username
         or parsed_origin.password
-        or origin_port != 8080
+        or origin_port != 4444
         or parsed_origin.path
         or parsed_origin.query
         or parsed_origin.fragment

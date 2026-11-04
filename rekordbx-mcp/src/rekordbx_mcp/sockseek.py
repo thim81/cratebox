@@ -59,8 +59,8 @@ def create_sockseek_list(name: str, tracks: list[dict]) -> dict:
             raise ValueError(f"Track {position} has an empty artist/title or contains control characters.")
         rows.append("s:" + json.dumps(f"{artist} - {title}", ensure_ascii=False))
 
-    list_directory = REPOSITORY_ROOT / "output" / "sockseek-lists"
-    download_directory = Path.home() / "Downloads" / "Soulseek" / name
+    download_directory = REPOSITORY_ROOT / "downloads" / name
+    list_directory = download_directory
     directory_fd = _open_directory_tree(list_directory)
     filename = f"{name} - Missing Tracks.txt"
     try:
@@ -91,11 +91,11 @@ def create_sockseek_list(name: str, tracks: list[dict]) -> dict:
     relative_list_path = list_path.relative_to(REPOSITORY_ROOT).as_posix()
     command_groups = [
         (relative_executable,), (relative_list_path,), ("--input-type=list",),
-        ("--output-dir", str(download_directory)),
+        ("--output-dir", download_directory.relative_to(REPOSITORY_ROOT).as_posix()),
         ("--name-format", "{artist( - )title|filename}"),
-        ("--write-playlist",), ("--playlist-path", str(playlist_path)),
+        ("--write-playlist",), ("--playlist-path", playlist_path.relative_to(REPOSITORY_ROOT).as_posix()),
         ("--skip-mode-output-dir", "name"), ("--format", "mp3"),
-        ("--no-listen",), ("--log-file", str(log_path)),
+        ("--no-listen",), ("--log-file", log_path.relative_to(REPOSITORY_ROOT).as_posix()),
         ("--min-bitrate", "128"), ("--pref-min-bitrate", "320"),
         ("--concurrent-jobs", "4"), ("--concurrent-searches", "1"),
     ]
@@ -106,10 +106,10 @@ def create_sockseek_list(name: str, tracks: list[dict]) -> dict:
     return {
         "name": name,
         "track_count": len(rows),
-        "list_path": str(list_path),
+        "list_path": list_path.relative_to(REPOSITORY_ROOT).as_posix(),
         "run_from": str(REPOSITORY_ROOT),
-        "download_directory": str(download_directory),
-        "playlist_path": str(playlist_path),
-        "log_path": str(log_path),
+        "download_directory": download_directory.relative_to(REPOSITORY_ROOT).as_posix(),
+        "playlist_path": playlist_path.relative_to(REPOSITORY_ROOT).as_posix(),
+        "log_path": log_path.relative_to(REPOSITORY_ROOT).as_posix(),
         "command": command,
     }

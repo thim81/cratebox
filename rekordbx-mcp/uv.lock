@@ -1075,7 +1075,7 @@ wheels = [
 [[package]]
 name = "rekordbox-mcp"
 version = "1.0.0"
-source = { git = "https://github.com/davehenke/rekordbox-mcp?rev=d8dce67700911b6bef84b25c5f93ae07f200a1c5#d8dce67700911b6bef84b25c5f93ae07f200a1c5" }
+source = { git = "https://github.com/thim81/rekordbox-mcp?tag=v1.0.0#4cc3d7a19333dbb0fa5286eeacde9013ce4df4bc" }
 dependencies = [
     { name = "fastmcp" },
     { name = "loguru" },
@@ -1104,7 +1104,7 @@ dev = [
 requires-dist = [
     { name = "fastmcp", specifier = ">=2.14,<3" },
     { name = "pyrekordbox", specifier = "==0.5.0" },
-    { name = "rekordbox-mcp", git = "https://github.com/davehenke/rekordbox-mcp?rev=d8dce67700911b6bef84b25c5f93ae07f200a1c5" },
+    { name = "rekordbox-mcp", git = "https://github.com/thim81/rekordbox-mcp?tag=v1.0.0" },
 ]
 
 [package.metadata.requires-dev]

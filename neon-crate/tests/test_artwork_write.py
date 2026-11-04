@@ -331,7 +331,7 @@ def test_embed_endpoint_writes_only_selected_mp3_and_clears_old_override(tmp_pat
         response = client.put(
             "/api/artwork/embed",
             json={"playlist_id": "Set", "track_id": "42-1", "image_url": "https://images.example/cover.png"},
-            headers={"Origin": "http://localhost:8080"},
+            headers={"Origin": "http://localhost:4444"},
         )
 
     assert response.status_code == 200, response.text
@@ -366,8 +366,8 @@ def test_embed_endpoint_returns_a_fresh_artwork_url_for_each_update(tmp_path, mo
     }
 
     with TestClient(api_app) as client:
-        first = client.put("/api/artwork/embed", json=request, headers={"Origin": "http://localhost:8080"})
-        second = client.put("/api/artwork/embed", json=request, headers={"Origin": "http://localhost:8080"})
+        first = client.put("/api/artwork/embed", json=request, headers={"Origin": "http://localhost:4444"})
+        second = client.put("/api/artwork/embed", json=request, headers={"Origin": "http://localhost:4444"})
 
     assert first.status_code == second.status_code == 200
     assert first.json()["artwork_url"] != second.json()["artwork_url"]
@@ -424,7 +424,7 @@ def test_embed_endpoint_restores_old_override_when_mp3_write_fails(tmp_path, mon
         response = client.put(
             "/api/artwork/embed",
             json={"playlist_id": "Set", "track_id": "42-1", "image_url": "https://images.example/cover.png"},
-            headers={"Origin": "http://localhost:8080"},
+            headers={"Origin": "http://localhost:4444"},
         )
 
     assert response.status_code == 400
