@@ -41,12 +41,13 @@ export function ImageSearchDialog({
 }: Props) {
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<ImageResult[]>([]);
+  const [imageSizes, setImageSizes] = useState<Record<string, { width: number; height: number }>>({});
   const [preview, setPreview] = useState<ImageResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searched, setSearched] = useState(false);
   const [coverArt, setCoverArt] = useState(true);
-  const [spotify, setSpotify] = useState(false);
+  const [spotify, setSpotify] = useState(true);
   const [soundcloud, setSoundcloud] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,11 +55,12 @@ export function ImageSearchDialog({
     if (open) {
       setQuery(initialQuery);
       setResults([]);
+      setImageSizes({});
       setPreview(null);
       setError(null);
       setSearched(false);
       setCoverArt(true);
-      setSpotify(false);
+      setSpotify(true);
       setSoundcloud(false);
     }
   }, [open, initialQuery, artist, album, track]);
@@ -232,15 +234,36 @@ export function ImageSearchDialog({
                     className={`overflow-hidden rounded border text-left transition-colors hover:border-primary ${preview?.image_url === image.image_url ? "border-primary" : "border-border"}`}
                     aria-label={`Preview ${image.title || "image result"}`}
                   >
-                    <img
-                      src={image.thumbnail_url}
-                      alt=""
-                      loading="lazy"
-                      className="aspect-square w-full bg-secondary object-cover"
-                      onError={(event) => {
-                        event.currentTarget.style.visibility = "hidden";
-                      }}
-                    />
+                    <div className="relative">
+                      <img
+                        src={image.thumbnail_url}
+                        alt=""
+                        loading="lazy"
+                        className="aspect-square w-full bg-secondary object-cover"
+                        onLoad={(event) => {
+                          const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
+                          if (width && height) {
+                            setImageSizes((current) => {
+                              const previous = current[image.image_url];
+                              return previous?.width === width && previous.height === height
+                                ? current
+                                : { ...current, [image.image_url]: { width, height } };
+                            });
+                          }
+                        }}
+                        onError={(event) => {
+                          event.currentTarget.style.visibility = "hidden";
+                        }}
+                      />
+                      {imageSizes[image.image_url] && (
+                        <span
+                          aria-label={`Preview size ${imageSizes[image.image_url].width} by ${imageSizes[image.image_url].height} pixels`}
+                          className="absolute bottom-1 right-1 rounded bg-black/70 px-1 py-0.5 text-[9px] text-white"
+                        >
+                          {imageSizes[image.image_url].width} × {imageSizes[image.image_url].height}
+                        </span>
+                      )}
+                    </div>
                     <span className="block truncate px-2 pt-1 text-[9px] font-medium text-primary">
                       {image.source}
                     </span>
