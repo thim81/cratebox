@@ -580,6 +580,10 @@ function Index() {
   const selectedTrack = view[sel] ?? null;
 
   const selectionKey = `${playlistSource}:${playlistSource === "crate" ? activeId : activeRekordboxId}`;
+  const headerPlaylistName =
+    playlistSource === "rekordbox"
+      ? (activeRekordboxPlaylist?.name ?? activeRekordboxFolder?.name ?? "Rekordbox playlists")
+      : (activePl?.name ?? "");
   const selectTrackAt = useCallback(
     (index: number, list: Track[] = view) => {
       setSel(index);
@@ -1216,12 +1220,25 @@ function Index() {
           <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border px-3 py-2">
             <div className="flex min-w-0 items-center gap-3">
               <h1 className="truncate text-sm font-semibold">
-                {playlistSource === "rekordbox"
-                  ? (activeRekordboxPlaylist?.name ??
-                    activeRekordboxFolder?.name ??
-                    "Rekordbox playlists")
-                  : (activePl?.name ?? "—")}
+                {headerPlaylistName || "—"}
               </h1>
+              {headerPlaylistName && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 shrink-0"
+                  aria-label="Copy playlist name"
+                  title="Copy playlist name"
+                  onClick={() =>
+                    void navigator.clipboard
+                      .writeText(headerPlaylistName)
+                      .then(() => toast.success("Playlist name copied"))
+                      .catch(() => toast.error("Could not copy playlist name"))
+                  }
+                >
+                  <Copy size={14} />
+                </Button>
+              )}
               {view[sel] && (
                 <Button
                   size="icon"

@@ -12,7 +12,8 @@ from functools import wraps
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Literal
-from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -238,23 +239,56 @@ def build_server(
             raise ToolError("Provide a valid open.spotify.com playlist URL.")
 
         def fetch_tracklist():
-            with urlopen(f"https://open.spotify.com/embed/playlist/{match.group(1)}", timeout=15) as response:
+            request = Request(
+                f"https://open.spotify.com/embed/playlist/{match.group(1)}",
+                headers={"User-Agent": "Mozilla/5.0", "Accept": "text/html"},
+            )
+            with urlopen(request, timeout=15) as response:
                 html = response.read().decode("utf-8")
             parser = _SpotifyDataParser()
             parser.feed(html)
             if not parser.data:
-                raise ValueError("Playlist metadata not found")
-            tracks = json.loads(parser.data)["props"]["pageProps"]["state"]["data"]["entity"]["trackList"]
-            return [
-                f"{i:02d}. {', '.join(a['name'] for a in track['artists'])} - {track['title']}"
-                for i, track in enumerate(tracks, 1)
-            ]
+                raise ValueError("Playlist metadata was not present in Spotify's response")
+            try:
+                tracks = json.loads(parser.data)["props"]["pageProps"]["state"]["data"]["entity"]["trackList"]
+            except (json.JSONDecodeError, KeyError, TypeError) as error:
+                raise ValueError("Spotify's playlist metadata format was not recognized") from error
+            result = []
+            for i, track in enumerate(tracks, 1):
+                artists = track.get("artists")
+                if isinstance(artists, list):
+                    artist_names = [
+                        artist if isinstance(artist, str) else artist.get("name")
+                        for artist in artists if isinstance(artist, (str, dict))
+                    ]
+                    artist_names = [name for name in artist_names if name]
+                elif isinstance(artists, str):
+                    artist_names = [artists]
+                else:
+                    artist_names = []
+                if not artist_names:
+                    subtitle = track.get("subtitle")
+                    artist_names = [subtitle] if isinstance(subtitle, str) and subtitle else []
+                title = track.get("title")
+                if not isinstance(title, str) or not title or not artist_names:
+                    raise ValueError("Spotify's playlist metadata is missing track titles or artists")
+                result.append(f"{i:02d}. {', '.join(artist_names)} - {title}")
+            return result
 
         try:
             return await asyncio.to_thread(fetch_tracklist)
+        except HTTPError as error:
+            logger.warning("Spotify playlist lookup returned HTTP {}", error.code)
+            raise ToolError(f"Spotify rejected the playlist request (HTTP {error.code}).") from None
+        except URLError:
+            logger.exception("Spotify playlist lookup could not reach Spotify")
+            raise ToolError("Could not reach Spotify; check network access from the Rekordbox MCP process.") from None
+        except ValueError as error:
+            logger.warning("Spotify playlist metadata unavailable: {}", error)
+            raise ToolError(str(error)) from None
         except Exception:
             logger.exception("Spotify playlist lookup failed")
-            raise ToolError("Spotify playlist lookup failed; check the URL or try again later.") from None
+            raise ToolError("Spotify playlist lookup failed while parsing its response.") from None
 
     def wrap(original, tool_name: str):
         @wraps(original)
