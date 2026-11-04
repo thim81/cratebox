@@ -3,7 +3,7 @@ set -eu
 
 api_dir=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 mcp_dir=$(CDPATH= cd "$api_dir/../rekordbx-mcp" && pwd)
-uv --directory "$mcp_dir" run --locked --with fastapi --with uvicorn --with mutagen --with ddgs \
+uv --directory "$mcp_dir" run --locked --with fastapi --with uvicorn --with mutagen --with ddgs --with playwright \
   uvicorn --app-dir "$api_dir" --reload-dir "$api_dir" --reload-dir "$mcp_dir/src" \
   server:app --port 8000 --reload &
 api_pid=$!

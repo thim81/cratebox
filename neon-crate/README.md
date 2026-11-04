@@ -9,7 +9,7 @@ The API implementation is organized by feature in `api/`; `server.py` preserves 
 From this folder, run:
 
 ```sh
-uv --directory ../rekordbx-mcp run --locked --with fastapi --with uvicorn --with mutagen --with ddgs \
+uv --directory ../rekordbx-mcp run --locked --with fastapi --with uvicorn --with mutagen --with ddgs --with playwright \
   uvicorn --app-dir ../neon-crate --reload-dir ../neon-crate --reload-dir src \
   server:app --port 8000 --reload
 ```
@@ -18,7 +18,7 @@ By default, playlists are read from the repository root `playlists/` folder. To 
 
 ```sh
 PLAYLIST_DIR="/absolute/path/to/playlists" uv --directory ../rekordbx-mcp run --locked \
-  --with fastapi --with uvicorn --with mutagen --with ddgs \
+  --with fastapi --with uvicorn --with mutagen --with ddgs --with playwright \
   uvicorn --app-dir ../neon-crate --reload-dir ../neon-crate --reload-dir src \
   server:app --port 8000 --reload
 ```
@@ -41,10 +41,10 @@ when no supported artwork is available. Its Finder button reveals the active
 audio file in Finder on macOS.
 Use Search Image beside a crate name or active track to search music catalogues
 first. iTunes helps identify track and album metadata; MusicBrainz/Cover Art
-Archive supplies matching cover images. CrateDeck supplements a short catalogue
-result set with distinct DuckDuckGo images, keeping curated covers first and
-filling up to 24 results when available. Each result is labeled with its source;
-catalogue results remain visible if DuckDuckGo is unavailable. Crate artwork
+Archive supplies matching cover images. CrateDeck supplements catalogue results
+with Google Images results from a headless Chrome browser and uses DuckDuckGo if
+Google is unavailable or returns too few results. Chrome must be installed for
+Google image search. Each result is labeled with its source. Crate artwork
 stores the selected image URL in `output/cratedeck-artwork.json`. Track artwork
 is downloaded only when the user
 chooses **Embed into MP3**; CrateDeck accepts public HTTPS JPEG/PNG files up to

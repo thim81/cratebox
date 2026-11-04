@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import re
 import unicodedata
 import sys
 from contextlib import asynccontextmanager
@@ -36,6 +37,18 @@ _MATCH_TRANSLITERATION = str.maketrans({
     "æ": "ae", "œ": "oe", "ø": "o", "ł": "l", "đ": "d",
     "ð": "d", "þ": "th", "ħ": "h", "ı": "i",
 })
+_ARTIST_SEPARATOR = re.compile(r"\s*(?:[,;&]|\b(?:feat(?:uring)?|ft)\.?|\bx\b)\s*", re.I)
+_TITLE_VERSION_MARKERS = {
+    "acapella", "club", "clean", "dirty", "edit", "extended", "intro",
+    "instrumental", "live", "mashup", "mix", "outro", "radio", "remix",
+    "transition", "version", "vip",
+}
+_TITLE_VERSION_SUFFIXES = (
+    "extended remix", "extended mix", "radio edit", "intro edit", "outro edit",
+    "quick edit", "short edit", "extended", "instrumental", "acapella",
+    "transition", "mashup", "bootleg", "rework", "remix", "version", "clean",
+    "dirty", "radio", "intro", "outro", "edit", "mix", "club", "live", "vip",
+)
 
 
 class LookupTrack(BaseModel):
@@ -100,6 +113,34 @@ def normalize_match_text(value: str) -> str:
     unaccented = "".join(char for char in decomposed if not unicodedata.combining(char))
     words = "".join(char if char.isalnum() else " " for char in unaccented)
     return " ".join(words.split())
+
+
+def artist_credits(value: str) -> set[str]:
+    return {
+        normalized
+        for credit in _ARTIST_SEPARATOR.split(value)
+        if (normalized := normalize_match_text(credit))
+    }
+
+
+def normalize_track_title(value: str) -> str:
+    original = normalize_match_text(value)
+    while match := re.search(r"\s*[\[(]([^\])]+)[\])]\s*$", value):
+        suffix = normalize_match_text(match.group(1))
+        if not _TITLE_VERSION_MARKERS.intersection(suffix.split()):
+            break
+        value = value[:match.start()]
+
+    normalized = normalize_match_text(value)
+    while normalized:
+        suffix = next(
+            (item for item in _TITLE_VERSION_SUFFIXES if normalized.endswith(f" {item}")),
+            None,
+        )
+        if suffix is None:
+            break
+        normalized = normalized[: -(len(suffix) + 1)]
+    return normalized or original
 
 
 def similarity(left: str, right: str) -> float:
@@ -213,25 +254,25 @@ def build_server(
 
                 def ranked_candidates():
                     ranked = []
-                    normalized_artist = normalize_match_text(artist)
+                    source_artists = artist_credits(artist)
                     for content in database._get_active_content():
                         candidate_artist = str(getattr(content, "ArtistName", "") or "")
-                        artist_score = similarity(artist, candidate_artist)
-                        if not candidate_artist or (
-                            normalized_artist not in normalize_match_text(candidate_artist)
-                            and artist_score < 0.5
-                        ):
+                        candidate_artists = artist_credits(candidate_artist)
+                        shared_artists = source_artists & candidate_artists
+                        if not shared_artists:
                             continue
+                        artist_score = len(shared_artists) / min(
+                            len(source_artists), len(candidate_artists),
+                        )
                         candidate = database._content_to_track(content).model_dump()
                         candidate["file_path"] = str(getattr(content, "FolderPath", "") or "")
                         candidate["bit_depth"] = int(getattr(content, "BitDepth", 0) or 0)
+                        candidate_title = normalize_track_title(str(candidate.get("title") or ""))
+                        source_title = normalize_track_title(title)
                         candidate["_exact_title"] = (
-                            normalize_match_text(title)
-                            == normalize_match_text(str(candidate.get("title") or ""))
+                            source_title == candidate_title
                         )
-                        score = 0.35 * artist_score + 0.65 * similarity(
-                            title, str(candidate.get("title") or ""),
-                        )
+                        score = 0.35 * artist_score + 0.65 * similarity(source_title, candidate_title)
                         ranked.append((score, candidate))
                     return ranked
 
