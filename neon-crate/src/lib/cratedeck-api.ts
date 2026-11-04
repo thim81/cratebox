@@ -22,6 +22,9 @@ export function searchImages(
     album?: string;
     track?: string;
     coverArt?: boolean;
+    musicbrainz?: boolean;
+    googleImages?: boolean;
+    duckduckgo?: boolean;
     spotify?: boolean;
     soundcloud?: boolean;
   } = {},
@@ -35,6 +38,9 @@ export function searchImages(
       album: options.album ?? "",
       track: options.track ?? "",
       cover_art: options.coverArt ?? true,
+      musicbrainz: options.musicbrainz ?? false,
+      google_images: options.googleImages ?? true,
+      duckduckgo: options.duckduckgo ?? false,
       spotify: options.spotify ?? false,
       soundcloud: options.soundcloud ?? false,
     }),

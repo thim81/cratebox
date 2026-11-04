@@ -24,6 +24,9 @@ class ImageSearch(BaseModel):
     album: str = ""
     track: str = ""
     cover_art: bool = True
+    musicbrainz: bool = False
+    google_images: bool = True
+    duckduckgo: bool = False
     spotify: bool = False
     soundcloud: bool = False
 
@@ -50,6 +53,9 @@ async def search_images(request: ImageSearch):
             album=request.album[:200],
             track=request.track[:200],
             cover_art=request.cover_art,
+            musicbrainz=request.musicbrainz,
+            google_images=request.google_images,
+            duckduckgo=request.duckduckgo,
             spotify=request.spotify,
             soundcloud=request.soundcloud,
         )
@@ -60,11 +66,12 @@ async def search_images(request: ImageSearch):
 
 def search_image_results(
     query: str, *, artist: str = "", album: str = "", track: str = "", cover_art: bool = True,
+    musicbrainz: bool = False, google_images: bool = True, duckduckgo: bool = False,
     spotify: bool = False, soundcloud: bool = False,
 ):
     catalogue_results = []
     seen_urls = set()
-    if cover_art:
+    if musicbrainz:
         for item in music_artwork.search_music_artwork(query, artist=artist, album=album, track=track):
             if not isinstance(item, dict):
                 continue
@@ -75,19 +82,21 @@ def search_image_results(
             seen_urls.add(image_url)
             if len(catalogue_results) == 24:
                 break
+    if cover_art:
         query = f"{query[:160]} track single cover artwork"
     if spotify:
         query += " Spotify"
     if soundcloud:
         query += " SoundCloud"
     combined = list(catalogue_results)
-    try:
-        google_results = google_image_search.search_google_images(query, limit=24)
-    except Exception as exc:
-        logger.warning("Google Images search failed: %s", exc)
-        google_results = []
-    else:
-        logger.info("Google Images returned %d results", len(google_results))
+    google_results = []
+    if google_images:
+        try:
+            google_results = google_image_search.search_google_images(query, limit=24)
+        except Exception as exc:
+            logger.warning("Google Images search failed: %s", exc)
+        else:
+            logger.info("Google Images returned %d results", len(google_results))
     for item in google_results:
         image_url = item.get("image_url", "")
         if image_url not in seen_urls:
@@ -96,6 +105,8 @@ def search_image_results(
             if len(combined) == 24:
                 return combined
 
+    if not duckduckgo:
+        return combined
     try:
         ddg_results = DDGS().images(query, max_results=24, safesearch="moderate")
     except Exception:

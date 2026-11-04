@@ -47,6 +47,9 @@ export function ImageSearchDialog({
   const [saving, setSaving] = useState(false);
   const [searched, setSearched] = useState(false);
   const [coverArt, setCoverArt] = useState(true);
+  const [musicbrainz, setMusicbrainz] = useState(false);
+  const [googleImages, setGoogleImages] = useState(true);
+  const [duckduckgo, setDuckduckgo] = useState(false);
   const [spotify, setSpotify] = useState(true);
   const [soundcloud, setSoundcloud] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +63,9 @@ export function ImageSearchDialog({
       setError(null);
       setSearched(false);
       setCoverArt(true);
+      setMusicbrainz(false);
+      setGoogleImages(true);
+      setDuckduckgo(false);
       setSpotify(true);
       setSoundcloud(false);
     }
@@ -73,7 +79,17 @@ export function ImageSearchDialog({
     setPreview(null);
     try {
       setResults(
-        await searchImages(apiUrl, query, { artist, album, track, coverArt, spotify, soundcloud }),
+        await searchImages(apiUrl, query, {
+          artist,
+          album,
+          track,
+          coverArt,
+          musicbrainz,
+          googleImages,
+          duckduckgo,
+          spotify,
+          soundcloud,
+        }),
       );
     } catch (cause) {
       setResults([]);
@@ -147,24 +163,51 @@ export function ImageSearchDialog({
                 <Search size={14} /> Search
               </Button>
             </form>
-            <div className="flex flex-wrap gap-2" aria-label="Search sources">
-              {(
-                [
-                  ["Cover art", coverArt, setCoverArt],
-                  ["Spotify", spotify, setSpotify],
-                  ["SoundCloud", soundcloud, setSoundcloud],
-                ] as const
-              ).map(([label, enabled, setEnabled]) => (
-                <button
-                  key={label}
-                  type="button"
-                  aria-pressed={enabled}
-                  onClick={() => setEnabled((value) => !value)}
-                  className={`rounded border px-2.5 py-1 text-xs transition-colors ${enabled ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
-                >
-                  {label} {enabled ? "on" : "off"}
-                </button>
-              ))}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <fieldset className="rounded border border-border p-3" aria-label="Search options">
+                <legend className="px-1 text-xs font-semibold">Options</legend>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {(
+                    [
+                      ["Cover art", coverArt, setCoverArt],
+                      ["Spotify", spotify, setSpotify],
+                      ["SoundCloud", soundcloud, setSoundcloud],
+                    ] as const
+                  ).map(([label, enabled, setEnabled]) => (
+                    <label key={label} className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={enabled}
+                        onChange={(event) => setEnabled(event.target.checked)}
+                        className="size-3.5 accent-primary"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="rounded border border-border p-3" aria-label="Image providers">
+                <legend className="px-1 text-xs font-semibold">Providers</legend>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {(
+                    [
+                      ["Google", googleImages, setGoogleImages],
+                      ["MusicBrainz", musicbrainz, setMusicbrainz],
+                      ["DuckDuckGo", duckduckgo, setDuckduckgo],
+                    ] as const
+                  ).map(([label, enabled, setEnabled]) => (
+                    <label key={label} className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={enabled}
+                        onChange={(event) => setEnabled(event.target.checked)}
+                        className="size-3.5 accent-primary"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
             </div>
             {loading ? (
               <p
