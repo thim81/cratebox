@@ -173,6 +173,11 @@ root. Add
 `create_sockseek_list` to the client tool allowlist and restart the MCP to
 enable it.
 
+`spotify_tracklist` fetches the public Spotify embed metadata for a playlist
+URL and returns its ordered, numbered artist/title entries. Add
+`spotify_tracklist` to the client tool allowlist to enable it. It requires
+network access to Spotify and does not access the Rekordbox collection.
+
 `lookup_similar_tracks_for_cratedeck` is reserved for the local CrateDeck API.
 It returns file paths for immediate server-side playback and must stay out of
 conversational MCP client allowlists; the API removes paths before responding to

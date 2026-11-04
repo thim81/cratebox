@@ -2,14 +2,17 @@
 
 import argparse
 import asyncio
+import json
 import re
 import unicodedata
 import sys
 from contextlib import asynccontextmanager
 from difflib import SequenceMatcher
 from functools import wraps
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Literal
+from urllib.request import urlopen
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -51,6 +54,25 @@ _TITLE_VERSION_SUFFIXES = (
     "transition", "mashup", "bootleg", "rework", "remix", "version", "clean",
     "dirty", "radio", "intro", "outro", "edit", "mix", "club", "live", "vip",
 )
+
+
+class _SpotifyDataParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.capture = False
+        self.data = ""
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "script" and dict(attrs).get("id") == "__NEXT_DATA__":
+            self.capture = True
+
+    def handle_data(self, data):
+        if self.capture:
+            self.data += data
+
+    def handle_endtag(self, tag):
+        if tag == "script":
+            self.capture = False
 
 
 class LookupTrack(BaseModel):
@@ -207,6 +229,32 @@ def build_server(
 
     server = FastMCP("Rekordbox snapshot (read-only)", lifespan=lifespan)
     server.add_middleware(ExportInputPrivacy())
+
+    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True})
+    async def spotify_tracklist(url: str) -> list[str]:
+        """Get an ordered, numbered artist/title tracklist from a public Spotify playlist URL."""
+        match = re.fullmatch(r"https?://open\.spotify\.com/playlist/([a-zA-Z0-9]+)(?:[/?#].*)?", url.strip())
+        if not match:
+            raise ToolError("Provide a valid open.spotify.com playlist URL.")
+
+        def fetch_tracklist():
+            with urlopen(f"https://open.spotify.com/embed/playlist/{match.group(1)}", timeout=15) as response:
+                html = response.read().decode("utf-8")
+            parser = _SpotifyDataParser()
+            parser.feed(html)
+            if not parser.data:
+                raise ValueError("Playlist metadata not found")
+            tracks = json.loads(parser.data)["props"]["pageProps"]["state"]["data"]["entity"]["trackList"]
+            return [
+                f"{i:02d}. {', '.join(a['name'] for a in track['artists'])} - {track['title']}"
+                for i, track in enumerate(tracks, 1)
+            ]
+
+        try:
+            return await asyncio.to_thread(fetch_tracklist)
+        except Exception:
+            logger.exception("Spotify playlist lookup failed")
+            raise ToolError("Spotify playlist lookup failed; check the URL or try again later.") from None
 
     def wrap(original, tool_name: str):
         @wraps(original)
