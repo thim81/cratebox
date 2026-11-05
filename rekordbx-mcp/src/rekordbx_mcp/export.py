@@ -103,6 +103,38 @@ def export_playlist(
     if problems:
         raise ValueError("Cannot export; " + "; ".join(problems))
 
+    def plan_track(track_id, file_path, content, separator_type=None):
+        bpm_value = getattr(content, "BPM", 0) or 0
+        metadata = {
+            "title": str(getattr(content, "Title", "") or ""),
+            "artist": str(getattr(content, "ArtistName", "") or ""),
+            "album": str(getattr(content, "AlbumName", "") or "") or None,
+            "genre": str(getattr(content, "GenreName", "") or "") or None,
+            "bpm": float(bpm_value) / 100 if bpm_value else 0.0,
+            "key": str(getattr(content, "KeyName", "") or "") or None,
+            "rating": int(getattr(content, "Rating", 0) or 0),
+            "length": int(getattr(content, "Length", 0) or 0),
+            "bitrate": int(getattr(content, "BitRate", 0) or 0) or None,
+            "sample_rate": int(getattr(content, "SampleRate", 0) or 0) or None,
+        }
+        item = {
+            "track_id": track_id,
+            "file_path": file_path,
+            "title": metadata["title"],
+            "artist": metadata["artist"],
+            "album": metadata["album"],
+            "genre": metadata["genre"],
+            "bpm": metadata["bpm"],
+            "key": metadata["key"],
+            "rating": metadata["rating"],
+            "duration": metadata["length"],
+            "bitrate": metadata["bitrate"],
+            "sample_rate": metadata["sample_rate"],
+        }
+        if separator_type is not None:
+            item["separator_type"] = separator_type
+        return item
+
     separators_before: dict[int, list[dict]] = {}
     for position, separator in enumerate(separators, 1):
         if not isinstance(separator, dict) or set(separator) != {"type", "before_track"}:
@@ -140,11 +172,10 @@ def export_playlist(
             raise ValueError(
                 f"Separator {separator_type!r} must match exactly one active snapshot track."
             )
-        separators_before.setdefault(before_track, []).append({
-            "track_id": str(separator_matches[0].ID),
-            "file_path": str(separator_path),
-            "separator_type": separator_type,
-        })
+        separator_track = separator_matches[0]
+        separators_before.setdefault(before_track, []).append(plan_track(
+            str(separator_track.ID), str(separator_path), separator_track, separator_type,
+        ))
 
     output_directory = Path(output_directory).absolute()
     playlists_directory = Path(
@@ -197,7 +228,7 @@ def export_playlist(
     playlist_items = []
     for track_position, (track_id, path) in enumerate(zip(track_ids, paths, strict=True), 1):
         playlist_items.extend(separators_before.get(track_position, []))
-        playlist_items.append({"track_id": track_id, "file_path": path})
+        playlist_items.append(plan_track(track_id, path, contents_by_id[track_id]))
     playlist_items.extend(separators_before.get(len(track_ids) + 1, []))
     plan = {
         "format": 1,

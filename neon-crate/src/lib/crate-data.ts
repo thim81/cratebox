@@ -5,6 +5,7 @@ export interface Track {
   title: string;
   artist: string;
   album: string;
+  genre?: string;
   duration: number; // seconds
   rating: number;
   bpm: number;

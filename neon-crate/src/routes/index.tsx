@@ -568,7 +568,7 @@ function Index() {
       (t) =>
         (!missingArtworkOnly || !t.has_artwork) &&
         (!s ||
-          [t.title, t.artist, t.album, t.key, String(t.bpm), t.quality].some((v) =>
+          [t.title, t.artist, t.album, t.genre ?? "", t.key, String(t.bpm), t.quality].some((v) =>
             v.toLowerCase().includes(s),
           )),
     );
@@ -779,7 +779,7 @@ function Index() {
         const nextView = updatedTracks.filter(
           (item) =>
             !query ||
-            [item.title, item.artist, item.album, item.key, String(item.bpm), item.quality].some(
+            [item.title, item.artist, item.album, item.genre ?? "", item.key, String(item.bpm), item.quality].some(
               (value) => value.toLowerCase().includes(query),
             ),
         );

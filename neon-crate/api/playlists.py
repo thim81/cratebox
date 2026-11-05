@@ -4,6 +4,7 @@ from datetime import date
 import asyncio
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -182,8 +183,15 @@ def parse_playlist(path: Path):
     except (OSError, UnicodeError) as exc:
         raise HTTPException(500, f"Could not read playlist {path.name}") from exc
 
-    _, plan = read_plan_ids(path, lines)
-    for _, _, audio, track_id, rekordbox_id in playlist_entries(path, lines, plan):
+    plan_path, plan = read_plan_ids(path, lines)
+    plan_tracks = []
+    if plan is not None:
+        try:
+            plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan_tracks = plan_data.get("tracks", []) if isinstance(plan_data, dict) else []
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            plan_tracks = []
+    for _, plan_index, audio, track_id, rekordbox_id in playlist_entries(path, lines, plan):
         try:
             media = mutagen.File(audio, easy=True)
         except (OSError, ValueError):
@@ -195,22 +203,48 @@ def parse_playlist(path: Path):
             values = tags.get(key, [])
             return str(values[0]) if values else default
 
+        plan_metadata = (
+            plan_tracks[plan_index]
+            if plan_index < len(plan_tracks) and isinstance(plan_tracks[plan_index], dict)
+            else {}
+        )
+
+        def plan_text(key, fallback=""):
+            value = plan_metadata.get(key)
+            return value.strip() if isinstance(value, str) and value.strip() else fallback
+
+        def plan_number(key, fallback=0, *, integer=False):
+            value = plan_metadata.get(key)
+            if isinstance(value, bool):
+                return fallback
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return fallback
+            if not math.isfinite(number):
+                return fallback
+            return int(number) if integer else number
+
         try:
-            bpm = int(float(tag("bpm", "0") or 0))
+            audio_bpm = float(tag("bpm", "0") or 0)
         except (TypeError, ValueError):
-            bpm = 0
+            audio_bpm = 0
         bitrate = getattr(info, "bitrate", 0) or 0
+        plan_rating = plan_number("rating", -1, integer=True)
         tracks.append({
             "id": track_id,
             "playlist_id": path.stem,
             "rekordbox_id": rekordbox_id,
-            "title": tag("title", audio.stem),
-            "artist": tag("artist"),
-            "album": tag("album"),
-            "duration": round(getattr(info, "length", 0) or 0),
-            "rating": mp3_rating(audio) if audio.suffix.lower() == ".mp3" else 0,
-            "bpm": bpm,
-            "key": tag("initialkey"),
+            "title": plan_text("title", tag("title", audio.stem)),
+            "artist": plan_text("artist", tag("artist")),
+            "album": plan_text("album", tag("album")),
+            "genre": plan_text("genre"),
+            "duration": plan_number("duration", round(getattr(info, "length", 0) or 0), integer=True),
+            "rating": plan_rating if 0 < plan_rating <= 5 else (
+                mp3_rating(audio) if audio.suffix.lower() == ".mp3" else 0
+            ),
+            "bpm": plan_number("bpm", audio_bpm) or audio_bpm,
+            "key": plan_text("key", tag("initialkey")),
             "quality": f"{audio.suffix[1:].upper()} {bitrate // 1000}kbps".strip(),
             "url": f"/api/stream?playlist_id={quote(path.stem)}&track_id={quote(track_id)}",
             "artwork_url": f"/api/playlists/{quote(path.stem)}/tracks/{quote(track_id)}/artwork",
@@ -408,8 +442,14 @@ def _swap_track(playlist_id: str, request: PlaylistSwap):
         try:
             plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
             if isinstance(plan_data.get("tracks"), list):
-                plan_data["tracks"][plan_index]["track_id"] = request.replacement_track_id
-                plan_data["tracks"][plan_index]["file_path"] = str(replacement_audio)
+                plan_item = plan_data["tracks"][plan_index]
+                plan_item["track_id"] = request.replacement_track_id
+                plan_item["file_path"] = str(replacement_audio)
+                for metadata_key in (
+                    "title", "artist", "album", "genre", "bpm", "key", "rating",
+                    "duration", "bitrate", "sample_rate",
+                ):
+                    plan_item.pop(metadata_key, None)
             else:
                 plan_data["track_ids"][plan_index] = request.replacement_track_id
         except (AttributeError, IndexError, KeyError, TypeError, OSError, UnicodeError, json.JSONDecodeError):
