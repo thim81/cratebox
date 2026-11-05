@@ -222,14 +222,17 @@ def build_server(
     verify_snapshot(snapshot)
     database = SnapshotDatabase(snapshot)
 
-    async def run_database_operation(function):
-        task = asyncio.create_task(asyncio.to_thread(function))
+    async def complete_before_cancellation(awaitable):
+        task = asyncio.create_task(awaitable)
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
             with suppress(asyncio.CancelledError, Exception):
                 await asyncio.shield(task)
             raise
+
+    async def run_database_operation(function):
+        return await complete_before_cancellation(asyncio.to_thread(function))
 
     async def ensure_connected():
         if not await database.is_connected():
@@ -315,7 +318,7 @@ def build_server(
                 upstream._db_initialized = True
                 upstream.ensure_database_connected = ensure_connected
                 await ensure_connected()
-                result = await original(*args, **kwargs)
+                result = await complete_before_cancellation(original(*args, **kwargs))
                 if tool_name == "get_playlists":
                     def playlist_sequences():
                         return {
