@@ -157,9 +157,12 @@ async def collection_lookup(request: CollectionLookup):
             public_match["cue_count"] = int(public_match.get("cue_count") or 0)
             public_match["playlist_count"] = int(public_match.get("playlist_count") or 0)
             public_match["playlists"] = [
-                {"id": str(playlist.get("id") or ""), "name": str(playlist.get("name") or "")}
+                {
+                    "id": str(playlist.get("id") or ""),
+                    "name": str(playlist.get("name") or "Untitled playlist"),
+                }
                 for playlist in public_match.get("playlists", [])
-                if isinstance(playlist, dict) and playlist.get("id") and playlist.get("name")
+                if isinstance(playlist, dict) and playlist.get("id")
             ]
             playable = False
             if (

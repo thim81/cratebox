@@ -350,12 +350,18 @@ def build_server(
                     for content in database._get_active_content():
                         candidate_artist = str(getattr(content, "ArtistName", "") or "")
                         candidate_artists = artist_credits(candidate_artist)
-                        shared_artists = source_artists & candidate_artists
-                        if source_artists and not shared_artists:
+                        artist_matches = [
+                            (source_credit, candidate_credit)
+                            for source_credit in source_artists
+                            for candidate_credit in candidate_artists
+                            if source_credit in candidate_credit or candidate_credit in source_credit
+                        ]
+                        if source_artists and not artist_matches:
                             continue
-                        artist_score = (
-                            len(shared_artists) / min(len(source_artists), len(candidate_artists))
-                            if shared_artists else 0
+                        artist_score = max(
+                            (similarity(source_credit, candidate_credit)
+                             for source_credit, candidate_credit in artist_matches),
+                            default=0,
                         )
                         candidate = database._content_to_track(content).model_dump()
                         candidate["_content"] = content
@@ -373,7 +379,8 @@ def build_server(
                         ranked.append((score, candidate))
                     selected = order_match_candidates(ranked)[:limit]
                     track_ids = [str(candidate.get("id") or "") for _, candidate in selected]
-                    playlist_rows = database.db.session.query(
+                    playlist_rows = (
+                        database.db.session.query(
                             DjmdSongPlaylist.ContentID,
                             DjmdPlaylist.ID,
                             DjmdPlaylist.Name,
@@ -387,6 +394,7 @@ def build_server(
                         .distinct()
                         .order_by(DjmdPlaylist.Name)
                         .all()
+                    )
                     playlist_memberships = {}
                     for content_id, playlist_id, playlist_name in playlist_rows:
                         playlist_memberships.setdefault(str(content_id), {})[str(playlist_id)] = {
