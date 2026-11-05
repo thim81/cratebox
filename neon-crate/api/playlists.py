@@ -10,6 +10,7 @@ import tempfile
 from urllib.parse import quote
 
 import mutagen
+from mutagen.id3 import ID3
 from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
 
@@ -148,6 +149,32 @@ def atomic_write(path: Path, content: str):
             temporary_path.unlink(missing_ok=True)
         raise
 
+def mp3_rating(path: Path) -> int:
+    """Read a five-star rating from common ID3 rating frames, if present."""
+    try:
+        tags = ID3(path)
+    except (OSError, mutagen.MutagenError):
+        return 0
+
+    popularimeters = tags.getall("POPM")
+    if popularimeters:
+        value = max(int(frame.rating) for frame in popularimeters)
+        return min(5, (value * 5 + 127) // 255)
+
+    for frame in tags.getall("TXXX"):
+        if frame.desc.strip().casefold() != "rating":
+            continue
+        try:
+            value = float(str(frame.text[0]).strip())
+        except (IndexError, TypeError, ValueError):
+            continue
+        if 0 <= value <= 5:
+            return round(value)
+        if value <= 100:
+            return min(5, round(value / 20))
+        return min(5, round(value * 5 / 255))
+    return 0
+
 def parse_playlist(path: Path):
     tracks = []
     try:
@@ -181,7 +208,7 @@ def parse_playlist(path: Path):
             "artist": tag("artist"),
             "album": tag("album"),
             "duration": round(getattr(info, "length", 0) or 0),
-            "rating": 0,
+            "rating": mp3_rating(audio) if audio.suffix.lower() == ".mp3" else 0,
             "bpm": bpm,
             "key": tag("initialkey"),
             "quality": f"{audio.suffix[1:].upper()} {bitrate // 1000}kbps".strip(),
