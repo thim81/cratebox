@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type Ref, useImperativeHandle } from "react";
 import {
+  Copy,
   ListMusic,
   FolderOpen,
   Music2,
@@ -10,6 +11,8 @@ import {
   SlidersHorizontal,
   Star,
 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { fmtTime, type Track } from "@/lib/crate-data";
 import { artworkImageKey, shouldShowArtwork } from "@/lib/artwork-state";
@@ -217,8 +220,27 @@ export function Deck({
             </button>
           )}
           <div className="min-w-0">
-            <div className="truncate text-lg font-semibold text-foreground">
-              {track ? `${track.artist} - ${track.title}` : "No track loaded"}
+            <div className="flex min-w-0 items-center gap-1">
+              <div className="truncate text-lg font-semibold text-foreground">
+                {track ? `${track.artist} - ${track.title}` : "No track loaded"}
+              </div>
+              {track && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 shrink-0"
+                  aria-label="Copy artist and track name"
+                  title="Copy artist and track name"
+                  onClick={() =>
+                    void navigator.clipboard
+                      .writeText(`${track.artist} - ${track.title}`)
+                      .then(() => toast.success("Track name copied"))
+                      .catch(() => toast.error("Could not copy track name"))
+                  }
+                >
+                  <Copy size={14} />
+                </Button>
+              )}
             </div>
             <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
               {track ? (

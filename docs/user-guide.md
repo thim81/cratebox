@@ -112,22 +112,20 @@ Always launch `rekordbx-mcp start` rather than the upstream
 Codex automatically launches the configured `rekordbx-mcp start` command when
 it initializes the MCP connection. No separate Terminal server is required.
 
-1. Quit Rekordbox and its background agents cleanly.
-2. Open or restart the configured Rekordbox MCP connection in Codex.
-3. Wait for the connection to be ready.
-4. Ask Codex: **“Use the Rekordbox MCP to show my library statistics.”**
-5. Once startup has completed, you may reopen Rekordbox.
+1. Open or restart the configured Rekordbox MCP connection in Codex.
+2. Wait for the connection to be ready.
+3. Ask Codex: **“Use the Rekordbox MCP to show my library statistics.”**
 
-At each startup the launcher:
+When Rekordbox is closed, `start`:
 
-1. Checks that Rekordbox and its agents are closed.
-2. Refuses to copy a database with WAL, SHM or journal sidecars present.
-3. Creates a new independent copy of the current `master.db`.
-4. Rechecks processes, source metadata and hashes after copying.
-5. Marks the copy read-only and starts the MCP against that verified snapshot.
+1. Refuses to copy a database with WAL, SHM or journal sidecars present.
+2. Creates a new independent copy of the current `master.db`.
+3. Rechecks processes, source metadata and hashes after copying.
+4. Marks the copy read-only and starts the MCP against that verified snapshot.
 
-If any check fails, the MCP does not start. It never closes Rekordbox for you,
-deletes source sidecars, or silently falls back to an older copy.
+When Rekordbox is running, `start` skips copying and serves the newest verified
+snapshot already on disk. If no snapshot exists, startup fails and asks you to
+close Rekordbox and create one. It never closes Rekordbox or deletes source sidecars.
 
 The default source is:
 
@@ -144,8 +142,9 @@ rekordbx-mcp/.cache/rekordbox-snapshots/<snapshot-id>/
 ```
 
 A running MCP keeps using its fixed snapshot. If you add or change tracks in
-Rekordbox, quit Rekordbox and restart the MCP to obtain a new copy. Copies are
-retained locally; they are ignored by Git and consume disk space.
+Rekordbox, close Rekordbox and restart the MCP to obtain a new copy. You can
+reopen Rekordbox once copying finishes. Copies are retained locally; they are
+ignored by Git and consume disk space.
 
 For terminal troubleshooting only, you can start the same launcher yourself:
 
@@ -303,10 +302,10 @@ updates `uv.lock`, synchronizes dependencies, and runs the full test suite.
 Wait for `Updated to upstream commit <commit>; compatibility tests passed.`
 before reconnecting.
 
-**Step 4 — quit Rekordbox and its agents, then restart the MCP connection or
-reopen Codex.** Codex automatically launches the updated MCP and prepares a
-fresh verified copy of the collection. Ask it to show your library statistics
-to confirm the connection.
+**Step 4 — restart the MCP connection or reopen Codex.** When Rekordbox is
+closed, the updated MCP prepares a fresh verified copy; if it is open, the MCP
+uses the newest verified copy already on disk. Ask it to show your library
+statistics to confirm the connection.
 
 **Step 5 — keep the tested revision in Git.** After a successful upgrade,
 review and commit the changed `rekordbx-mcp/pyproject.toml` and

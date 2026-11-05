@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from rekordbx_mcp import cli
-from rekordbx_mcp.snapshot import require_rekordbox_closed, verify_snapshot
+from rekordbx_mcp.snapshot import create_snapshot, require_rekordbox_closed, verify_snapshot
 
 
 def test_installed_command_runs_under_new_name():
@@ -29,6 +29,7 @@ def test_start_copies_latest_source_before_serving(tmp_path, monkeypatch, capsys
     source.parent.mkdir()
     source.write_bytes(b"latest collection")
     destination = tmp_path / "snapshots"
+    monkeypatch.setattr("rekordbx_mcp.cli.rekordbox_is_running", lambda: False)
     monkeypatch.setattr("rekordbx_mcp.snapshot.require_rekordbox_closed", lambda: None)
     startup_args(monkeypatch, source, destination)
 
@@ -50,6 +51,7 @@ def test_each_start_uses_a_new_copy_of_current_data(tmp_path, monkeypatch):
     source = tmp_path / "original" / "master.db"
     source.parent.mkdir()
     destination = tmp_path / "snapshots"
+    monkeypatch.setattr("rekordbx_mcp.cli.rekordbox_is_running", lambda: False)
     monkeypatch.setattr("rekordbx_mcp.snapshot.require_rekordbox_closed", lambda: None)
     startup_args(monkeypatch, source, destination)
     copies = []
@@ -70,33 +72,54 @@ def test_each_start_uses_a_new_copy_of_current_data(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("name", ["rekordbox", "rekordboxAgent", "Rekordbox 7"])
-def test_start_refuses_running_rekordbox_without_reusing_old_copy(
+def test_start_serves_latest_snapshot_without_copying_when_rekordbox_is_running(
     tmp_path, monkeypatch, name, capsys,
 ):
     source = tmp_path / "original" / "master.db"
     source.parent.mkdir()
     source.write_bytes(b"latest collection")
     destination = tmp_path / "snapshots"
-    destination.mkdir()
-    old_copy = destination / "old-copy"
-    old_copy.mkdir()
-    (old_copy / "master.db").write_bytes(b"stale collection")
+    monkeypatch.setattr("rekordbx_mcp.snapshot.require_rekordbox_closed", lambda: None)
+    old_copy = create_snapshot(source, destination)
+    before = set(destination.iterdir())
     monkeypatch.setattr("rekordbx_mcp.snapshot.psutil.process_iter", lambda *_: [
         SimpleNamespace(info={"name": name}),
     ])
     startup_args(monkeypatch, source, destination)
 
-    def forbidden_serve(_snapshot):
-        pytest.fail("MCP must not start when Rekordbox is running")
+    def serve(snapshot):
+        assert snapshot == old_copy
+        assert verify_snapshot(snapshot).read_bytes() == b"latest collection"
+        return 0
 
-    monkeypatch.setattr("rekordbx_mcp.launcher.serve", forbidden_serve)
+    monkeypatch.setattr("rekordbx_mcp.launcher.serve", serve)
+    with pytest.raises(SystemExit) as stopped:
+        cli.main()
+    assert stopped.value.code == 0
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "without copying" in output.err
+    assert set(destination.iterdir()) == before
+
+
+def test_start_requires_snapshot_if_rekordbox_is_running(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "original" / "master.db"
+    source.parent.mkdir()
+    source.write_bytes(b"latest collection")
+    destination = tmp_path / "snapshots"
+    destination.mkdir()
+    monkeypatch.setattr("rekordbx_mcp.snapshot.psutil.process_iter", lambda *_: [
+        SimpleNamespace(info={"name": "rekordbox"}),
+    ])
+    startup_args(monkeypatch, source, destination)
+    monkeypatch.setattr(
+        "rekordbx_mcp.launcher.serve",
+        lambda _: pytest.fail("MCP must not start without a verified snapshot"),
+    )
     with pytest.raises(SystemExit) as stopped:
         cli.main()
     assert stopped.value.code == 1
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert "Close Rekordbox" in output.err
-    assert list(destination.iterdir()) == [old_copy]
+    assert "run 'rekordbx-mcp snapshot' first" in capsys.readouterr().err
 
 
 def test_unreadable_process_name_refuses_startup(monkeypatch):

@@ -2,7 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .snapshot import create_snapshot
+from .snapshot import create_snapshot, latest_snapshot, rekordbox_is_running
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
     )
     commands.add_parser(
         "start", parents=[copy_options],
-        help="Check Rekordbox is closed, make a fresh copy, then start read-only MCP",
+        help="Make a fresh copy if Rekordbox is closed; otherwise serve the newest verified copy",
     )
     server = commands.add_parser("serve", help="Serve a verified read-only snapshot")
     server.add_argument("--snapshot", type=Path, required=True)
@@ -38,11 +38,19 @@ def main():
             print(update_upstream(Path.cwd(), check_only=args.check))
             return
         if args.command in ("snapshot", "start"):
-            snapshot = create_snapshot(args.source, args.destination)
             if args.command == "snapshot":
+                snapshot = create_snapshot(args.source, args.destination)
                 print(snapshot)
                 return
-            print("Fresh read-only snapshot verified; starting MCP.", file=sys.stderr)
+            if rekordbox_is_running():
+                snapshot = latest_snapshot(args.destination)
+                print(
+                    "Rekordbox is running; serving the newest verified snapshot without copying.",
+                    file=sys.stderr,
+                )
+            else:
+                snapshot = create_snapshot(args.source, args.destination)
+                print("Fresh read-only snapshot verified; starting MCP.", file=sys.stderr)
         else:
             snapshot = args.snapshot
         from .launcher import serve

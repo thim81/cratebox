@@ -15,7 +15,7 @@ def sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def require_rekordbox_closed() -> None:
+def rekordbox_is_running() -> bool:
     # An unreadable process list must fail closed, not imply Rekordbox is closed.
     try:
         for process in psutil.process_iter(["name"]):
@@ -23,9 +23,37 @@ def require_rekordbox_closed() -> None:
             if name is None:
                 raise RuntimeError("Cannot verify Rekordbox is closed: unreadable process name.")
             if "rekordbox" in name.lower():
-                raise RuntimeError("Close Rekordbox and its background agents before copying.")
+                return True
     except psutil.Error as error:
         raise RuntimeError("Cannot verify Rekordbox is closed: process inspection failed.") from error
+    return False
+
+
+def require_rekordbox_closed() -> None:
+    if rekordbox_is_running():
+        raise RuntimeError("Close Rekordbox and its background agents before copying.")
+
+
+def latest_snapshot(destination: Path) -> Path:
+    destination = Path(destination).resolve()
+    snapshots = sorted(
+        (child for child in destination.iterdir()
+         if child.is_dir() and not child.is_symlink()
+         and len(child.name) == 32 and all(c in "0123456789abcdef" for c in child.name)),
+        key=lambda child: child.stat().st_mtime_ns,
+        reverse=True,
+    ) if destination.is_dir() else []
+    if not snapshots:
+        raise RuntimeError(
+            "Rekordbox is running and no snapshot exists; close Rekordbox and run "
+            "'rekordbx-mcp snapshot' first."
+        )
+    snapshot = snapshots[0]
+    try:
+        verify_snapshot(snapshot)
+    except (OSError, ValueError, RuntimeError) as error:
+        raise RuntimeError("The newest Rekordbox snapshot is invalid; create a fresh snapshot with Rekordbox closed.") from error
+    return snapshot
 
 
 def reject_sidecars(path: Path) -> None:

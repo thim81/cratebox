@@ -1,5 +1,5 @@
 # Project-scoped configuration: merge into .codex/config.toml.
-# Every startup checks Rekordbox is closed and creates a fresh verified copy.
+# With Rekordbox closed, startup creates a fresh copy; while it is open, the newest verified copy is served.
 [mcp_servers.rekordbox]
 command = "/opt/homebrew/bin/uv"
 args = [

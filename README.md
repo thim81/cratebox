@@ -71,16 +71,16 @@ configuration and troubleshooting.
 **Codex starts the server automatically when it initializes the configured MCP
 connection. You do not need to run a separate server in Terminal.**
 
-1. Quit Rekordbox and its background agents.
-2. Restart Codex or restart the Rekordbox MCP connection with this project open.
-3. Codex runs `rekordbx-mcp start`, checks that Rekordbox is closed, creates a
-   fresh verified read-only copy, and starts the MCP worker.
-4. Confirm that the connection is working by asking:
+1. Restart Codex or restart the Rekordbox MCP connection with this project open.
+2. If Rekordbox is closed, `rekordbx-mcp start` creates a fresh verified copy.
+   If Rekordbox is running, it serves the newest verified copy already on disk.
+3. Confirm that the connection is working by asking:
 
 > Use the Rekordbox MCP to show my library statistics.
 
-Once the connection is ready, you may reopen Rekordbox. To refresh the copied
-collection later, quit Rekordbox and restart the MCP connection.
+If no snapshot exists while Rekordbox is running, startup fails with instructions
+to close Rekordbox and create one. To refresh the copied collection later, close
+Rekordbox and restart the MCP connection; you may reopen it after copying finishes.
 
 **Manual startup is only needed for diagnostics.** From the repository root:
 
