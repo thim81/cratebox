@@ -240,8 +240,8 @@ Exports use the requested playlist name in two repository folders:
 
 - `playlists/House warm-up.m3u8`: UTF-8 playlist containing absolute local
   audio paths.
-- `output/House warm-up.json`: playlist name, ordered IDs, creation time and
-  format version.
+- `output/House warm-up.json`: playlist name, ordered track ID/path pairs,
+  Rekordbox metadata for each track, creation time and format version.
 
 If an export with the requested base name already exists, Codex asks whether
 you want to update it or create a separate playlist under a different name.

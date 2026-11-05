@@ -123,8 +123,10 @@ existing filename.
 
 Use either an ordered `track_ids` list or an ordered `file_paths` list. File
 locations must be absolute local paths matching exactly one active track in the
-snapshot. Both options preserve your order and intentional repeats. JSON always
-saves ordered ID/path pairs in the JSON plan. Prefer IDs
+snapshot. Both options preserve your order and intentional repeats. Each JSON
+track keeps its `track_id` and `file_path`, extended with Rekordbox metadata such
+as title, artist, album, genre, BPM, key, rating, duration, bitrate, and sample
+rate. Prefer IDs
 when you want to keep audio paths out of tool inputs; neither option returns
 audio paths in the tool response.
 

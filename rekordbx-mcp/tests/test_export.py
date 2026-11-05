@@ -35,9 +35,24 @@ def test_export_preserves_order_unicode_and_inputs(collection, playable_snapshot
     plan = json.loads(Path(result["plan_path"]).read_text(encoding="utf-8"))
     assert plan["name"] == "Été house"
     assert plan["tracks"] == [
-        {"track_id": "2", "file_path": str(playable_snapshot / "music/Second track.mp3")},
-        {"track_id": "1", "file_path": str(playable_snapshot / "music/Été #1.mp3")},
-        {"track_id": "2", "file_path": str(playable_snapshot / "music/Second track.mp3")},
+        {
+            "track_id": "2", "file_path": str(playable_snapshot / "music/Second track.mp3"),
+            "title": "Second", "artist": "", "album": None, "genre": None,
+            "bpm": 0.0, "key": None, "rating": 0, "duration": 0,
+            "bitrate": None, "sample_rate": None,
+        },
+        {
+            "track_id": "1", "file_path": str(playable_snapshot / "music/Été #1.mp3"),
+            "title": "One More Time", "artist": "Daft Punk", "album": None, "genre": None,
+            "bpm": 123.0, "key": None, "rating": 4, "duration": 320,
+            "bitrate": None, "sample_rate": None,
+        },
+        {
+            "track_id": "2", "file_path": str(playable_snapshot / "music/Second track.mp3"),
+            "title": "Second", "artist": "", "album": None, "genre": None,
+            "bpm": 0.0, "key": None, "rating": 0, "duration": 0,
+            "bitrate": None, "sample_rate": None,
+        },
     ]
     assert result["track_count"] == 3
     assert "music/" not in json.dumps(result)

@@ -6,7 +6,7 @@ import json
 import re
 import unicodedata
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from difflib import SequenceMatcher
 from functools import wraps
 from html.parser import HTMLParser
@@ -222,6 +222,15 @@ def build_server(
     verify_snapshot(snapshot)
     database = SnapshotDatabase(snapshot)
 
+    async def run_database_operation(function):
+        task = asyncio.create_task(asyncio.to_thread(function))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            with suppress(asyncio.CancelledError, Exception):
+                await asyncio.shield(task)
+            raise
+
     async def ensure_connected():
         if not await database.is_connected():
             await database.connect()
@@ -231,7 +240,8 @@ def build_server(
         try:
             yield {}
         finally:
-            await database.disconnect()
+            async with _upstream_lock:
+                await database.disconnect()
 
     server = FastMCP("Rekordbox snapshot (read-only)", lifespan=lifespan)
     server.add_middleware(ExportInputPrivacy())
@@ -313,7 +323,7 @@ def build_server(
                             for playlist in database.db.get_playlist()
                         }
 
-                    sequences = await asyncio.to_thread(playlist_sequences)
+                    sequences = await run_database_operation(playlist_sequences)
                     result = [
                         {**playlist, "sequence": sequences.get(str(playlist.get("id") or ""), 0)}
                         for playlist in result
@@ -414,7 +424,7 @@ def build_server(
                         candidate["playlist_count"] = len(candidate_playlists)
                     return selected
 
-                ranked = await asyncio.to_thread(ranked_candidates)
+                ranked = await run_database_operation(ranked_candidates)
             except Exception:
                 logger.exception("Rekordbox collection lookup failed")
                 raise ToolError(
@@ -494,7 +504,7 @@ def build_server(
                         for track_id in track_ids
                     ]
 
-                return await asyncio.to_thread(resolve_locations)
+                return await run_database_operation(resolve_locations)
             except ValueError:
                 raise ToolError("One or more tracks are unavailable in the active collection.") from None
             except Exception:
