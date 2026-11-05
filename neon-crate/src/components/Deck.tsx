@@ -29,6 +29,8 @@ interface Props {
   onPrev: () => void;
   onNext: () => void;
   onPlayingChange: (p: boolean) => void;
+  onTimeChange: (seconds: number) => void;
+  onDurationChange: (seconds: number) => void;
   onEditArtwork: (track: Track) => void;
   onRevealTrack: (track: Track) => void;
   ref?: Ref<DeckHandle>;
@@ -43,6 +45,8 @@ export function Deck({
   onPrev,
   onNext,
   onPlayingChange,
+  onTimeChange,
+  onDurationChange,
   onEditArtwork,
   onRevealTrack,
   ref,
@@ -86,7 +90,9 @@ export function Deck({
     setLoading(true);
     setErr(null);
     setTime(0);
+    onTimeChange(0);
     setDur(track.duration);
+    onDurationChange(track.duration);
     setCue(0);
     (async () => {
       const [{ default: WaveSurfer }, { default: Hover }] = await Promise.all([
@@ -124,10 +130,14 @@ export function Deck({
       inst.setPlaybackRate(s.rate, false);
       inst.on("ready", (d) => {
         setDur(d);
+        onDurationChange(d);
         setLoading(false);
         if (autoPlay) inst?.play().catch(() => {});
       });
-      inst.on("timeupdate", setTime);
+      inst.on("timeupdate", (seconds) => {
+        setTime(seconds);
+        onTimeChange(seconds);
+      });
       inst.on("play", () => {
         setPlaying(true);
         onPlayingChange(true);

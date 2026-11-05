@@ -42,7 +42,6 @@ class CollectionMcp:
                 self.client = None
                 self.state = "error"
                 self.message = "Collection connection was lost. Try Lookup again or restart the local API."
-                self.track_paths.clear()
         return {"state": self.state, "message": self.message}
 
     async def connect(self):
@@ -76,7 +75,6 @@ class CollectionMcp:
                     await client.close()
                 self.state = "error"
                 self.message = "Could not connect to the Rekordbox collection. Close Rekordbox and its background agents, then try again."
-                self.track_paths.clear()
                 raise HTTPException(503, self.message) from None
 
     async def close(self):
@@ -158,6 +156,11 @@ async def collection_lookup(request: CollectionLookup):
             match_id = str(public_match.get("id") or "")
             public_match["cue_count"] = int(public_match.get("cue_count") or 0)
             public_match["playlist_count"] = int(public_match.get("playlist_count") or 0)
+            public_match["playlists"] = [
+                {"id": str(playlist.get("id") or ""), "name": str(playlist.get("name") or "")}
+                for playlist in public_match.get("playlists", [])
+                if isinstance(playlist, dict) and playlist.get("id") and playlist.get("name")
+            ]
             playable = False
             if (
                 match_id and isinstance(raw_path, str) and Path(raw_path).is_absolute()

@@ -99,6 +99,7 @@ function Index() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlistSource, setPlaylistSource] = useState<"crate" | "rekordbox">("crate");
   const selectedTrackByPlaylist = useRef(new Map<string, string>());
+  const pendingRekordboxJump = useRef<{ playlistId: string; trackId: string } | null>(null);
   const activePlaylistContext = useRef({ id: activeId, source: playlistSource });
   const playlistTracksGeneration = useRef(0);
   useLayoutEffect(() => {
@@ -151,6 +152,8 @@ function Index() {
   const [loaded, setLoaded] = useState<{ track: Track; playlist: string } | null>(null);
   const [autoPlay, setAutoPlay] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const [imageTarget, setImageTarget] = useState<{
@@ -601,6 +604,45 @@ function Index() {
     setSel(rememberedIndex >= 0 ? rememberedIndex : 0);
     setRangeAnchor(null);
   }, [selectionKey, view]);
+
+  useEffect(() => {
+    const pending = pendingRekordboxJump.current;
+    if (
+      !pending || playlistSource !== "rekordbox" || pending.playlistId !== activeRekordboxId
+    ) return;
+    const index = view.findIndex((track) => track.rekordbox_id === pending.trackId);
+    if (index < 0) return;
+    selectTrackAt(index);
+    pendingRekordboxJump.current = null;
+  }, [activeRekordboxId, playlistSource, selectTrackAt, view]);
+
+  const openRekordboxPlaylistAtTrack = useCallback((playlistId: string, trackId: string) => {
+    pendingRekordboxJump.current = { playlistId, trackId };
+    setExpandedLookupTrackId(null);
+    setQ("");
+    setMissingArtworkOnly(false);
+    setSort({ k: null, dir: 1 });
+    if (playlistSource === "rekordbox" && activeRekordboxId === playlistId) {
+      const index = view.findIndex((track) => track.rekordbox_id === trackId);
+      if (index >= 0) {
+        selectTrackAt(index);
+        pendingRekordboxJump.current = null;
+      }
+      return;
+    }
+    setRekordboxTracks([]);
+    setPlaylistSource("rekordbox");
+    setActiveRekordboxId(playlistId);
+    setRekordboxFolderId(null);
+    if (!rekordboxLoaded) void refreshRekordboxPlaylists();
+  }, [
+    activeRekordboxId,
+    playlistSource,
+    rekordboxLoaded,
+    refreshRekordboxPlaylists,
+    selectTrackAt,
+    view,
+  ]);
 
   const activePlaylistName = activePl?.name ?? "";
   const swapCollectionMatch = useCallback(
@@ -1151,6 +1193,8 @@ function Index() {
         onPrev={() => step(-1)}
         onNext={() => step(1)}
         onPlayingChange={setPlaying}
+        onTimeChange={setPlaybackTime}
+        onDurationChange={setPlaybackDuration}
         onEditArtwork={editLoadedArtwork}
         onRevealTrack={(track) => void showTrackInFinder(track)}
       />
@@ -1180,8 +1224,16 @@ function Index() {
         open={addTrackSearchOpen}
         anchorTrack={selectedTrack}
         addingTrackId={addingCollectionTrackId}
+        activeTrackId={loaded?.track.id ?? null}
+        activeRekordboxId={loaded?.track.rekordbox_id ?? null}
+        playing={playing}
+        currentTime={playbackTime}
+        duration={playbackDuration}
         onOpenChange={setAddTrackSearchOpen}
         onAdd={addCollectionMatch}
+        onPlay={playCollectionMatch}
+        onSeekTo={(seconds) => deck.current?.seek(seconds - playbackTime)}
+        onOpenRekordboxPlaylist={openRekordboxPlaylistAtTrack}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -1388,6 +1440,7 @@ function Index() {
             onPlayCollectionMatch={playCollectionMatch}
             onSwapCollectionMatch={requestCollectionSwap}
             onAddCollectionMatch={addCollectionMatch}
+            onOpenRekordboxPlaylist={openRekordboxPlaylistAtTrack}
             onCollapseLookup={() => setExpandedLookupTrackId(null)}
             onSelectSeparator={selectSeparator}
             onReplaceSeparator={(track, type) => void replaceSeparator(track, type)}

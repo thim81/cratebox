@@ -19,10 +19,9 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 from loguru import logger
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from rekordbox_mcp import server as upstream
 from pyrekordbox.masterdb.models import DjmdPlaylist, DjmdSongPlaylist
-from sqlalchemy import func
 
 from .database import SnapshotDatabase, content_by_ids
 from .export import OUTPUT_DIRECTORY, PLAYLISTS_DIRECTORY, export_playlist as write_playlist
@@ -76,6 +75,11 @@ class _SpotifyDataParser(HTMLParser):
             self.capture = False
 
 
+class PlaylistReference(BaseModel):
+    id: str
+    name: str
+
+
 class LookupTrack(BaseModel):
     id: str
     title: str
@@ -89,6 +93,7 @@ class LookupTrack(BaseModel):
     similarity: float
     cue_count: int = 0
     playlist_count: int = 0
+    playlists: list[PlaylistReference] = Field(default_factory=list)
 
 
 class CrateDeckLookupTrack(LookupTrack):
@@ -368,10 +373,10 @@ def build_server(
                         ranked.append((score, candidate))
                     selected = order_match_candidates(ranked)[:limit]
                     track_ids = [str(candidate.get("id") or "") for _, candidate in selected]
-                    playlist_counts = dict(
-                        database.db.session.query(
+                    playlist_rows = database.db.session.query(
                             DjmdSongPlaylist.ContentID,
-                            func.count(func.distinct(DjmdSongPlaylist.PlaylistID)),
+                            DjmdPlaylist.ID,
+                            DjmdPlaylist.Name,
                         )
                         .join(DjmdPlaylist, DjmdPlaylist.ID == DjmdSongPlaylist.PlaylistID)
                         .filter(
@@ -379,18 +384,26 @@ def build_server(
                             DjmdSongPlaylist.rb_local_deleted == 0,
                             DjmdPlaylist.rb_local_deleted == 0,
                         )
-                        .group_by(DjmdSongPlaylist.ContentID)
+                        .distinct()
+                        .order_by(DjmdPlaylist.Name)
                         .all()
-                    )
+                    playlist_memberships = {}
+                    for content_id, playlist_id, playlist_name in playlist_rows:
+                        playlist_memberships.setdefault(str(content_id), {})[str(playlist_id)] = {
+                            "id": str(playlist_id),
+                            "name": str(playlist_name or ""),
+                        }
                     for _, candidate in selected:
                         content = candidate.pop("_content")
                         candidate["cue_count"] = sum(
                             not getattr(cue, "rb_local_deleted", 0)
                             for cue in (getattr(content, "Cues", None) or [])
                         )
-                        candidate["playlist_count"] = playlist_counts.get(
-                            str(candidate.get("id") or ""), 0,
+                        candidate_playlists = list(
+                            playlist_memberships.get(str(candidate.get("id") or ""), {}).values(),
                         )
+                        candidate["playlists"] = candidate_playlists
+                        candidate["playlist_count"] = len(candidate_playlists)
                     return selected
 
                 ranked = await asyncio.to_thread(ranked_candidates)
@@ -420,6 +433,7 @@ def build_server(
             play_count=candidate.get("play_count") or 0,
             cue_count=candidate.get("cue_count") or 0,
             playlist_count=candidate.get("playlist_count") or 0,
+            playlists=candidate.get("playlists") or [],
             similarity=round(score * 100, 1),
         ) for score, candidate in ranked]
 
@@ -441,6 +455,7 @@ def build_server(
             play_count=candidate.get("play_count") or 0,
             cue_count=candidate.get("cue_count") or 0,
             playlist_count=candidate.get("playlist_count") or 0,
+            playlists=candidate.get("playlists") or [],
             similarity=round(score * 100, 1),
             file_path=str(candidate.get("file_path") or ""),
         ) for score, candidate in ranked]

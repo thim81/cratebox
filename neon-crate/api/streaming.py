@@ -23,6 +23,14 @@ class RevealRequest(BaseModel):
 def collection_stream(track_id: str):
     audio_path = collection_mcp.track_paths.get(track_id)
     if audio_path is None or not audio_path.is_file():
+        print(
+            "Collection stream 404: "
+            f"track_id={track_id} "
+            f"reason={'path_not_cached' if audio_path is None else 'file_missing'} "
+            f"mcp_state={collection_mcp.state} "
+            f"cached_track_count={len(collection_mcp.track_paths)}",
+            flush=True,
+        )
         raise HTTPException(404, "Rekordbox track not found in the latest lookup.")
     return FileResponse(audio_path, headers={"Cache-Control": "no-store"})
 

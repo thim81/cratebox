@@ -42,6 +42,7 @@ interface TrackTableProps {
   onPlayCollectionMatch: (match: CollectionMatch) => void;
   onSwapCollectionMatch: (sourceTrack: Track, match: CollectionMatch) => void;
   onAddCollectionMatch: (sourceTrack: Track, match: CollectionMatch) => void;
+  onOpenRekordboxPlaylist: (playlistId: string, trackId: string) => void;
   onCollapseLookup: () => void;
   onInsertSeparator: (type: SeparatorType, track: Track) => void;
   onSelectSeparator: (track: Track) => void;
@@ -82,6 +83,7 @@ export function TrackTable({
   onPlayCollectionMatch,
   onSwapCollectionMatch,
   onAddCollectionMatch,
+  onOpenRekordboxPlaylist,
   onCollapseLookup,
   onInsertSeparator,
   onSelectSeparator,
@@ -372,6 +374,7 @@ export function TrackTable({
                         onPlay={onPlayCollectionMatch}
                         onSwap={onSwapCollectionMatch}
                         onAdd={onAddCollectionMatch}
+                        onOpenRekordboxPlaylist={onOpenRekordboxPlaylist}
                         onNavigatePlaylist={(direction) => {
                           const sourceIndex = tracks.findIndex(
                             (item) => item.id === lookupTrack.id,

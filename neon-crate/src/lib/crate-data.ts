@@ -63,6 +63,7 @@ export interface CollectionMatch {
   play_count: number;
   cue_count: number;
   playlist_count: number;
+  playlists: { id: string; name: string }[];
   similarity: number;
   quality?: string;
   playable?: boolean;

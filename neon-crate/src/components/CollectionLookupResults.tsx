@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { ArrowLeftRight, LoaderCircle, Pause, Play, Plus, Star, Volume2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PlaylistMembershipBadge } from "@/components/PlaylistMembershipBadge";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
 
 const resultGrid =
@@ -34,6 +35,7 @@ interface Props {
   onPlay: (match: CollectionMatch) => void;
   onSwap: (sourceTrack: Track, match: CollectionMatch) => void;
   onAdd: (sourceTrack: Track, match: CollectionMatch) => void;
+  onOpenRekordboxPlaylist: (playlistId: string, trackId: string) => void;
   onNavigatePlaylist: (direction: "up" | "down") => void;
   onCollapse: () => void;
 }
@@ -50,6 +52,7 @@ export function CollectionLookupResults({
   onPlay,
   onSwap,
   onAdd,
+  onOpenRekordboxPlaylist,
   onNavigatePlaylist,
   onCollapse,
 }: Props) {
@@ -221,8 +224,12 @@ export function CollectionLookupResults({
               <span className="text-right font-mono text-[10px] text-muted-foreground">
                 {match.cue_count ?? 0}
               </span>
-              <span className="text-right font-mono text-[10px] text-muted-foreground">
-                {match.playlist_count ?? 0}
+              <span className="text-right">
+                <PlaylistMembershipBadge
+                  count={match.playlist_count ?? 0}
+                  playlists={match.playlists ?? []}
+                  onSelect={(playlistId) => onOpenRekordboxPlaylist(playlistId, match.id)}
+                />
               </span>
               <span className="text-right font-mono text-[10px] text-muted-foreground">
                 {(match.play_count ?? 0).toLocaleString()}
