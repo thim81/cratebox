@@ -100,6 +100,7 @@ function Index() {
   const [playlistSource, setPlaylistSource] = useState<"crate" | "rekordbox">("crate");
   const selectedTrackByPlaylist = useRef(new Map<string, string>());
   const pendingRekordboxJump = useRef<{ playlistId: string; trackId: string } | null>(null);
+  const rekordboxDeepLinkHandled = useRef(false);
   const activePlaylistContext = useRef({ id: activeId, source: playlistSource });
   const playlistTracksGeneration = useRef(0);
   useLayoutEffect(() => {
@@ -129,6 +130,12 @@ function Index() {
   const [refreshing, setRefreshing] = useState(false);
   const [separatorInserting, setSeparatorInserting] = useState(false);
   const [reordering, setReordering] = useState(false);
+  const [pendingSeparatorInsert, setPendingSeparatorInsert] = useState<{
+    track: Track;
+    type: SeparatorType;
+    playlistId: string;
+    playlistName: string;
+  } | null>(null);
   const [pendingSeparatorReplacement, setPendingSeparatorReplacement] = useState<{
     track: Track;
     type: SeparatorType;
@@ -644,6 +651,15 @@ function Index() {
     view,
   ]);
 
+  useEffect(() => {
+    if (rekordboxDeepLinkHandled.current) return;
+    rekordboxDeepLinkHandled.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const playlistId = params.get("rekordbox_playlist_id");
+    const trackId = params.get("rekordbox_track_id");
+    if (playlistId && trackId) openRekordboxPlaylistAtTrack(playlistId, trackId);
+  }, [openRekordboxPlaylistAtTrack]);
+
   const activePlaylistName = activePl?.name ?? "";
   const swapCollectionMatch = useCallback(
     async (sourceTrack: Track, match: CollectionMatch) => {
@@ -729,19 +745,21 @@ function Index() {
     [activeId, addingCollectionTrackId, apiUrl, playlistSource, refreshPlaylists, selectTrackAt],
   );
 
-  const addSeparator = useCallback(
-    async (type: SeparatorType, track: Track) => {
-      if (!activeId || playlistSource !== "crate") return;
-      const requestPlaylistId = activeId;
-      const separator = PLAYLIST_SEPARATORS.find((item) => item.type === type);
-      if (
-        !separator ||
-        !window.confirm(
-          `Insert the ${separator.label} separator before “${track.title}” in “${activePlaylistName || "this playlist"}”? The playlist and its JSON plan will be updated.`,
-        )
-      )
-        return;
+  const addSeparator = useCallback((type: SeparatorType, track: Track) => {
+    if (!activeId || playlistSource !== "crate") return;
+    if (!PLAYLIST_SEPARATORS.some((item) => item.type === type)) return;
+    setPendingSeparatorInsert({
+      track,
+      type,
+      playlistId: activeId,
+      playlistName: activePlaylistName || "this playlist",
+    });
+  }, [activeId, activePlaylistName, playlistSource]);
 
+  const confirmAddSeparator = useCallback(async () => {
+    const pending = pendingSeparatorInsert;
+    if (!pending) return;
+    const { track, type, playlistId: requestPlaylistId } = pending;
       setSeparatorInserting(true);
       try {
         await insertPlaylistSeparator(apiUrl, requestPlaylistId, type, track.id);
@@ -750,8 +768,10 @@ function Index() {
         if (
           activePlaylistContext.current.id !== requestPlaylistId ||
           activePlaylistContext.current.source !== "crate"
-        )
+        ) {
+          setPendingSeparatorInsert(null);
           return;
+        }
         const updatedTracks = playlist.tracks ?? [];
         setTracks(updatedTracks);
         setRangeAnchor(null);
@@ -789,6 +809,7 @@ function Index() {
         const targetIndex = nextView.findIndex((item) => item.id === track.id);
         selectTrackAt(targetIndex >= 0 ? targetIndex : 0, nextView);
         setApiError(null);
+        setPendingSeparatorInsert(null);
       } catch (error) {
         if (
           activePlaylistContext.current.id === requestPlaylistId &&
@@ -801,18 +822,14 @@ function Index() {
       } finally {
         setSeparatorInserting(false);
       }
-    },
-    [
-      activeId,
-      activePlaylistName,
+  }, [
       apiUrl,
-      playlistSource,
+      pendingSeparatorInsert,
       q,
       refreshPlaylists,
       selectTrackAt,
       sort,
-    ],
-  );
+    ]);
 
   const selectSeparator = useCallback((track: Track) => {
     setExpandedSeparatorTrackId((current) => (current === track.id ? null : track.id));
@@ -1499,6 +1516,40 @@ function Index() {
                 {playlist.name}
               </Button>
             ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingSeparatorInsert !== null}
+        onOpenChange={(open) => {
+          if (!open && !separatorInserting) setPendingSeparatorInsert(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Insert separator?</DialogTitle>
+            <DialogDescription>
+              {(() => {
+                const separator = PLAYLIST_SEPARATORS.find(
+                  (item) => item.type === pendingSeparatorInsert?.type,
+                );
+                return `Insert the ${separator?.label ?? "selected"} separator after “${pendingSeparatorInsert?.track.title}” in “${pendingSeparatorInsert?.playlistName}”? The playlist and its JSON plan will be updated.`;
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              disabled={separatorInserting}
+              onClick={() => setPendingSeparatorInsert(null)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={separatorInserting} onClick={() => void confirmAddSeparator()}>
+              {separatorInserting ? <LoaderCircle size={14} className="animate-spin" /> : null}
+              Insert
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

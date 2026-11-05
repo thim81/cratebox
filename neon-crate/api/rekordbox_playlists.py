@@ -28,7 +28,7 @@ class CopyPlaylistRequest(BaseModel):
 
 class InsertSeparatorRequest(BaseModel):
     type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
-    before_track_id: str
+    after_track_id: str
     confirm_update: bool = False
 
 
@@ -250,7 +250,7 @@ async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRe
         path, plan, lines = local_playlist_with_plan(playlist_id)
         await validate_plan_locations(plan)
         entries = list(playlist_entries(path, lines, plan))
-        target = next((entry for entry in entries if entry[3] == request.before_track_id), None)
+        target = next((entry for entry in entries if entry[3] == request.after_track_id), None)
         if target is None:
             raise HTTPException(404, "Selected track not found in playlist")
 
@@ -260,7 +260,7 @@ async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRe
                 "name": path.stem,
                 "track_ids": plan[0],
                 "update_existing": True,
-                "separators": [{"type": request.type, "before_track": target[1] + 1}],
+                "separators": [{"type": request.type, "before_track": target[1] + 2}],
             },
         )
         if not isinstance(exported, dict):

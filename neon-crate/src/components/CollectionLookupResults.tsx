@@ -228,6 +228,7 @@ export function CollectionLookupResults({
                 <PlaylistMembershipBadge
                   count={match.playlist_count ?? 0}
                   playlists={match.playlists ?? []}
+                  trackId={match.id}
                   onSelect={(playlistId) => onOpenRekordboxPlaylist(playlistId, match.id)}
                 />
               </span>

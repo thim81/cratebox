@@ -245,12 +245,12 @@ export async function insertPlaylistSeparator(
   apiUrl: string,
   playlistId: string,
   type: SeparatorType,
-  beforeTrackId: string,
+  afterTrackId: string,
 ): Promise<void> {
   await requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}/separators`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, before_track_id: beforeTrackId, confirm_update: true }),
+    body: JSON.stringify({ type, after_track_id: afterTrackId, confirm_update: true }),
   });
 }
 

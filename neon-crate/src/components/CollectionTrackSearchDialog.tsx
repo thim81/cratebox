@@ -53,9 +53,19 @@ export function CollectionTrackSearchDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [showMidMatches, setShowMidMatches] = useState(false);
+  const [showLowMatches, setShowLowMatches] = useState(false);
   const requestId = useRef(0);
   const resultsRef = useRef<HTMLDivElement>(null);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  const highMatches = matches.filter((match) => match.similarity >= 70);
+  const midMatches = matches.filter((match) => match.similarity >= 50 && match.similarity < 70);
+  const lowMatches = matches.filter((match) => match.similarity < 50);
+  const shownMatches = [
+    ...highMatches,
+    ...(showMidMatches ? midMatches : []),
+    ...(showLowMatches ? lowMatches : []),
+  ];
   const activeMatch = matches.find(
     (match) =>
       activeTrackId === `collection-${match.id}` || activeRekordboxId === match.id,
@@ -68,12 +78,16 @@ export function CollectionTrackSearchDialog({
     setMatches([]);
     setError(null);
     setSearched(false);
+    setShowMidMatches(false);
+    setShowLowMatches(false);
   }, [open, anchorTrack]);
 
   useEffect(() => {
-    setSelectedMatchId(matches[0]?.id ?? null);
+    setSelectedMatchId(matches.find((match) => match.similarity >= 70)?.id ?? null);
     if (matches.length) {
-      resultsRef.current?.querySelector<HTMLElement>("[data-add-result]")?.focus();
+      resultsRef.current
+        ?.querySelector<HTMLElement>("[data-add-result], [data-show-mid-matches]")
+        ?.focus();
     }
   }, [matches]);
 
@@ -84,6 +98,8 @@ export function CollectionTrackSearchDialog({
     setError(null);
     setMatches([]);
     setSearched(true);
+    setShowMidMatches(false);
+    setShowLowMatches(false);
     try {
       const results = await lookupCollection(apiUrl, {
         id: "collection-search",
@@ -211,7 +227,7 @@ export function CollectionTrackSearchDialog({
               <span className="sr-only">Play</span>
               <span />
             </div>
-            {matches.map((match) => (
+            {shownMatches.map((match) => (
               <div
                 key={match.id}
                 data-add-result={match.id}
@@ -269,6 +285,7 @@ export function CollectionTrackSearchDialog({
                   <PlaylistMembershipBadge
                     count={match.playlist_count ?? 0}
                     playlists={match.playlists ?? []}
+                    trackId={match.id}
                     onSelect={(playlistId) => {
                       onOpenRekordboxPlaylist(playlistId, match.id);
                       onOpenChange(false);
@@ -313,6 +330,31 @@ export function CollectionTrackSearchDialog({
                 </Button>
               </div>
             ))}
+            {(midMatches.length > 0 || lowMatches.length > 0) && !showMidMatches && (
+              <div className="border-t border-border py-1 text-center">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  data-show-mid-matches
+                  onClick={() => setShowMidMatches(true)}
+                >
+                  Show more ({midMatches.length + lowMatches.length} matches below 70%)
+                </Button>
+              </div>
+            )}
+            {showMidMatches && lowMatches.length > 0 && !showLowMatches && (
+              <div className="border-t border-border py-1 text-center">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  onClick={() => setShowLowMatches(true)}
+                >
+                  Show more ({lowMatches.length} matches below 50%)
+                </Button>
+              </div>
+            )}
           </div>
         )}
         {!loading && !error && matches.length === 0 && searched && (

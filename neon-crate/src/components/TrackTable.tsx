@@ -256,8 +256,8 @@ export function TrackTable({
                           event.stopPropagation();
                           onInsertSeparator(separatorType, track);
                         }}
-                        aria-label={`Insert ${PLAYLIST_SEPARATORS.find((item) => item.type === separatorType)?.label ?? "Generic"} separator before ${track.title}`}
-                        title={`Insert ${separatorType} separator before this track`}
+                        aria-label={`Insert ${PLAYLIST_SEPARATORS.find((item) => item.type === separatorType)?.label ?? "Generic"} separator after ${track.title}`}
+                        title={`Insert ${separatorType} separator after this track`}
                       >
                         <Plus size={12} />
                       </Button>
