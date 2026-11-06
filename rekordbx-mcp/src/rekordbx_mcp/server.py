@@ -24,7 +24,8 @@ from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 from rekordbox_mcp import database as upstream_database
 from rekordbox_mcp import server as upstream
-from pyrekordbox.masterdb.models import DjmdPlaylist, DjmdSongPlaylist
+from pyrekordbox.masterdb.models import DjmdCue, DjmdPlaylist, DjmdSongPlaylist
+from sqlalchemy import func
 
 from .database import SnapshotDatabase, content_by_ids
 from .export import OUTPUT_DIRECTORY, PLAYLISTS_DIRECTORY, export_playlist as write_playlist
@@ -348,6 +349,47 @@ def build_server(
                         {**playlist, "sequence": sequences.get(str(playlist.get("id") or ""), 0)}
                         for playlist in result
                     ]
+                elif tool_name == "get_playlist_tracks" and isinstance(result, list):
+                    def add_usage_counts():
+                        track_ids = list(dict.fromkeys(
+                            str(track.get("id") or "")
+                            for track in result
+                            if isinstance(track, dict) and track.get("id") is not None
+                        ))
+                        if not track_ids:
+                            return result
+                        cue_counts = dict(database.db.session.query(
+                            DjmdCue.ContentID, func.count(DjmdCue.ID),
+                        ).filter(
+                            DjmdCue.ContentID.in_(track_ids),
+                            DjmdCue.rb_local_deleted == 0,
+                        ).group_by(DjmdCue.ContentID).all())
+                        playlist_rows = database.db.session.query(
+                            DjmdSongPlaylist.ContentID,
+                            DjmdPlaylist.ID,
+                            DjmdPlaylist.Name,
+                        ).join(
+                            DjmdPlaylist, DjmdPlaylist.ID == DjmdSongPlaylist.PlaylistID,
+                        ).filter(
+                            DjmdSongPlaylist.ContentID.in_(track_ids),
+                            DjmdSongPlaylist.rb_local_deleted == 0,
+                            DjmdPlaylist.rb_local_deleted == 0,
+                        ).distinct().order_by(DjmdPlaylist.Name).all()
+                        memberships = {}
+                        for content_id, playlist_id, playlist_name in playlist_rows:
+                            memberships.setdefault(str(content_id), []).append({
+                                "id": str(playlist_id),
+                                "name": str(playlist_name or ""),
+                            })
+                        for track in result:
+                            track_id = str(track.get("id") or "")
+                            track_playlists = memberships.get(track_id, [])
+                            track["cue_count"] = cue_counts.get(track_id, 0)
+                            track["playlist_count"] = len(track_playlists)
+                            track["playlists"] = track_playlists
+                        return result
+
+                    result = await run_database_operation(add_usage_counts)
                 return redact_paths(result)
         return call
 

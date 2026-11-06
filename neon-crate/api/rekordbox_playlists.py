@@ -203,6 +203,14 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
             "album": str(record.get("album") or ""),
             "duration": int(record.get("length") or 0),
             "rating": int(record.get("rating") or 0),
+            "play_count": int(record.get("play_count") or 0),
+            "cue_count": int(record.get("cue_count") or 0),
+            "playlist_count": int(record.get("playlist_count") or 0),
+            "playlists": [
+                {"id": str(item.get("id") or ""), "name": str(item.get("name") or "")}
+                for item in (record.get("playlists") or [])
+                if isinstance(item, dict) and item.get("id") is not None
+            ],
             "bpm": float(record.get("bpm") or 0),
             "key": str(record.get("key") or ""),
             "quality": "Rekordbox library",
