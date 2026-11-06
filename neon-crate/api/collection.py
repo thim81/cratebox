@@ -34,14 +34,8 @@ class CollectionMcp:
 
     async def status(self):
         async with self.call_lock:
-            if self.client:
-                client = self.client
-                try:
-                    if not await client.ping():
-                        raise RuntimeError("MCP worker did not respond.")
-                except Exception:
-                    logger.exception("Rekordbox MCP status ping failed; dropping the worker session")
-                    await self._invalidate(client)
+            if self.client and not self.client.is_connected():
+                await self._invalidate(self.client)
             return {"state": self.state, "message": self.message}
 
     async def connect(self):

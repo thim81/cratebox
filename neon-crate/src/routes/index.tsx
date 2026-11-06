@@ -69,11 +69,13 @@ import type { SeparatorType } from "@/lib/cratedeck-api";
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => {
     const validated: { rekordbox_playlist_id?: string; rekordbox_track_id?: string } = {};
-    if (typeof search["rekordbox_playlist_id"] === "string") {
-      validated.rekordbox_playlist_id = search["rekordbox_playlist_id"];
+    const playlistId = search["rekordbox_playlist_id"];
+    const trackId = search["rekordbox_track_id"];
+    if (typeof playlistId === "string" || (typeof playlistId === "number" && Number.isSafeInteger(playlistId))) {
+      validated.rekordbox_playlist_id = String(playlistId);
     }
-    if (typeof search["rekordbox_track_id"] === "string") {
-      validated.rekordbox_track_id = search["rekordbox_track_id"];
+    if (typeof trackId === "string" || (typeof trackId === "number" && Number.isSafeInteger(trackId))) {
+      validated.rekordbox_track_id = String(trackId);
     }
     return validated;
   },
@@ -401,7 +403,10 @@ function Index() {
   );
   useEffect(() => {
     setRangeAnchor(null);
-    if (!activeRekordboxId || activeRekordboxPlaylist?.is_folder) {
+    if (
+      !rekordboxLoaded || !activeRekordboxId || !activeRekordboxPlaylist
+      || activeRekordboxPlaylist.is_folder
+    ) {
       setRekordboxTracks([]);
       return;
     }
@@ -422,7 +427,7 @@ function Index() {
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, activeRekordboxId, activeRekordboxPlaylist?.is_folder]);
+  }, [apiUrl, activeRekordboxId, activeRekordboxPlaylist, rekordboxLoaded]);
 
   const copySelectedRekordboxPlaylist = useCallback(async () => {
     const playlist = activeRekordboxPlaylist;
@@ -690,6 +695,13 @@ function Index() {
     search.rekordbox_playlist_id,
     search.rekordbox_track_id,
   ]);
+
+  useEffect(() => {
+    const playlist = rekordboxPlaylists.find(
+      (item) => item.id === search.rekordbox_playlist_id && !item.is_folder,
+    );
+    if (playlist) setRekordboxFolderId(playlist.parent_id);
+  }, [rekordboxPlaylists, search.rekordbox_playlist_id]);
 
   const activePlaylistName = activePl?.name ?? "";
   const swapCollectionMatch = useCallback(

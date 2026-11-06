@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Folder, ListMusic, LoaderCircle, Package, Plus, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -56,6 +56,7 @@ export function CrateSidebar({
 }: CrateSidebarProps) {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
+  const activeRekordboxPlaylistRef = useRef<HTMLButtonElement>(null);
   const crates = playlists.filter((playlist) =>
     playlist.name.toLowerCase().includes(filter.toLowerCase()),
   );
@@ -66,6 +67,12 @@ export function CrateSidebar({
     .filter((playlist) => playlist.parent_id === rekordboxFolderId)
     .filter((playlist) => playlist.name.toLowerCase().includes(filter.toLowerCase()))
     .sort((left, right) => left.sequence - right.sequence);
+
+  useEffect(() => {
+    if (source === "rekordbox" && activeRekordboxId) {
+      activeRekordboxPlaylistRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeRekordboxId, rekordboxFolderId, source]);
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
@@ -176,7 +183,7 @@ export function CrateSidebar({
           crates.map((playlist) => (
             <div
               key={playlist.id}
-              className={`flex w-full items-center border-l-2 transition-colors ${playlist.id === activeId ? "border-primary bg-sidebar-accent" : "border-transparent hover:bg-sidebar-accent/60"}`}
+              className={`flex w-full items-center border-l-2 transition-colors ${playlist.id === activeId ? "border-primary bg-primary/15" : "border-transparent hover:bg-sidebar-accent/60"}`}
             >
               <button
                 onClick={() => onSelectPlaylist(playlist.id)}
@@ -201,7 +208,7 @@ export function CrateSidebar({
                       />
                     )}
                   </span>
-                  <span className="truncate">{playlist.name}</span>
+                  <span className={`truncate ${playlist.id === activeId ? "text-primary" : ""}`}>{playlist.name}</span>
                 </div>
                 <div className="mt-0.5 flex gap-3 pl-6 font-mono text-[10px] text-muted-foreground">
                   <span>{playlist.trackCount} trk</span>
@@ -220,20 +227,31 @@ export function CrateSidebar({
           rekordboxEntries.map((playlist, index) => (
             <button
               key={playlist.id}
+              ref={playlist.id === activeRekordboxId ? activeRekordboxPlaylistRef : undefined}
               onClick={() =>
                 playlist.is_folder
                   ? onOpenRekordboxFolder(playlist.id)
                   : onSelectRekordboxPlaylist(playlist.id)
               }
-              className={`flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left transition-colors ${playlist.id === activeRekordboxId ? "border-primary bg-sidebar-accent" : "border-transparent hover:bg-sidebar-accent/60"}`}
+              className={`flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left transition-colors ${playlist.id === activeRekordboxId ? "border-primary bg-primary/15" : "border-transparent hover:bg-sidebar-accent/60"}`}
             >
               {playlist.is_folder ? (
-                <Folder size={14} className="shrink-0 text-muted-foreground" />
+                <Folder
+                  size={14}
+                  className={`shrink-0 ${playlist.id === activeRekordboxId ? "text-primary" : "text-muted-foreground"}`}
+                />
               ) : (
-                <ListMusic size={14} className="shrink-0 text-muted-foreground" />
+                <ListMusic
+                  size={14}
+                  className={`shrink-0 ${playlist.id === activeRekordboxId ? "text-primary" : "text-muted-foreground"}`}
+                />
               )}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{playlist.name}</span>
+                <span
+                  className={`block truncate text-sm font-medium ${playlist.id === activeRekordboxId ? "text-primary" : ""}`}
+                >
+                  {playlist.name}
+                </span>
                 <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">
                   {playlist.is_folder ? "Folder" : `${playlist.track_count} trk`}
                   {playlist.is_smart_playlist ? " · Smart" : ""}
