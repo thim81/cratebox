@@ -68,7 +68,12 @@ import type { SeparatorType } from "@/lib/cratedeck-api";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => {
-    const validated: { rekordbox_playlist_id?: string; rekordbox_track_id?: string } = {};
+    const validated: {
+      rekordbox_playlist_id?: string;
+      rekordbox_track_id?: string;
+      crate_playlist_id?: string;
+      crate_track_id?: string;
+    } = {};
     const playlistId = search["rekordbox_playlist_id"];
     const trackId = search["rekordbox_track_id"];
     if (typeof playlistId === "string" || (typeof playlistId === "number" && Number.isSafeInteger(playlistId))) {
@@ -76,6 +81,12 @@ export const Route = createFileRoute("/")({
     }
     if (typeof trackId === "string" || (typeof trackId === "number" && Number.isSafeInteger(trackId))) {
       validated.rekordbox_track_id = String(trackId);
+    }
+    for (const key of ["crate_playlist_id", "crate_track_id"] as const) {
+      const value = search[key];
+      if (typeof value === "string" || (typeof value === "number" && Number.isSafeInteger(value))) {
+        validated[key] = String(value);
+      }
     }
     return validated;
   },
@@ -105,14 +116,31 @@ const camelot = (k: string) => parseInt(k) * 2 + (k.endsWith("B") ? 1 : 0);
 function Index() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const updateCrateUrl = useCallback((playlistId: string, trackId?: string) => {
+    void navigate({
+      search: (previous) => {
+        const next = { ...previous, crate_playlist_id: playlistId };
+        delete next.rekordbox_playlist_id;
+        delete next.rekordbox_track_id;
+        if (trackId) next.crate_track_id = trackId;
+        else delete next.crate_track_id;
+        return next;
+      },
+      replace: true,
+    });
+  }, [navigate]);
   const [apiUrl, setApiUrl] = useState("http://localhost:8000");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [lightMode, setLightMode] = useState(false);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [activeId, setActiveId] = useState("");
+  const [activeId, setActiveId] = useState(search.crate_playlist_id ?? "");
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlistSource, setPlaylistSource] = useState<"crate" | "rekordbox">("crate");
-  const selectedTrackByPlaylist = useRef(new Map<string, string>());
+  const selectedTrackByPlaylist = useRef(new Map<string, string>(
+    search.crate_playlist_id && search.crate_track_id
+      ? [[`crate:${search.crate_playlist_id}`, search.crate_track_id]]
+      : [],
+  ));
   const pendingRekordboxJump = useRef<{ playlistId: string; trackId: string } | null>(null);
   const appliedRekordboxDeepLink = useRef<string | null>(null);
   const activePlaylistContext = useRef({ id: activeId, source: playlistSource });
@@ -230,6 +258,7 @@ function Index() {
       setTracks([]);
       setActiveId(created.id);
       setPlaylistSource("crate");
+      updateCrateUrl(created.id);
       setSel(0);
       setQ("");
       setRangeAnchor(null);
@@ -240,7 +269,7 @@ function Index() {
     } finally {
       setCreatingPlaylist(false);
     }
-  }, [apiUrl]);
+  }, [apiUrl, updateCrateUrl]);
 
   const refreshCollectionStatus = useCallback(async () => {
     try {
@@ -279,7 +308,17 @@ function Index() {
   const changePlaylistSource = (source: "crate" | "rekordbox") => {
     setPlaylistSource(source);
     setApiError(null);
+    if (source === "crate" && activeId) {
+      updateCrateUrl(activeId, selectedTrackByPlaylist.current.get(`crate:${activeId}`));
+    }
     if (source === "rekordbox" && !rekordboxLoaded) void refreshRekordboxPlaylists();
+  };
+
+  const selectCratePlaylist = (playlistId: string) => {
+    setPlaylistSource("crate");
+    setActiveId(playlistId);
+    setApiError(null);
+    updateCrateUrl(playlistId, selectedTrackByPlaylist.current.get(`crate:${playlistId}`));
   };
 
   const lookupTrackInCollection = useCallback(
@@ -456,12 +495,13 @@ function Index() {
       setRekordboxError(null);
       setActiveId(copied.name);
       setPlaylistSource("crate");
+      updateCrateUrl(copied.name);
     } catch (error) {
       setRekordboxError(error instanceof Error ? error.message : "Could not copy the playlist.");
     } finally {
       setCopyingRekordboxId(null);
     }
-  }, [activeRekordboxPlaylist, apiUrl, rekordboxTracks.length, refreshPlaylists]);
+  }, [activeRekordboxPlaylist, apiUrl, rekordboxTracks.length, refreshPlaylists, updateCrateUrl]);
 
   const appendTrackToPlaylist = useCallback(
     async (track: Track, destinationId: string) => {
@@ -615,9 +655,14 @@ function Index() {
     (index: number, list: Track[] = view) => {
       setSel(index);
       const track = list[index];
-      if (track) selectedTrackByPlaylist.current.set(selectionKey, track.id);
+      if (track) {
+        selectedTrackByPlaylist.current.set(selectionKey, track.id);
+      } else {
+        selectedTrackByPlaylist.current.delete(selectionKey);
+      }
+      if (playlistSource === "crate" && activeId) updateCrateUrl(activeId, track?.id);
     },
-    [selectionKey, view],
+    [activeId, playlistSource, selectionKey, updateCrateUrl, view],
   );
 
   useEffect(() => {
@@ -1316,7 +1361,7 @@ function Index() {
           onRefresh={() => void refreshPlaylists()}
           onRefreshRekordbox={() => void refreshRekordboxPlaylists()}
           onCreatePlaylist={createCratePlaylist}
-          onSelectPlaylist={setActiveId}
+          onSelectPlaylist={selectCratePlaylist}
           onSelectRekordboxPlaylist={setActiveRekordboxId}
           onOpenRekordboxFolder={(folderId) => {
             setRekordboxFolderId(folderId);
