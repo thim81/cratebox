@@ -276,10 +276,18 @@ export async function appendRekordboxTrack(
   playlistId: string,
   trackId: string,
 ): Promise<void> {
-  await requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}/tracks/append`, {
+  await appendRekordboxTracks(apiUrl, playlistId, [trackId]);
+}
+
+export async function appendRekordboxTracks(
+  apiUrl: string,
+  playlistId: string,
+  trackIds: string[],
+): Promise<void> {
+  await requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}/tracks/append-many`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ track_id: trackId, confirm_update: true }),
+    body: JSON.stringify({ track_ids: trackIds, confirm_update: true }),
   });
 }
 

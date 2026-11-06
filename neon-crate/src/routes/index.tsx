@@ -9,6 +9,7 @@ import {
   Disc3,
   FolderOpen,
   ImageOff,
+  ListPlus,
   LoaderCircle,
   Plus,
   Search,
@@ -36,7 +37,7 @@ import { Slider } from "@/components/ui/slider";
 import {
   collectionStreamUrl,
   collectionArtworkUrl,
-  appendRekordboxTrack,
+  appendRekordboxTracks,
   insertRekordboxTrackAfter,
   copyRekordboxPlaylist,
   deletePlaylistTracks,
@@ -503,19 +504,26 @@ function Index() {
     }
   }, [activeRekordboxPlaylist, apiUrl, rekordboxTracks.length, refreshPlaylists, updateCrateUrl]);
 
-  const appendTrackToPlaylist = useCallback(
-    async (track: Track, destinationId: string) => {
+  const appendTracksToPlaylist = useCallback(
+    async (tracks: Track[], destinationId: string) => {
       const destination = playlists.find((playlist) => playlist.id === destinationId);
-      const trackId = track.rekordbox_id;
-      if (playlistSource !== "rekordbox" || !destination || !trackId) return;
+      const trackIds = tracks.flatMap((track) => track.rekordbox_id ? [track.rekordbox_id] : []);
+      if (
+        playlistSource !== "rekordbox" || !destination || !tracks.length ||
+        trackIds.length !== tracks.length || appendingTrackId !== null
+      ) return;
 
       const generation = ++playlistTracksGeneration.current;
-      setAppendingTrackId(track.id);
+      setAppendingTrackId(tracks.length === 1 ? tracks[0]?.id ?? "__selection__" : "__selection__");
       setApiError(null);
       try {
-        await appendRekordboxTrack(apiUrl, destination.id, trackId);
+        await appendRekordboxTracks(apiUrl, destination.id, trackIds);
         await refreshPlaylists();
-        toast.success(`Added “${track.title}” to ${destination.name}.`);
+        toast.success(
+          tracks.length === 1
+            ? `Added “${tracks[0]?.title ?? "track"}” to ${destination.name}.`
+            : `Added ${tracks.length} selected tracks to ${destination.name}.`,
+        );
         if (
           generation === playlistTracksGeneration.current &&
           activePlaylistContext.current.source === "crate" &&
@@ -536,13 +544,17 @@ function Index() {
         }
       } catch (error) {
         setApiError(
-          `Couldn't insert ${track.title} into ${destination.name} (${error instanceof Error ? error.message : "request failed"})`,
+          `Couldn't add ${tracks.length === 1 ? tracks[0]?.title ?? "track" : "the selected tracks"} to ${destination.name} (${error instanceof Error ? error.message : "request failed"})`,
         );
       } finally {
         setAppendingTrackId(null);
       }
     },
-    [apiUrl, playlistSource, playlists, refreshPlaylists],
+    [apiUrl, appendingTrackId, playlistSource, playlists, refreshPlaylists],
+  );
+  const appendTrackToPlaylist = useCallback(
+    (track: Track, destinationId: string) => appendTracksToPlaylist([track], destinationId),
+    [appendTracksToPlaylist],
   );
   const editLoadedArtwork = (track: Track) => {
     const playlist = playlists.find((item) => item.name === loaded?.playlist);
@@ -973,6 +985,15 @@ function Index() {
     () => new Set(selectedRange.map((track) => track.id)),
     [selectedRange],
   );
+  const selectedRekordboxTracks = useMemo(() => {
+    const selected = new Set(selectedRange.map((track) => track.id));
+    return rekordboxTracks.filter((track) => selected.has(track.id));
+  }, [rekordboxTracks, selectedRange]);
+  const appendSelectedRekordboxTracks = useCallback(() => {
+    if (appendDestination) {
+      void appendTracksToPlaylist(selectedRekordboxTracks, appendDestination.id);
+    }
+  }, [appendDestination, appendTracksToPlaylist, selectedRekordboxTracks]);
   const reorderTrack = useCallback(
     async (sourceTrackId: string, targetTrackId: string, before: boolean) => {
       if (!activeId || playlistSource !== "crate" || reordering) return;
@@ -1488,6 +1509,31 @@ function Index() {
                     </select>
                   </label>
                 )}
+              {playlistSource === "rekordbox" && selectedRange.length > 1 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0"
+                  disabled={
+                    !appendDestination ||
+                    appendingTrackId !== null ||
+                    selectedRekordboxTracks.length !== selectedRange.length
+                  }
+                  onClick={appendSelectedRekordboxTracks}
+                  title={
+                    appendDestination
+                      ? `Add ${selectedRange.length} selected tracks to ${appendDestination.name}`
+                      : "Select a CrateDeck playlist first"
+                  }
+                >
+                  {appendingTrackId === "__selection__" ? (
+                    <LoaderCircle size={13} className="animate-spin" />
+                  ) : (
+                    <ListPlus size={14} />
+                  )}
+                  Add selected ({selectedRange.length})
+                </Button>
+              )}
               <div className="relative w-72">
                 <Search
                   size={14}

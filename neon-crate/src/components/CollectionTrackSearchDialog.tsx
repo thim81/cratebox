@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { LoaderCircle, Pause, Play, Plus, Search, Star, Volume2 } from "lucide-react";
+import {
+  LoaderCircle,
+  FastForward,
+  Pause,
+  Play,
+  Plus,
+  Rewind,
+  Search,
+  Star,
+  Volume2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PlaylistMembershipBadge } from "@/components/PlaylistMembershipBadge";
 import {
@@ -49,6 +59,8 @@ export function CollectionTrackSearchDialog({
 }: Props) {
   const [artist, setArtist] = useState("");
   const [title, setTitle] = useState("");
+  const [filterArtist, setFilterArtist] = useState("");
+  const [filterTitle, setFilterTitle] = useState("");
   const [matches, setMatches] = useState<CollectionMatch[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,9 +70,13 @@ export function CollectionTrackSearchDialog({
   const requestId = useRef(0);
   const resultsRef = useRef<HTMLDivElement>(null);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
-  const highMatches = matches.filter((match) => match.similarity >= 70);
-  const midMatches = matches.filter((match) => match.similarity >= 50 && match.similarity < 70);
-  const lowMatches = matches.filter((match) => match.similarity < 50);
+  const filteredMatches = matches.filter((match) =>
+    match.artist.toLocaleLowerCase().includes(filterArtist.trim().toLocaleLowerCase()) &&
+    match.title.toLocaleLowerCase().includes(filterTitle.trim().toLocaleLowerCase()),
+  );
+  const highMatches = filteredMatches.filter((match) => match.similarity >= 70);
+  const midMatches = filteredMatches.filter((match) => match.similarity >= 50 && match.similarity < 70);
+  const lowMatches = filteredMatches.filter((match) => match.similarity < 50);
   const shownMatches = [
     ...highMatches,
     ...(showMidMatches ? midMatches : []),
@@ -70,11 +86,14 @@ export function CollectionTrackSearchDialog({
     (match) =>
       activeTrackId === `collection-${match.id}` || activeRekordboxId === match.id,
   );
+  const seekLimit = duration || activeMatch?.duration || 0;
 
   useEffect(() => {
     if (!open) return;
     setArtist("");
     setTitle("");
+    setFilterArtist("");
+    setFilterTitle("");
     setMatches([]);
     setError(null);
     setSearched(false);
@@ -97,6 +116,8 @@ export function CollectionTrackSearchDialog({
     setLoading(true);
     setError(null);
     setMatches([]);
+    setFilterArtist("");
+    setFilterTitle("");
     setSearched(true);
     setShowMidMatches(false);
     setShowLowMatches(false);
@@ -148,9 +169,30 @@ export function CollectionTrackSearchDialog({
     }
   }
 
+  function seekFromKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const target = event.target as HTMLElement;
+    if (target.closest("input, textarea, [contenteditable='true'], [role='slider']")) {
+      event.stopPropagation();
+      return;
+    }
+    if (!activeMatch) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onSeekTo(
+      Math.max(
+        0,
+        Math.min(currentTime + (event.key === "ArrowRight" ? 5 : -5), seekLimit),
+      ),
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-7xl overflow-y-auto">
+      <DialogContent
+        className="max-h-[90vh] max-w-7xl overflow-y-auto"
+        onKeyDown={seekFromKeyboard}
+      >
         <DialogHeader>
           <DialogTitle>Add a track</DialogTitle>
           <DialogDescription>
@@ -182,6 +224,17 @@ export function CollectionTrackSearchDialog({
           <div className="flex items-center gap-3 rounded-md border border-border bg-secondary/50 px-3 py-2">
             <Button
               size="icon"
+              variant="ghost"
+              className="size-7 shrink-0"
+              disabled={currentTime <= 0}
+              onClick={() => onSeekTo(Math.max(currentTime - 5, 0))}
+              aria-label="Rewind 5 seconds"
+              title="Rewind 5 seconds"
+            >
+              <Rewind size={14} />
+            </Button>
+            <Button
+              size="icon"
               variant="secondary"
               className="size-8 shrink-0"
               onClick={() => onPlay(activeMatch)}
@@ -189,6 +242,17 @@ export function CollectionTrackSearchDialog({
               title={playing ? "Pause" : "Play"}
             >
               {playing ? <Pause size={15} /> : <Play size={15} />}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7 shrink-0"
+              disabled={currentTime >= seekLimit}
+              onClick={() => onSeekTo(Math.min(currentTime + 5, seekLimit))}
+              aria-label="Forward 5 seconds"
+              title="Forward 5 seconds"
+            >
+              <FastForward size={14} />
             </Button>
             <span className="min-w-0 max-w-56 truncate text-xs font-medium" title={`${activeMatch.artist} — ${activeMatch.title}`}>
               {activeMatch.artist} — {activeMatch.title}
@@ -205,6 +269,22 @@ export function CollectionTrackSearchDialog({
             <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
               {fmtTime(currentTime)} / {fmtTime(duration || activeMatch.duration)}
             </span>
+          </div>
+        )}
+        {!loading && matches.length > 0 && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input
+              value={filterArtist}
+              onChange={(event) => setFilterArtist(event.target.value)}
+              placeholder="Filter by artist"
+              aria-label="Filter results by artist"
+            />
+            <Input
+              value={filterTitle}
+              onChange={(event) => setFilterTitle(event.target.value)}
+              placeholder="Filter by track"
+              aria-label="Filter results by track"
+            />
           </div>
         )}
         {!loading && matches.length > 0 && (
@@ -330,6 +410,11 @@ export function CollectionTrackSearchDialog({
                 </Button>
               </div>
             ))}
+            {filteredMatches.length === 0 && (
+              <p className="py-4 text-center text-xs text-muted-foreground">
+                No results match these filters.
+              </p>
+            )}
             {(midMatches.length > 0 || lowMatches.length > 0) && !showMidMatches && (
               <div className="border-t border-border py-1 text-center">
                 <Button

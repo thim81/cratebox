@@ -375,6 +375,13 @@ export function Deck({
           <span className="rounded bg-primary px-2 py-1 text-primary-foreground">
             {fmtTime(time)}
           </span>
+          <span
+            className="rounded bg-secondary px-2 py-1 text-muted-foreground"
+            aria-label={`Total duration ${fmtTime(dur)}`}
+            title="Total duration"
+          >
+            {fmtTime(dur)} total
+          </span>
         </div>
         <div className="flex items-center justify-end">
           {track && (

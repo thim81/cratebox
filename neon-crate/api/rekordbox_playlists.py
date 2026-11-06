@@ -66,6 +66,11 @@ class AppendTrackRequest(BaseModel):
     confirm_update: bool = False
 
 
+class AppendTracksRequest(BaseModel):
+    track_ids: list[str]
+    confirm_update: bool = False
+
+
 class InsertTrackRequest(BaseModel):
     track_id: str
     after_track_id: str
@@ -408,11 +413,19 @@ async def replace_playlist_separator(playlist_id: str, request: ReplaceSeparator
 
 @router.post("/api/playlists/{playlist_id}/tracks/append")
 async def append_rekordbox_track(playlist_id: str, request: AppendTrackRequest):
+    return await append_rekordbox_tracks(
+        playlist_id,
+        AppendTracksRequest(track_ids=[request.track_id], confirm_update=request.confirm_update),
+    )
+
+
+@router.post("/api/playlists/{playlist_id}/tracks/append-many")
+async def append_rekordbox_tracks(playlist_id: str, request: AppendTracksRequest):
     if not request.confirm_update:
         raise HTTPException(400, "Confirm inserting this track into the playlist.")
-    track_id = request.track_id.strip()
-    if not track_id:
-        raise HTTPException(400, "A Rekordbox track ID is required")
+    track_ids = [track_id.strip() for track_id in request.track_ids]
+    if not track_ids or any(not track_id for track_id in track_ids):
+        raise HTTPException(400, "At least one Rekordbox track ID is required")
 
     async with playlist_mutation_lock(playlist_id):
         path, plan, _ = local_playlist_with_plan(playlist_id)
@@ -421,7 +434,7 @@ async def append_rekordbox_track(playlist_id: str, request: AppendTrackRequest):
             "export_playlist",
             {
                 "name": path.stem,
-                "track_ids": [*plan[0], track_id],
+                "track_ids": [*plan[0], *track_ids],
                 "update_existing": True,
             },
         )
@@ -429,7 +442,7 @@ async def append_rekordbox_track(playlist_id: str, request: AppendTrackRequest):
             raise HTTPException(502, "Unexpected playlist export response.")
         return {
             "name": str(exported.get("name") or path.stem),
-            "track_count": int(exported.get("track_count") or len(plan[0]) + 1),
+            "track_count": int(exported.get("track_count") or len(plan[0]) + len(track_ids)),
             "updated_existing": bool(exported.get("updated_existing")),
         }
 
