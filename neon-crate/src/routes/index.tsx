@@ -67,6 +67,16 @@ import {
 import type { SeparatorType } from "@/lib/cratedeck-api";
 
 export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>) => {
+    const validated: { rekordbox_playlist_id?: string; rekordbox_track_id?: string } = {};
+    if (typeof search["rekordbox_playlist_id"] === "string") {
+      validated.rekordbox_playlist_id = search["rekordbox_playlist_id"];
+    }
+    if (typeof search["rekordbox_track_id"] === "string") {
+      validated.rekordbox_track_id = search["rekordbox_track_id"];
+    }
+    return validated;
+  },
   head: () => ({
     meta: [
       { title: "CrateDeck — DJ Crate Player for m3u8 Playlists" },
@@ -91,6 +101,8 @@ const SEEK_SECONDS = 5;
 const camelot = (k: string) => parseInt(k) * 2 + (k.endsWith("B") ? 1 : 0);
 
 function Index() {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const [apiUrl, setApiUrl] = useState("http://localhost:8000");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [lightMode, setLightMode] = useState(false);
@@ -100,7 +112,7 @@ function Index() {
   const [playlistSource, setPlaylistSource] = useState<"crate" | "rekordbox">("crate");
   const selectedTrackByPlaylist = useRef(new Map<string, string>());
   const pendingRekordboxJump = useRef<{ playlistId: string; trackId: string } | null>(null);
-  const rekordboxDeepLinkHandled = useRef(false);
+  const appliedRekordboxDeepLink = useRef<string | null>(null);
   const activePlaylistContext = useRef({ id: activeId, source: playlistSource });
   const playlistTracksGeneration = useRef(0);
   useLayoutEffect(() => {
@@ -651,14 +663,33 @@ function Index() {
     view,
   ]);
 
+  const navigateToRekordboxPlaylistAtTrack = useCallback((playlistId: string, trackId: string) => {
+    void navigate({
+      search: {
+        rekordbox_playlist_id: playlistId,
+        rekordbox_track_id: trackId,
+      },
+    });
+  }, [navigate]);
+
   useEffect(() => {
-    if (rekordboxDeepLinkHandled.current) return;
-    rekordboxDeepLinkHandled.current = true;
-    const params = new URLSearchParams(window.location.search);
-    const playlistId = params.get("rekordbox_playlist_id");
-    const trackId = params.get("rekordbox_track_id");
-    if (playlistId && trackId) openRekordboxPlaylistAtTrack(playlistId, trackId);
-  }, [openRekordboxPlaylistAtTrack]);
+    const playlistId = search.rekordbox_playlist_id;
+    const trackId = search.rekordbox_track_id;
+    const deepLink = playlistId && trackId ? `${playlistId}:${trackId}` : null;
+    if (appliedRekordboxDeepLink.current === deepLink) return;
+    appliedRekordboxDeepLink.current = deepLink;
+    if (playlistId && trackId) {
+      openRekordboxPlaylistAtTrack(playlistId, trackId);
+    } else if (playlistSource === "rekordbox") {
+      pendingRekordboxJump.current = null;
+      setPlaylistSource("crate");
+    }
+  }, [
+    openRekordboxPlaylistAtTrack,
+    playlistSource,
+    search.rekordbox_playlist_id,
+    search.rekordbox_track_id,
+  ]);
 
   const activePlaylistName = activePl?.name ?? "";
   const swapCollectionMatch = useCallback(
@@ -1250,7 +1281,7 @@ function Index() {
         onAdd={addCollectionMatch}
         onPlay={playCollectionMatch}
         onSeekTo={(seconds) => deck.current?.seek(seconds - playbackTime)}
-        onOpenRekordboxPlaylist={openRekordboxPlaylistAtTrack}
+        onOpenRekordboxPlaylist={navigateToRekordboxPlaylistAtTrack}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -1457,7 +1488,7 @@ function Index() {
             onPlayCollectionMatch={playCollectionMatch}
             onSwapCollectionMatch={requestCollectionSwap}
             onAddCollectionMatch={addCollectionMatch}
-            onOpenRekordboxPlaylist={openRekordboxPlaylistAtTrack}
+            onOpenRekordboxPlaylist={navigateToRekordboxPlaylistAtTrack}
             onCollapseLookup={() => setExpandedLookupTrackId(null)}
             onSelectSeparator={selectSeparator}
             onReplaceSeparator={(track, type) => void replaceSeparator(track, type)}
