@@ -231,6 +231,13 @@ def parse_playlist(path: Path):
             audio_bpm = 0
         bitrate = getattr(info, "bitrate", 0) or 0
         plan_rating = plan_number("rating", -1, integer=True)
+        plan_playlists = plan_metadata.get("playlists")
+        playlists = [
+            {"id": item["id"], "name": item["name"]}
+            for item in plan_playlists
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+            and isinstance(item.get("name"), str)
+        ] if isinstance(plan_playlists, list) else []
         tracks.append({
             "id": track_id,
             "playlist_id": path.stem,
@@ -243,6 +250,10 @@ def parse_playlist(path: Path):
             "rating": plan_rating if 0 < plan_rating <= 5 else (
                 mp3_rating(audio) if audio.suffix.lower() == ".mp3" else 0
             ),
+            "play_count": plan_number("play_count", 0, integer=True),
+            "cue_count": plan_number("cue_count", 0, integer=True),
+            "playlist_count": plan_number("playlist_count", len(playlists), integer=True),
+            "playlists": playlists,
             "bpm": plan_number("bpm", audio_bpm) or audio_bpm,
             "key": plan_text("key", tag("initialkey")),
             "quality": f"{audio.suffix[1:].upper()} {bitrate // 1000}kbps".strip(),
@@ -448,6 +459,7 @@ def _swap_track(playlist_id: str, request: PlaylistSwap):
                 for metadata_key in (
                     "title", "artist", "album", "genre", "bpm", "key", "rating",
                     "duration", "bitrate", "sample_rate",
+                    "play_count", "cue_count", "playlist_count", "playlists",
                 ):
                     plan_item.pop(metadata_key, None)
             else:

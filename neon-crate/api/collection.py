@@ -28,21 +28,21 @@ class CollectionMcp:
         self.message = None
         self.client = None
         self.lock = asyncio.Lock()
+        self.call_lock = asyncio.Lock()
         self.project = REPO_ROOT / "rekordbx-mcp"
         self.track_paths: dict[str, Path] = {}
 
     async def status(self):
-        if self.client:
-            try:
-                if not await self.client.ping():
-                    raise RuntimeError("MCP worker did not respond.")
-            except Exception:
-                with suppress(Exception):
-                    await self.client.close()
-                self.client = None
-                self.state = "error"
-                self.message = "Collection connection was lost. Try Lookup again or restart the local API."
-        return {"state": self.state, "message": self.message}
+        async with self.call_lock:
+            if self.client:
+                client = self.client
+                try:
+                    if not await client.ping():
+                        raise RuntimeError("MCP worker did not respond.")
+                except Exception:
+                    logger.exception("Rekordbox MCP status ping failed; dropping the worker session")
+                    await self._invalidate(client)
+            return {"state": self.state, "message": self.message}
 
     async def connect(self):
         async with self.lock:
@@ -77,16 +77,40 @@ class CollectionMcp:
                 self.message = "Could not connect to the Rekordbox collection. Close Rekordbox and its background agents, then try again."
                 raise HTTPException(503, self.message) from None
 
+    async def call_tool(self, name: str, arguments: dict | None = None):
+        async with self.call_lock:
+            attempts = 2 if name in {
+                "lookup_similar_tracks_for_cratedeck", "get_track_details",
+                "get_playlists", "get_playlist_tracks", "get_track_locations",
+            } else 1
+            for attempt in range(attempts):
+                client = await self.connect()
+                try:
+                    return await client.call_tool(name, arguments or {})
+                except Exception:
+                    logger.exception("Rekordbox MCP tool %s failed; dropping the worker session", name)
+                    await self._invalidate(client)
+                    if attempt == attempts - 1:
+                        raise
+
+    async def _invalidate(self, client):
+        with suppress(Exception):
+            await client.close()
+        if self.client is client:
+            self.client = None
+        self.state = "error"
+        self.message = "Collection connection was lost. Try Lookup again or restart the local API."
+
     async def close(self):
-        async with self.lock:
-            if self.client:
-                with suppress(Exception):
-                    await self.client.close()
-                self.client = None
-            self.track_paths.clear()
-            if self.state in ("starting", "connected"):
+        async with self.call_lock:
+            async with self.lock:
+                if self.client:
+                    with suppress(Exception):
+                        await self.client.close()
+                    self.client = None
+                self.track_paths.clear()
                 self.state = "idle"
-            self.message = None
+                self.message = None
 
 collection_mcp = CollectionMcp()
 
@@ -101,7 +125,6 @@ async def collection_lookup(request: CollectionLookup):
     track_id = (request.track_id or "").strip()
     if not track_id and not artist and not title:
         raise HTTPException(400, "Provide a Rekordbox track ID, artist, title, or both.")
-    client = await collection_mcp.connect()
     try:
         async def result_value(tool_result):
             structured = tool_result.structured_content
@@ -113,7 +136,7 @@ async def collection_lookup(request: CollectionLookup):
             return value
 
         if track_id:
-            details = await client.call_tool("get_track_details", {"track_id": track_id})
+            details = await collection_mcp.call_tool("get_track_details", {"track_id": track_id})
             source = await result_value(details)
             if isinstance(source, list):
                 source = source[0] if source else None
@@ -121,7 +144,7 @@ async def collection_lookup(request: CollectionLookup):
                 artist = str(source.get("artist") or artist).strip()
                 title = str(source.get("title") or title).strip()
             if artist and title:
-                result = await client.call_tool(
+                result = await collection_mcp.call_tool(
                     "lookup_similar_tracks_for_cratedeck", {"artist": artist, "title": title},
                 )
                 matches = await result_value(result)
@@ -141,7 +164,7 @@ async def collection_lookup(request: CollectionLookup):
             else:
                 matches = []
         else:
-            result = await client.call_tool(
+            result = await collection_mcp.call_tool(
                 "lookup_similar_tracks_for_cratedeck", {"artist": artist, "title": title},
             )
             matches = await result_value(result)
@@ -181,20 +204,11 @@ async def collection_lookup(request: CollectionLookup):
         collection_mcp.state = "connected"
         collection_mcp.message = None
         return {"matches": public_matches}
+    except HTTPException:
+        raise
     except Exception:
-        error_message = "Collection lookup failed."
-        if collection_mcp.client:
-            try:
-                if not await collection_mcp.client.ping():
-                    raise RuntimeError("MCP worker did not respond.")
-                collection_mcp.state = "connected"
-                collection_mcp.message = None
-            except Exception:
-                with suppress(Exception):
-                    await collection_mcp.client.close()
-                collection_mcp.client = None
-                collection_mcp.state = "error"
-                collection_mcp.message = "Collection connection was lost. Try Lookup again or restart the local API."
-                error_message = collection_mcp.message
+        logger.exception("Rekordbox collection lookup failed")
+        status = await collection_mcp.status()
+        error_message = status["message"] if status["state"] == "error" else "Collection lookup failed."
         raise HTTPException(502, error_message) from None
 

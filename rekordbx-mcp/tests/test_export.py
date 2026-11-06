@@ -17,12 +17,52 @@ async def collection(playable_snapshot):
         await database.disconnect()
 
 
-def test_export_preserves_order_unicode_and_inputs(collection, playable_snapshot):
+@pytest.fixture
+async def collection_with_rekordbox_usage(playable_snapshot):
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    from sqlcipher3 import dbapi2
+    from rekordbx_mcp.snapshot import sha256
+
+    database_path = playable_snapshot / "master.db"
+    connection = dbapi2.connect(database_path)
+    try:
+        connection.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+        connection.executemany(
+            "INSERT INTO djmdCue (ID, ContentID, rb_local_deleted) VALUES (?, ?, ?)",
+            [("cue-1", "1", 0), ("cue-deleted", "1", 1)],
+        )
+        connection.executemany(
+            "INSERT INTO djmdPlaylist (ID, Name, rb_local_deleted) VALUES (?, ?, ?)",
+            [("playlist-1", "Favorites", 0), ("playlist-2", "Archived", 1)],
+        )
+        connection.executemany(
+            "INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, rb_local_deleted) VALUES (?, ?, ?, ?)",
+            [
+                ("membership-1", "playlist-1", "1", 0),
+                ("membership-2", "playlist-2", "1", 0),
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    (playable_snapshot / "manifest.json").write_text(json.dumps({
+        "format": 1, "sha256": sha256(database_path),
+    }))
+    database = SnapshotDatabase(playable_snapshot)
+    await database.connect()
+    try:
+        yield database.db
+    finally:
+        await database.disconnect()
+
+
+def test_export_preserves_order_unicode_and_inputs(collection_with_rekordbox_usage, playable_snapshot):
     from rekordbx_mcp.export import export_playlist
     output = playable_snapshot / "output"
     originals = [playable_snapshot / "master.db", *sorted((playable_snapshot / "music").iterdir())]
     before = [sha256(path) for path in originals]
-    result = export_playlist(collection, "Été house", ["2", "1", "2"], output)
+    result = export_playlist(collection_with_rekordbox_usage, "Été house", ["2", "1", "2"], output)
     playlist = Path(result["playlist_path"])
     assert playlist.parent == output.parent / "playlists"
     assert playlist.suffix == ".m3u8"
@@ -40,18 +80,22 @@ def test_export_preserves_order_unicode_and_inputs(collection, playable_snapshot
             "title": "Second", "artist": "", "album": None, "genre": None,
             "bpm": 0.0, "key": None, "rating": 0, "duration": 0,
             "bitrate": None, "sample_rate": None,
+            "play_count": 0, "cue_count": 0, "playlist_count": 0, "playlists": [],
         },
         {
             "track_id": "1", "file_path": str(playable_snapshot / "music/Été #1.mp3"),
             "title": "One More Time", "artist": "Daft Punk", "album": None, "genre": None,
             "bpm": 123.0, "key": None, "rating": 4, "duration": 320,
             "bitrate": None, "sample_rate": None,
+            "play_count": 5, "cue_count": 1, "playlist_count": 1,
+            "playlists": [{"id": "playlist-1", "name": "Favorites"}],
         },
         {
             "track_id": "2", "file_path": str(playable_snapshot / "music/Second track.mp3"),
             "title": "Second", "artist": "", "album": None, "genre": None,
             "bpm": 0.0, "key": None, "rating": 0, "duration": 0,
             "bitrate": None, "sample_rate": None,
+            "play_count": 0, "cue_count": 0, "playlist_count": 0, "playlists": [],
         },
     ]
     assert result["track_count"] == 3

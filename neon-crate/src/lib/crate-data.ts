@@ -8,6 +8,10 @@ export interface Track {
   genre?: string;
   duration: number; // seconds
   rating: number;
+  play_count?: number;
+  cue_count?: number;
+  playlist_count?: number;
+  playlists?: { id: string; name: string }[];
   bpm: number;
   key: string;
   quality: string;

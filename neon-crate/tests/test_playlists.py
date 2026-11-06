@@ -52,6 +52,8 @@ def test_playlist_api_uses_rekordbox_metadata_from_json_plan(tmp_path, monkeypat
         "title": "Plan title", "artist": "Plan artist", "album": "Plan album",
         "genre": "House", "bpm": 123.45, "key": "8A", "rating": 4,
         "duration": 321,
+        "cue_count": 2, "playlist_count": 1, "play_count": 17,
+        "playlists": [{"id": "rb-1", "name": "Favorites"}],
     })
     plan_path.write_text(json.dumps(plan), encoding="utf-8")
     monkeypatch.setattr(playlists, "PLAN_DIRECTORY", output)
@@ -65,6 +67,9 @@ def test_playlist_api_uses_rekordbox_metadata_from_json_plan(tmp_path, monkeypat
     assert (track["genre"], track["bpm"], track["key"], track["rating"], track["duration"]) == (
         "House", 123.45, "8A", 4, 321,
     )
+    assert (track["cue_count"], track["playlist_count"], track["play_count"]) == (2, 1, 17)
+    assert track["playlists"] == [{"id": "rb-1", "name": "Favorites"}]
+    assert "file_path" not in track
 
 
 def test_playlist_api_rejects_a_plan_path_that_does_not_match_m3u(tmp_path, monkeypatch):

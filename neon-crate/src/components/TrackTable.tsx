@@ -11,6 +11,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { CollectionLookupResults } from "@/components/CollectionLookupResults";
+import { PlaylistMembershipBadge } from "@/components/PlaylistMembershipBadge";
 import { SeparatorSwapChoices } from "@/components/SeparatorSwapChoices";
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
@@ -144,7 +145,10 @@ export function TrackTable({
             <Th k="artist">Artist</Th>
             <Th>Album</Th>
             <Th k="duration">Time</Th>
-            <Th k="rating">Rating</Th>
+            <Th k="rating">Stars</Th>
+            <Th>Cues</Th>
+            <Th>Lists</Th>
+            <Th>Plays</Th>
             <Th k="bpm">BPM</Th>
             <Th k="key">Key</Th>
             <Th>Quality</Th>
@@ -301,6 +305,20 @@ export function TrackTable({
                       ))}
                     </span>
                   </td>
+                  <td className="px-2 py-1 text-right font-mono tabular-nums text-muted-foreground" title="Rekordbox cue points">
+                    {track.cue_count ?? 0}
+                  </td>
+                  <td className="px-2 py-1 text-right">
+                    <PlaylistMembershipBadge
+                      count={track.playlist_count ?? 0}
+                      playlists={track.playlists ?? []}
+                      trackId={track.rekordbox_id ?? track.id}
+                      onSelect={(playlistId) => onOpenRekordboxPlaylist(playlistId, track.rekordbox_id ?? track.id)}
+                    />
+                  </td>
+                  <td className="px-2 py-1 text-right font-mono tabular-nums text-muted-foreground" title="Rekordbox play count">
+                    {(track.play_count ?? 0).toLocaleString()}
+                  </td>
                   <td className="px-2 py-1 font-mono tabular-nums text-accent">{track.bpm}</td>
                   <td className="px-2 py-1 font-mono font-semibold text-primary">{track.key}</td>
                   <td className="px-2 py-1">
@@ -356,7 +374,7 @@ export function TrackTable({
                 </tr>
                 {!readOnly && expandedLookupTrackId === track.id && lookupTrack && (
                   <tr>
-                    <td colSpan={12} className="px-3 py-2">
+                    <td colSpan={15} className="px-3 py-2">
                       <CollectionLookupResults
                         sourceTrack={lookupTrack}
                         matches={lookupMatches}
@@ -391,7 +409,7 @@ export function TrackTable({
                 )}
                 {!readOnly && isSeparator && expandedSeparatorTrackId === track.id && (
                   <tr>
-                    <td colSpan={12} className="px-3 py-2">
+                    <td colSpan={15} className="px-3 py-2">
                       <SeparatorSwapChoices
                         track={track}
                         onReplace={(type) => onReplaceSeparator(track, type)}

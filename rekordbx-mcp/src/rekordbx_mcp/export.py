@@ -7,6 +7,8 @@ import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+from sqlalchemy import func
+from pyrekordbox.masterdb.models import DjmdCue, DjmdPlaylist, DjmdSongPlaylist
 
 from .database import SnapshotMasterDatabase, content_by_ids
 
@@ -116,6 +118,9 @@ def export_playlist(
             "length": int(getattr(content, "Length", 0) or 0),
             "bitrate": int(getattr(content, "BitRate", 0) or 0) or None,
             "sample_rate": int(getattr(content, "SampleRate", 0) or 0) or None,
+            "play_count": int(getattr(content, "DJPlayCount", 0) or 0),
+            "cue_count": cue_counts.get(str(track_id), 0),
+            "playlists": playlists_by_content.get(str(track_id), []),
         }
         item = {
             "track_id": track_id,
@@ -130,12 +135,16 @@ def export_playlist(
             "duration": metadata["length"],
             "bitrate": metadata["bitrate"],
             "sample_rate": metadata["sample_rate"],
+            "play_count": metadata["play_count"],
+            "cue_count": metadata["cue_count"],
+            "playlist_count": len(metadata["playlists"]),
+            "playlists": metadata["playlists"],
         }
         if separator_type is not None:
             item["separator_type"] = separator_type
         return item
 
-    separators_before: dict[int, list[dict]] = {}
+    separators_before: dict[int, list[tuple]] = {}
     for position, separator in enumerate(separators, 1):
         if not isinstance(separator, dict) or set(separator) != {"type", "before_track"}:
             raise ValueError(
@@ -173,9 +182,36 @@ def export_playlist(
                 f"Separator {separator_type!r} must match exactly one active snapshot track."
             )
         separator_track = separator_matches[0]
-        separators_before.setdefault(before_track, []).append(plan_track(
+        separators_before.setdefault(before_track, []).append((
             str(separator_track.ID), str(separator_path), separator_track, separator_type,
         ))
+
+    content_ids = list(contents_by_id)
+    content_ids.extend(
+        track_id
+        for separator_tracks in separators_before.values()
+        for track_id, _, _, _ in separator_tracks
+        if track_id not in contents_by_id
+    )
+    cue_counts = dict(database.session.query(
+        DjmdCue.ContentID, func.count(DjmdCue.ID),
+    ).filter(
+        DjmdCue.ContentID.in_(content_ids), DjmdCue.rb_local_deleted == 0,
+    ).group_by(DjmdCue.ContentID).all()) if content_ids else {}
+    playlist_rows = database.session.query(
+        DjmdSongPlaylist.ContentID, DjmdPlaylist.ID, DjmdPlaylist.Name,
+    ).join(
+        DjmdPlaylist, DjmdPlaylist.ID == DjmdSongPlaylist.PlaylistID,
+    ).filter(
+        DjmdSongPlaylist.ContentID.in_(content_ids),
+        DjmdSongPlaylist.rb_local_deleted == 0,
+        DjmdPlaylist.rb_local_deleted == 0,
+    ).distinct().order_by(DjmdPlaylist.Name).all() if content_ids else []
+    playlists_by_content = {}
+    for content_id, playlist_id, playlist_name in playlist_rows:
+        playlists_by_content.setdefault(str(content_id), []).append({
+            "id": str(playlist_id), "name": str(playlist_name or ""),
+        })
 
     output_directory = Path(output_directory).absolute()
     playlists_directory = Path(
@@ -226,10 +262,13 @@ def export_playlist(
         raise
 
     playlist_items = []
-    for track_position, (track_id, path) in enumerate(zip(track_ids, paths, strict=True), 1):
-        playlist_items.extend(separators_before.get(track_position, []))
-        playlist_items.append(plan_track(track_id, path, contents_by_id[track_id]))
-    playlist_items.extend(separators_before.get(len(track_ids) + 1, []))
+    for track_position in range(1, len(track_ids) + 2):
+        playlist_items.extend(
+            plan_track(*item) for item in separators_before.get(track_position, [])
+        )
+        if track_position <= len(track_ids):
+            track_id = track_ids[track_position - 1]
+            playlist_items.append(plan_track(track_id, paths[track_position - 1], contents_by_id[track_id]))
     plan = {
         "format": 1,
         "name": target_name,

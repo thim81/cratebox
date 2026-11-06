@@ -1,6 +1,7 @@
 """Read-only Rekordbox playlist browsing and local playlist operations."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Literal
 
@@ -19,6 +20,7 @@ from .playlists import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class CopyPlaylistRequest(BaseModel):
@@ -80,13 +82,16 @@ def result_value(result):
 
 
 async def call_tool(name: str, arguments: dict | None = None):
-    client = await collection_mcp.connect()
     try:
-        result = await client.call_tool(name, arguments or {})
+        result = await collection_mcp.call_tool(name, arguments or {})
+    except HTTPException:
+        raise
     except Exception:
+        logger.exception("Rekordbox MCP tool call failed (%s)", name)
         raise HTTPException(502, "Rekordbox playlist request failed.") from None
     if result.is_error:
         message = next((item.text for item in result.content if hasattr(item, "text")), "")
+        logger.error("Rekordbox MCP tool returned an error (%s): %s", name, message)
         if "already exists" in message.lower():
             raise HTTPException(409, "A CrateDeck playlist with this name already exists.")
         if name == "export_playlist":

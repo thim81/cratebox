@@ -11,6 +11,8 @@ from difflib import SequenceMatcher
 from functools import wraps
 from html.parser import HTMLParser
 from pathlib import Path
+from threading import Lock
+from types import SimpleNamespace
 from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -20,6 +22,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
+from rekordbox_mcp import database as upstream_database
 from rekordbox_mcp import server as upstream
 from pyrekordbox.masterdb.models import DjmdPlaylist, DjmdSongPlaylist
 
@@ -38,6 +41,20 @@ READ_TOOLS = (
     "get_recent_sessions", "get_history_stats", "search_history_sessions",
 )
 _upstream_lock = asyncio.Lock()
+_database_thread_lock = Lock()
+
+
+async def _serialized_database_to_thread(function, /, *args, **kwargs):
+    def run():
+        with _database_thread_lock:
+            return function(*args, **kwargs)
+
+    return await asyncio.to_thread(run)
+
+
+# Upstream database methods use asyncio.to_thread internally, including close().
+# Serialize those calls because SnapshotMasterDatabase uses one StaticPool connection.
+upstream_database.asyncio = SimpleNamespace(to_thread=_serialized_database_to_thread)
 _MATCH_TRANSLITERATION = str.maketrans({
     "æ": "ae", "œ": "oe", "ø": "o", "ł": "l", "đ": "d",
     "ð": "d", "þ": "th", "ħ": "h", "ı": "i",
@@ -232,7 +249,7 @@ def build_server(
             raise
 
     async def run_database_operation(function):
-        return await complete_before_cancellation(asyncio.to_thread(function))
+        return await complete_before_cancellation(_serialized_database_to_thread(function))
 
     async def ensure_connected():
         if not await database.is_connected():
