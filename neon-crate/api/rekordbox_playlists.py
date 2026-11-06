@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from typing import Literal
 
+import mutagen
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -195,6 +196,12 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
         rekordbox_id = str(record["id"])
         occurrence = occurrences.get(rekordbox_id, 0)
         occurrences[rekordbox_id] = occurrence + 1
+        audio_path = collection_mcp.track_paths[rekordbox_id]
+        try:
+            media = mutagen.File(audio_path, easy=True)
+        except (OSError, ValueError):
+            media = None
+        bitrate = getattr(getattr(media, "info", None), "bitrate", 0) or 0
         tracks.append({
             "id": f"{rekordbox_id}-{occurrence + 1}",
             "rekordbox_id": rekordbox_id,
@@ -213,9 +220,9 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
             ],
             "bpm": float(record.get("bpm") or 0),
             "key": str(record.get("key") or ""),
-            "quality": "Rekordbox library",
+            "quality": f"{audio_path.suffix[1:].upper()} {bitrate // 1000}kbps".strip(),
             "url": "",
-            "has_artwork": embedded_artwork(collection_mcp.track_paths[rekordbox_id]) is not None,
+            "has_artwork": embedded_artwork(audio_path) is not None,
         })
     return tracks
 
