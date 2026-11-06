@@ -199,9 +199,11 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
         audio_path = collection_mcp.track_paths[rekordbox_id]
         try:
             media = mutagen.File(audio_path, easy=True)
-        except (OSError, ValueError):
+        except (OSError, ValueError, mutagen.MutagenError):
             media = None
         bitrate = getattr(getattr(media, "info", None), "bitrate", 0) or 0
+        audio_format = audio_path.suffix[1:].upper()
+        quality = f"{audio_format} {bitrate // 1000}kbps" if bitrate else audio_format
         tracks.append({
             "id": f"{rekordbox_id}-{occurrence + 1}",
             "rekordbox_id": rekordbox_id,
@@ -220,7 +222,7 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
             ],
             "bpm": float(record.get("bpm") or 0),
             "key": str(record.get("key") or ""),
-            "quality": f"{audio_path.suffix[1:].upper()} {bitrate // 1000}kbps".strip(),
+            "quality": quality,
             "url": "",
             "has_artwork": embedded_artwork(audio_path) is not None,
         })
