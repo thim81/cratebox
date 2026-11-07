@@ -222,14 +222,22 @@ export function TrackTable({
                     draggedTrackIds.current = [];
                     setDropTarget(null);
                   }}
-                  onClick={(event) =>
+                  onClick={(event) => {
+                    // macOS Control-click may dispatch a contextmenu instead of click.
+                    if (event.ctrlKey) return;
                     onSelect(index, {
                       shiftKey: event.shiftKey,
-                      toggle: event.ctrlKey || event.metaKey,
-                    })
-                  }
+                      toggle: event.metaKey,
+                    });
+                  }}
                   onContextMenu={(event) => {
-                    if (event.ctrlKey) event.preventDefault();
+                    if (event.ctrlKey) {
+                      event.preventDefault();
+                      onSelect(index, {
+                        shiftKey: event.shiftKey,
+                        toggle: !event.shiftKey,
+                      });
+                    }
                   }}
                   onDoubleClick={() =>
                     readOnly || !isSeparator ? onLoad(track) : onSelectSeparator(track)
