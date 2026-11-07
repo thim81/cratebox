@@ -57,6 +57,7 @@ import {
   swapPlaylistTrack,
   saveArtwork,
   embedArtwork,
+  embedRekordboxArtwork,
 } from "@/lib/cratedeck-api";
 import {
   fmtTime,
@@ -207,7 +208,11 @@ function Index() {
   const [sel, setSel] = useState(0);
   const [rangeAnchor, setRangeAnchor] = useState<number | null>(null);
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(() => new Set());
-  const [loaded, setLoaded] = useState<{ track: Track; playlist: string } | null>(null);
+  const [loaded, setLoaded] = useState<{
+    track: Track;
+    playlist: string;
+    rekordboxPlaylistId?: string;
+  } | null>(null);
   const [autoPlay, setAutoPlay] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playbackTime, setPlaybackTime] = useState(0);
@@ -215,6 +220,7 @@ function Index() {
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const [imageTarget, setImageTarget] = useState<{
+    source: "crate" | "rekordbox";
     playlistId: string;
     trackId?: string;
     query: string;
@@ -567,9 +573,24 @@ function Index() {
     [appendTracksToPlaylist],
   );
   const editLoadedArtwork = (track: Track) => {
+    if (loaded?.rekordboxPlaylistId && track.rekordbox_id) {
+      setImageTarget({
+        source: "rekordbox",
+        playlistId: loaded.rekordboxPlaylistId,
+        trackId: track.rekordbox_id,
+        query: `${track.artist} ${track.title}`.trim(),
+        artist: track.artist,
+        album: track.album,
+        searchTrack: track.title,
+        sourceTrack: track,
+        ...(track.artwork_url !== undefined ? { currentImageUrl: track.artwork_url } : {}),
+      });
+      return;
+    }
     const playlist = playlists.find((item) => item.name === loaded?.playlist);
     if (playlist) {
       setImageTarget({
+        source: "crate",
         playlistId: playlist.id,
         trackId: track.id,
         query: `${track.artist} ${track.title}`.trim(),
@@ -595,12 +616,20 @@ function Index() {
   const chooseArtwork = async (image: import("@/lib/crate-data").ImageResult) => {
     if (!imageTarget) return;
     if (imageTarget.trackId) {
-      const result = await embedArtwork(
-        apiUrl,
-        imageTarget.playlistId,
-        imageTarget.trackId,
-        image.image_url,
-      );
+      const embed = imageTarget.source === "rekordbox" ? embedRekordboxArtwork : embedArtwork;
+      const result = await embed(apiUrl, imageTarget.playlistId, imageTarget.trackId, image.image_url);
+      if (imageTarget.source === "rekordbox") {
+        setRekordboxTracks((current) => current.map((track) =>
+          track.rekordbox_id === imageTarget.trackId
+            ? { ...track, artwork_url: result.artwork_url, has_artwork: true }
+            : track,
+        ));
+        setLoaded((current) => current?.track.rekordbox_id === imageTarget.trackId
+          ? { ...current, track: { ...current.track, artwork_url: result.artwork_url, has_artwork: true } }
+          : current,
+        );
+        return;
+      }
       if (activeId === imageTarget.playlistId) {
         setTracks((current) =>
           current.map((track) => {
@@ -1065,9 +1094,13 @@ function Index() {
         playlist = activeRekordboxPlaylist?.name ?? "Rekordbox collection";
       }
       setAutoPlay(play);
-      setLoaded({ track, playlist });
+      setLoaded({
+        track,
+        playlist,
+        ...(playlistSource === "rekordbox" ? { rekordboxPlaylistId: activeRekordboxId } : {}),
+      });
     },
-    [activePl?.name, activeRekordboxPlaylist?.name, apiUrl, playlistSource],
+    [activePl?.name, activeRekordboxId, activeRekordboxPlaylist?.name, apiUrl, playlistSource],
   );
 
   const step = (d: number) => {
@@ -1363,7 +1396,7 @@ function Index() {
         {...(imageTarget?.currentImageUrl !== undefined
           ? { currentImageUrl: imageTarget.currentImageUrl }
           : {})}
-        embedIntoMp3={Boolean(imageTarget?.trackId)}
+        embedIntoAudio={Boolean(imageTarget?.trackId)}
         {...(sourceTrackToReveal
           ? { onRevealTrack: () => void showTrackInFinder(sourceTrackToReveal) }
           : {})}

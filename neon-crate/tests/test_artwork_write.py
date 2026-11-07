@@ -430,3 +430,67 @@ def test_embed_endpoint_restores_old_override_when_mp3_write_fails(tmp_path, mon
     assert response.status_code == 400
     assert source.read_bytes() == original
     assert artwork_data.read_artwork_overrides()["tracks"]["Set"]["42-1"] == old_override
+
+
+def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import app as api_app
+    from api import rekordbox_playlists
+    from api.collection import collection_mcp
+
+    source = tmp_path / "music" / "track.mp3"
+    source.parent.mkdir()
+    synthetic_mp3(source)
+    original = source.read_bytes()
+    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
+    monkeypatch.setattr(artwork_write, "download_cover_image", lambda _url: (png(b"\x01\x02\x03"), "image/png"))
+    calls = []
+
+    async def call_tool(name, arguments=None):
+        calls.append((name, arguments))
+        return {
+            "get_playlists": [{"id": "playlist-1"}],
+            "get_playlist_tracks": [{"id": "track-1"}],
+            "get_track_locations": [{"track_id": "track-1", "file_path": str(source)}],
+        }[name]
+
+    monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
+    collection_mcp.track_paths.pop("track-1", None)
+    with TestClient(api_app) as client:
+        response = client.put(
+            "/api/rekordbox/playlists/playlist-1/tracks/track-1/artwork/embed",
+            json={"image_url": "https://images.example/cover.png"},
+            headers={"Origin": "http://localhost:4444"},
+        )
+    collection_mcp.track_paths.pop("track-1", None)
+
+    assert response.status_code == 200, response.text
+    assert "file_path" not in response.text
+    assert response.json()["artwork_url"].startswith("/api/collection/tracks/track-1/artwork?v=")
+    assert [call[0] for call in calls] == ["get_playlists", "get_playlist_tracks", "get_track_locations"]
+    assert next(frame.data for frame in MP3(source).tags.getall("APIC") if frame.type == 3) == png(b"\x01\x02\x03")
+    assert next((tmp_path / "backups").glob("*.mp3")).read_bytes() == original
+
+
+def test_rekordbox_embed_endpoint_rejects_track_outside_playlist(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import app as api_app
+    from api import rekordbox_playlists
+
+    called = []
+
+    async def call_tool(name, arguments=None):
+        called.append(name)
+        return {"get_playlists": [{"id": "playlist-1"}], "get_playlist_tracks": []}[name]
+
+    monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
+    monkeypatch.setattr(artwork_write, "download_cover_image", lambda _url: pytest.fail("image should not download"))
+    with TestClient(api_app) as client:
+        response = client.put(
+            "/api/rekordbox/playlists/playlist-1/tracks/other-track/artwork/embed",
+            json={"image_url": "https://images.example/cover.png"},
+            headers={"Origin": "http://localhost:4444"},
+        )
+
+    assert response.status_code == 404
+    assert called == ["get_playlists", "get_playlist_tracks"]

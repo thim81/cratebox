@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from pathlib import Path
 from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
@@ -38,6 +39,10 @@ class ArtworkUpdate(BaseModel):
 class ArtworkEmbed(BaseModel):
     playlist_id: str
     track_id: str
+    image_url: str
+
+
+class RekordboxArtworkEmbed(BaseModel):
     image_url: str
 
 @router.post("/api/images/search")
@@ -166,24 +171,7 @@ def save_artwork(request: ArtworkUpdate):
 
 @router.put("/api/artwork/embed")
 def embed_artwork(request: ArtworkEmbed, http_request: Request):
-    origin = http_request.headers.get("origin", "")
-    try:
-        parsed_origin = urlsplit(origin)
-        origin_port = parsed_origin.port
-    except ValueError:
-        parsed_origin, origin_port = None, None
-    if (
-        parsed_origin is None
-        or parsed_origin.scheme != "http"
-        or parsed_origin.hostname not in {"localhost", "127.0.0.1", "::1"}
-        or parsed_origin.username
-        or parsed_origin.password
-        or origin_port != 4444
-        or parsed_origin.path
-        or parsed_origin.query
-        or parsed_origin.fragment
-    ):
-        raise HTTPException(403, "Artwork embedding is allowed only from the local CrateDeck interface")
+    _require_local_artwork_origin(http_request)
     if len(request.image_url) > 2048:
         raise HTTPException(400, "The selected image URL is too long")
 
@@ -223,6 +211,75 @@ def embed_artwork(request: ArtworkEmbed, http_request: Request):
         f"{quote(request.track_id, safe='')}/artwork?v={uuid4().hex}"
     )
     return {"backup_id": backup.name, "artwork_url": artwork_url}
+
+
+def _require_local_artwork_origin(http_request: Request):
+    origin = http_request.headers.get("origin", "")
+    try:
+        parsed_origin = urlsplit(origin)
+        origin_port = parsed_origin.port
+    except ValueError:
+        parsed_origin, origin_port = None, None
+    if (
+        parsed_origin is None
+        or parsed_origin.scheme != "http"
+        or parsed_origin.hostname not in {"localhost", "127.0.0.1", "::1"}
+        or parsed_origin.username
+        or parsed_origin.password
+        or origin_port != 4444
+        or parsed_origin.path
+        or parsed_origin.query
+        or parsed_origin.fragment
+    ):
+        raise HTTPException(403, "Artwork embedding is allowed only from the local CrateDeck interface")
+
+
+@router.put("/api/rekordbox/playlists/{playlist_id}/tracks/{track_id}/artwork/embed")
+async def embed_rekordbox_artwork(
+    playlist_id: str, track_id: str, request: RekordboxArtworkEmbed, http_request: Request,
+):
+    _require_local_artwork_origin(http_request)
+    if len(request.image_url) > 2048:
+        raise HTTPException(400, "The selected image URL is too long")
+
+    # Resolve only after confirming the IDs are a playlist membership in the read-only snapshot.
+    from .rekordbox_playlists import call_tool
+
+    playlists = await call_tool("get_playlists")
+    if not isinstance(playlists, list) or not any(
+        isinstance(item, dict) and str(item.get("id")) == playlist_id for item in playlists
+    ):
+        raise HTTPException(404, "Rekordbox playlist not found.")
+    tracks = await call_tool("get_playlist_tracks", {"playlist_id": playlist_id})
+    if not isinstance(tracks, list) or not any(
+        isinstance(item, dict) and str(item.get("id")) == track_id for item in tracks
+    ):
+        raise HTTPException(404, "Track not found in Rekordbox playlist.")
+    locations = await call_tool("get_track_locations", {"track_ids": [track_id]})
+    if (
+        not isinstance(locations, list) or len(locations) != 1
+        or not isinstance(locations[0], dict)
+        or str(locations[0].get("track_id")) != track_id
+        or not isinstance(locations[0].get("file_path"), str)
+        or any(character in locations[0]["file_path"] for character in "\r\n\x00\x85\u2028\u2029")
+        or not Path(locations[0]["file_path"]).is_absolute()
+    ):
+        raise HTTPException(409, "The Rekordbox track no longer resolves to one local audio file.")
+
+    try:
+        source = Path(locations[0]["file_path"])
+        artwork_write._validate_source(source)
+        image_data, mime = artwork_write.download_cover_image(request.image_url)
+        backup = artwork_write.embed_cover_art(source, image_data, mime)
+    except artwork_write.ArtworkWriteError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+    from .collection import collection_mcp
+    collection_mcp.track_paths[track_id] = source
+    return {
+        "backup_id": backup.name,
+        "artwork_url": f"/api/collection/tracks/{quote(track_id, safe='')}/artwork?v={uuid4().hex}",
+    }
 
 @router.get("/api/playlists/{playlist_id}/tracks/{track_id}/artwork")
 def get_track_artwork(playlist_id: str, track_id: str):

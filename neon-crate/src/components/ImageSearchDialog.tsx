@@ -20,7 +20,7 @@ interface Props {
   album?: string;
   track?: string;
   currentImageUrl?: string;
-  embedIntoMp3?: boolean;
+  embedIntoAudio?: boolean;
   onRevealTrack?: () => void;
   onOpenChange: (open: boolean) => void;
   onChoose: (image: ImageResult) => Promise<void>;
@@ -34,7 +34,7 @@ export function ImageSearchDialog({
   album = "",
   track = "",
   currentImageUrl,
-  embedIntoMp3 = false,
+  embedIntoAudio = false,
   onRevealTrack,
   onOpenChange,
   onChoose,
@@ -144,7 +144,7 @@ export function ImageSearchDialog({
                 ? "Compare this image with the search results."
                 : "No artwork is currently set."}
             </p>
-            {embedIntoMp3 && onRevealTrack && (
+            {embedIntoAudio && onRevealTrack && (
               <Button type="button" variant="outline" size="sm" onClick={onRevealTrack}>
                 <FolderOpen size={14} /> Show audio file in Finder
               </Button>
@@ -254,7 +254,7 @@ export function ImageSearchDialog({
                   </div>
                   <div className="flex flex-col gap-2">
                     <Button onClick={() => void choose(preview)} disabled={saving}>
-                      {saving ? "Saving…" : embedIntoMp3 ? "Embed into audio file" : "Use this image"}
+                      {saving ? "Saving…" : embedIntoAudio ? "Embed into audio file" : "Use this image"}
                     </Button>
                     <a
                       href={preview.source_url}

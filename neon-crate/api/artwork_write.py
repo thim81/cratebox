@@ -52,7 +52,7 @@ def _path_has_symlink(path: Path) -> bool:
 def _validate_source(path: Path) -> os.stat_result:
     path = Path(path)
     if path.suffix.lower() not in {".mp3", ".m4a"} or _path_has_symlink(path):
-        raise ArtworkWriteError("Select a regular MP3 or M4A file from the CrateDeck playlist")
+        raise ArtworkWriteError("Select a regular MP3 or M4A file from the playlist")
     try:
         info = path.stat()
     except OSError:
