@@ -18,6 +18,7 @@ import {
   Moon,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react";
 import { Deck, type DeckHandle } from "@/components/Deck";
 import { ImageSearchDialog } from "@/components/ImageSearchDialog";
@@ -224,6 +225,7 @@ function Index() {
     currentImageUrl?: string;
   } | null>(null);
   const deck = useRef<DeckHandle>(null);
+  const tracklistSearchRef = useRef<HTMLInputElement>(null);
   const removeConfirmRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -1566,14 +1568,32 @@ function Index() {
                   className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
                 />
                 <Input
+                  ref={tracklistSearchRef}
                   value={q}
                   onChange={(e) => {
                     setQ(e.target.value);
                     setRangeAnchor(null);
                   }}
                   placeholder="Search title, artist, key, BPM…"
-                  className="h-8 pl-7 text-xs"
+                  className="h-8 pl-7 pr-8 text-xs"
                 />
+                {q && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label="Clear tracklist search"
+                    title="Clear search"
+                    onClick={() => {
+                      setQ("");
+                      setRangeAnchor(null);
+                      tracklistSearchRef.current?.focus();
+                    }}
+                  >
+                    <X size={13} />
+                  </Button>
+                )}
               </div>
               <Button
                 size="icon"
