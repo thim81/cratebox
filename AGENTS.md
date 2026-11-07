@@ -1,7 +1,7 @@
 # Repository instructions
 
 - The user does not like Git worktrees. Work in the current checkout by default; create a worktree only when the user explicitly asks for one.
-- When browser access is needed, use the Codex embedded browser rather than an external browser.
+- For local UI work and interactive verification, use the Codex embedded browser; do not switch to an external browser or native Chrome. Verify behavior in the embedded browser when the app and required local services are available, rather than relying only on a build.
 - Custom MCP source, tests, Python project configuration, lockfile, and setup documentation live in `rekordbx-mcp/`. Run uv from that directory, or use `uv --directory rekordbx-mcp ...` from the repository root.
 
 ## Application domains

@@ -643,7 +643,9 @@ function Index() {
     const s = q.toLowerCase();
     let list = currentTracks.filter(
       (t) =>
-        (!missingArtworkOnly || !t.has_artwork) &&
+        (!missingArtworkOnly ||
+          (!t.has_artwork &&
+            !PLAYLIST_SEPARATORS.some((separator) => separator.trackId === t.rekordbox_id))) &&
         (!s ||
           [t.title, t.artist, t.album, t.genre ?? "", t.key, String(t.bpm), t.quality].some((v) =>
             v.toLowerCase().includes(s),
