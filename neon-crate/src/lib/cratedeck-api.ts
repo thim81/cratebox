@@ -209,7 +209,7 @@ export async function swapPlaylistTrack(
 export async function reorderPlaylistTrack(
   apiUrl: string,
   playlistId: string,
-  sourceTrackId: string,
+  sourceTrackIds: string[],
   targetTrackId: string,
   before: boolean,
 ): Promise<void> {
@@ -219,7 +219,7 @@ export async function reorderPlaylistTrack(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        source_track_id: sourceTrackId,
+        source_track_ids: sourceTrackIds,
         target_track_id: targetTrackId,
         before,
       }),

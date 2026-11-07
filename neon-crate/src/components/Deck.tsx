@@ -376,7 +376,7 @@ export function Deck({
             {fmtTime(time)}
           </span>
           <span
-            className="rounded bg-secondary px-2 py-1 text-muted-foreground"
+            className="rounded-sm border border-border bg-secondary px-2 py-1 text-muted-foreground"
             aria-label={`Total duration ${fmtTime(dur)}`}
             title="Total duration"
           >

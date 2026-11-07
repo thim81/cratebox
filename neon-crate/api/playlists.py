@@ -31,7 +31,8 @@ class PlaylistSwap(BaseModel):
     replacement_track_id: str
 
 class PlaylistReorder(BaseModel):
-    source_track_id: str
+    source_track_id: str | None = None
+    source_track_ids: list[str] | None = None
     target_track_id: str
     before: bool
 
@@ -503,8 +504,16 @@ async def reorder_track(playlist_id: str, request: PlaylistReorder):
 def _reorder_track(playlist_id: str, request: PlaylistReorder):
     if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
         raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
-    if not request.source_track_id or not request.target_track_id:
-        raise HTTPException(400, "Both playlist track IDs are required")
+    source_track_ids = request.source_track_ids
+    if source_track_ids is None:
+        source_track_ids = [request.source_track_id] if request.source_track_id else []
+    if (
+        not source_track_ids or len(source_track_ids) > 1000
+        or any(not track_id for track_id in source_track_ids)
+        or len(set(source_track_ids)) != len(source_track_ids)
+        or not request.target_track_id
+    ):
+        raise HTTPException(400, "Valid source and target playlist track IDs are required")
 
     path = find_playlist(playlist_id)
     try:
@@ -516,20 +525,16 @@ def _reorder_track(playlist_id: str, request: PlaylistReorder):
     plan_path, plan = read_plan_ids(path, lines)
     original_entries = list(playlist_entries(path, lines, plan, include_missing=True))
     entries = list(original_entries)
-    source_index = next(
-        (i for i, entry in enumerate(entries) if entry[3] == request.source_track_id), None,
-    )
-    target_index = next(
-        (i for i, entry in enumerate(entries) if entry[3] == request.target_track_id), None,
-    )
-    if source_index is None or target_index is None:
+    source_ids = set(source_track_ids)
+    source_entries = [entry for entry in entries if entry[3] in source_ids]
+    target_entry = next((entry for entry in entries if entry[3] == request.target_track_id), None)
+    if len(source_entries) != len(source_ids) or target_entry is None:
         raise HTTPException(404, "Track not found in playlist")
-    if source_index == target_index:
+    if request.target_track_id in source_ids:
         return {"moved": False}
-
-    source = entries.pop(source_index)
-    adjusted_target = target_index - int(source_index < target_index)
-    entries.insert(adjusted_target + (0 if request.before else 1), source)
+    entries = [entry for entry in entries if entry[3] not in source_ids]
+    target_index = next(i for i, entry in enumerate(entries) if entry[0] == target_entry[0])
+    entries[target_index + (0 if request.before else 1):target_index + (0 if request.before else 1)] = source_entries
 
     first_line = original_entries[0][0]
     if first_line > 0 and lines[first_line - 1].lstrip().startswith("#EXTINF:"):

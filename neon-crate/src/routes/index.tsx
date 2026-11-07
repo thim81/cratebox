@@ -187,6 +187,12 @@ function Index() {
     sourceTrack: Track;
     match: CollectionMatch;
   } | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    tracks: Track[];
+    playlistId: string;
+    playlistName: string;
+  } | null>(null);
+  const [removingTracks, setRemovingTracks] = useState(false);
   const [separatorType, setSeparatorType] = useState<SeparatorType>("generic");
   const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
   const [addingCollectionTrackId, setAddingCollectionTrackId] = useState<string | null>(null);
@@ -199,6 +205,7 @@ function Index() {
   const [sort, setSort] = useState<SortState>({ k: null, dir: 1 });
   const [sel, setSel] = useState(0);
   const [rangeAnchor, setRangeAnchor] = useState<number | null>(null);
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(() => new Set());
   const [loaded, setLoaded] = useState<{ track: Track; playlist: string } | null>(null);
   const [autoPlay, setAutoPlay] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -217,6 +224,7 @@ function Index() {
     currentImageUrl?: string;
   } | null>(null);
   const deck = useRef<DeckHandle>(null);
+  const removeConfirmRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (localStorage.getItem("crate-deck-theme") === "light") {
@@ -664,13 +672,15 @@ function Index() {
       ? (activeRekordboxPlaylist?.name ?? activeRekordboxFolder?.name ?? "Rekordbox playlists")
       : (activePl?.name ?? "");
   const selectTrackAt = useCallback(
-    (index: number, list: Track[] = view) => {
+    (index: number, list: Track[] = view, preserveSelection = false) => {
       setSel(index);
       const track = list[index];
       if (track) {
         selectedTrackByPlaylist.current.set(selectionKey, track.id);
+        if (!preserveSelection) setSelectedTrackIds(new Set([track.id]));
       } else {
         selectedTrackByPlaylist.current.delete(selectionKey);
+        if (!preserveSelection) setSelectedTrackIds(new Set());
       }
       if (playlistSource === "crate" && activeId) updateCrateUrl(activeId, track?.id);
     },
@@ -682,7 +692,9 @@ function Index() {
     const rememberedIndex = rememberedId
       ? view.findIndex((track) => track.id === rememberedId)
       : -1;
-    setSel(rememberedIndex >= 0 ? rememberedIndex : 0);
+    const nextIndex = rememberedIndex >= 0 ? rememberedIndex : 0;
+    setSel(nextIndex);
+    setSelectedTrackIds(view[nextIndex] ? new Set([view[nextIndex].id]) : new Set());
     setRangeAnchor(null);
   }, [selectionKey, view]);
 
@@ -978,13 +990,9 @@ function Index() {
   }, [activeId, apiUrl, pendingSeparatorReplacement, playlistSource, refreshPlaylists]);
 
   const selectedRange = useMemo(() => {
-    if (rangeAnchor === null || !view.length) return [];
-    return view.slice(Math.min(rangeAnchor, sel), Math.max(rangeAnchor, sel) + 1);
-  }, [view, rangeAnchor, sel]);
-  const selectedIds = useMemo(
-    () => new Set(selectedRange.map((track) => track.id)),
-    [selectedRange],
-  );
+    return view.filter((track) => selectedTrackIds.has(track.id));
+  }, [view, selectedTrackIds]);
+  const selectedIds = selectedTrackIds;
   const selectedRekordboxTracks = useMemo(() => {
     const selected = new Set(selectedRange.map((track) => track.id));
     return rekordboxTracks.filter((track) => selected.has(track.id));
@@ -995,13 +1003,13 @@ function Index() {
     }
   }, [appendDestination, appendTracksToPlaylist, selectedRekordboxTracks]);
   const reorderTrack = useCallback(
-    async (sourceTrackId: string, targetTrackId: string, before: boolean) => {
+    async (sourceTrackIds: string[], targetTrackId: string, before: boolean) => {
       if (!activeId || playlistSource !== "crate" || reordering) return;
       const requestPlaylistId = activeId;
       const selectedTrackId = view[sel]?.id;
       setReordering(true);
       try {
-        await reorderPlaylistTrack(apiUrl, requestPlaylistId, sourceTrackId, targetTrackId, before);
+        await reorderPlaylistTrack(apiUrl, requestPlaylistId, sourceTrackIds, targetTrackId, before);
         const playlist = await getPlaylist(apiUrl, requestPlaylistId, true);
         if (
           activePlaylistContext.current.id !== requestPlaylistId ||
@@ -1082,19 +1090,29 @@ function Index() {
   };
 
   const removeTracks = useCallback(
-    async (toRemove: Track[]) => {
-      if (!toRemove.length || playlistSource === "rekordbox") return;
-      const prompt =
-        toRemove.length === 1
-          ? `Remove “${toRemove[0]!.title}” from “${activePl?.name ?? "this playlist"}”? The audio file will stay on disk.`
-          : `Remove ${toRemove.length} selected tracks from “${activePl?.name ?? "this playlist"}”? The audio files will stay on disk.`;
-      if (!window.confirm(prompt)) return;
-      try {
-        await deletePlaylistTracks(
-          apiUrl,
-          activeId,
-          toRemove.map((track) => track.id),
-        );
+    (toRemove: Track[]) => {
+      if (!toRemove.length || playlistSource === "rekordbox" || !activeId) return;
+      setPendingRemoval({
+        tracks: toRemove,
+        playlistId: activeId,
+        playlistName: activePl?.name ?? "this playlist",
+      });
+    },
+    [activeId, activePl?.name, playlistSource],
+  );
+
+  const confirmRemoveTracks = useCallback(async () => {
+    if (!pendingRemoval || removingTracks) return;
+    const { tracks: toRemove, playlistId, playlistName } = pendingRemoval;
+    setRemovingTracks(true);
+    try {
+      await deletePlaylistTracks(
+        apiUrl,
+        playlistId,
+        toRemove.map((track) => track.id),
+      );
+      const stillActive = activeId === playlistId && playlistSource === "crate";
+      if (stillActive) {
         const removedIds = new Set(toRemove.map((track) => track.id));
         const positions = toRemove
           .map((track) => view.findIndex((item) => item.id === track.id))
@@ -1102,12 +1120,12 @@ function Index() {
         const firstIndex = positions.length ? Math.min(...positions) : 0;
         const remainingView = view.filter((track) => !removedIds.has(track.id));
         const nextIndex = Math.max(0, Math.min(firstIndex, remainingView.length - 1));
-        const updatedPlaylist = await getPlaylist(apiUrl, activeId, true);
+        const updatedPlaylist = await getPlaylist(apiUrl, playlistId, true);
         const updatedTracks = updatedPlaylist.tracks ?? [];
         setTracks(updatedTracks);
         setRangeAnchor(null);
         selectTrackAt(nextIndex, remainingView);
-        if (loaded) {
+        if (loaded?.playlist === playlistName) {
           if (removedIds.has(loaded.track.id)) {
             setLoaded(null);
           } else {
@@ -1116,30 +1134,31 @@ function Index() {
                 ? track.rekordbox_id === loaded.track.rekordbox_id
                 : track.id === loaded.track.id,
             );
-            if (refreshedLoaded) {
-              setLoaded({ ...loaded, track: refreshedLoaded });
-            }
+            if (refreshedLoaded) setLoaded({ ...loaded, track: refreshedLoaded });
           }
         }
-        setApiError(null);
-        await refreshPlaylists();
-      } catch (error) {
-        setApiError(
-          `Couldn't remove track (${error instanceof Error ? error.message : "request failed"})`,
-        );
       }
-    },
-    [
-      activeId,
-      activePl?.name,
-      apiUrl,
-      view,
-      loaded,
-      playlistSource,
-      refreshPlaylists,
-      selectTrackAt,
-    ],
-  );
+      setApiError(null);
+      await refreshPlaylists();
+      setPendingRemoval(null);
+    } catch (error) {
+      setApiError(
+        `Couldn't remove track (${error instanceof Error ? error.message : "request failed"})`,
+      );
+    } finally {
+      setRemovingTracks(false);
+    }
+  }, [
+    activeId,
+    apiUrl,
+    loaded,
+    pendingRemoval,
+    playlistSource,
+    refreshPlaylists,
+    removingTracks,
+    selectTrackAt,
+    view,
+  ]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -1190,12 +1209,17 @@ function Index() {
             0,
             Math.min(view.length - 1, sel + (e.key === "ArrowDown" ? 1 : -1)),
           );
-          selectTrackAt(next);
           if (e.shiftKey) {
-            if (rangeAnchor === null) setRangeAnchor(sel);
+            const anchor = rangeAnchor ?? sel;
+            selectTrackAt(next, view, true);
+            setRangeAnchor(anchor);
+            setSelectedTrackIds(new Set(
+              view.slice(Math.min(anchor, next), Math.max(anchor, next) + 1).map((track) => track.id),
+            ));
           } else {
+            selectTrackAt(next);
             setRangeAnchor(null);
-            if (playlistSource === "crate" && e.metaKey) load(view[next]);
+            if (e.metaKey) load(view[next]);
           }
         }
       } else if (e.key === "ArrowLeft" && loaded) {
@@ -1581,9 +1605,32 @@ function Index() {
             lookupError={lookupError}
             addingCollectionTrackId={addingCollectionTrackId}
             onSort={toggleSort}
-            onSelect={(index) => {
-              selectTrackAt(index);
-              setRangeAnchor(null);
+            onSelect={(index, modifiers) => {
+              if (modifiers.shiftKey) {
+                const anchor = rangeAnchor ?? sel;
+                selectTrackAt(index, view, true);
+                setRangeAnchor(anchor);
+                setSelectedTrackIds(new Set(
+                  view
+                    .slice(Math.min(anchor, index), Math.max(anchor, index) + 1)
+                    .map((track) => track.id),
+                ));
+              } else if (modifiers.toggle) {
+                selectTrackAt(index, view, true);
+                setRangeAnchor(index);
+                const trackId = view[index]?.id;
+                if (trackId) {
+                  setSelectedTrackIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(trackId)) next.delete(trackId);
+                    else next.add(trackId);
+                    return next;
+                  });
+                }
+              } else {
+                selectTrackAt(index);
+                setRangeAnchor(index);
+              }
             }}
             onLoad={load}
             onLookup={(track) => void lookupTrackInCollection(track)}
@@ -1613,8 +1660,8 @@ function Index() {
             readOnly={playlistSource === "rekordbox"}
             reorderEnabled={playlistSource === "crate" && sort.k === null && !q}
             reordering={reordering}
-            onReorder={(sourceTrackId, targetTrackId, before) =>
-              void reorderTrack(sourceTrackId, targetTrackId, before)
+            onReorder={(sourceTrackIds, targetTrackId, before) =>
+              void reorderTrack(sourceTrackIds, targetTrackId, before)
             }
           />
         </main>
@@ -1650,6 +1697,50 @@ function Index() {
                 {playlist.name}
               </Button>
             ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingRemoval !== null}
+        onOpenChange={(open) => {
+          if (!open && !removingTracks) setPendingRemoval(null);
+        }}
+      >
+        <DialogContent
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            removeConfirmRef.current?.focus();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {pendingRemoval?.tracks.length === 1 ? "Remove track?" : "Remove selected tracks?"}
+            </DialogTitle>
+            <DialogDescription>
+              {pendingRemoval?.tracks.length === 1
+                ? `Remove “${pendingRemoval.tracks[0]?.title ?? "this track"}” from “${pendingRemoval.playlistName}”?`
+                : `Remove ${pendingRemoval?.tracks.length ?? 0} selected tracks from “${pendingRemoval?.playlistName ?? "this playlist"}”?`}{" "}
+              The audio file{pendingRemoval?.tracks.length === 1 ? "" : "s"} will stay on disk.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              disabled={removingTracks}
+              onClick={() => setPendingRemoval(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              ref={removeConfirmRef}
+              variant="destructive"
+              disabled={removingTracks}
+              onClick={() => void confirmRemoveTracks()}
+            >
+              {removingTracks ? <LoaderCircle size={14} className="animate-spin" /> : null}
+              Remove
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

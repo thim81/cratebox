@@ -36,7 +36,7 @@ interface TrackTableProps {
   lookupError: string | null;
   addingCollectionTrackId: string | null;
   onSort: (key: SortKey) => void;
-  onSelect: (index: number) => void;
+  onSelect: (index: number, modifiers: { shiftKey: boolean; toggle: boolean }) => void;
   onLoad: (track: Track) => void;
   onLookup: (track: Track) => void;
   onRemove: (track: Track) => void;
@@ -58,7 +58,7 @@ interface TrackTableProps {
   readOnly?: boolean;
   reorderEnabled?: boolean;
   reordering?: boolean;
-  onReorder?: (sourceTrackId: string, targetTrackId: string, before: boolean) => void;
+  onReorder?: (sourceTrackIds: string[], targetTrackId: string, before: boolean) => void;
 }
 
 export function TrackTable({
@@ -102,7 +102,7 @@ export function TrackTable({
   onReorder,
 }: TrackTableProps) {
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
-  const draggedTrackId = useRef<string | null>(null);
+  const draggedTrackIds = useRef<string[]>([]);
   const [dropTarget, setDropTarget] = useState<{ trackId: string; before: boolean } | null>(null);
 
   useEffect(() => {
@@ -158,7 +158,7 @@ export function TrackTable({
         <tbody>
           {tracks.map((track, index) => {
             const isLoaded = loadedTrackId === track.id;
-            const isRangeSelected = selectedIds.has(track.id);
+            const isSelected = selectedIds.has(track.id);
             const separator = PLAYLIST_SEPARATORS.find(
               (separator) => separator.trackId === track.rekordbox_id,
             );
@@ -188,13 +188,19 @@ export function TrackTable({
                   tabIndex={-1}
                   draggable={reorderEnabled && !reordering}
                   onDragStart={(event) => {
-                    draggedTrackId.current = track.id;
+                    draggedTrackIds.current = selectedIds.has(track.id)
+                      ? tracks.filter((item) => selectedIds.has(item.id)).map((item) => item.id)
+                      : [track.id];
                     event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", track.id);
+                    event.dataTransfer.setData("text/plain", draggedTrackIds.current.join("\n"));
                   }}
                   onDragOver={(event) => {
-                    const sourceTrackId = draggedTrackId.current;
-                    if (!sourceTrackId || sourceTrackId === track.id) return;
+                    const sourceTrackIds = draggedTrackIds.current;
+                    if (!sourceTrackIds.length) return;
+                    if (sourceTrackIds.includes(track.id)) {
+                      setDropTarget(null);
+                      return;
+                    }
                     event.preventDefault();
                     const bounds = event.currentTarget.getBoundingClientRect();
                     const before = event.clientY < bounds.top + bounds.height / 2;
@@ -203,25 +209,33 @@ export function TrackTable({
                   }}
                   onDrop={(event) => {
                     event.preventDefault();
-                    const sourceTrackId = draggedTrackId.current;
-                    if (sourceTrackId && sourceTrackId !== track.id && onReorder) {
+                    const sourceTrackIds = draggedTrackIds.current;
+                    if (sourceTrackIds.length && !sourceTrackIds.includes(track.id) && onReorder) {
                       const bounds = event.currentTarget.getBoundingClientRect();
                       const before = event.clientY < bounds.top + bounds.height / 2;
-                      onReorder(sourceTrackId, track.id, before);
+                      onReorder(sourceTrackIds, track.id, before);
                     }
-                    draggedTrackId.current = null;
+                    draggedTrackIds.current = [];
                     setDropTarget(null);
                   }}
                   onDragEnd={() => {
-                    draggedTrackId.current = null;
+                    draggedTrackIds.current = [];
                     setDropTarget(null);
                   }}
-                  onClick={() => onSelect(index)}
+                  onClick={(event) =>
+                    onSelect(index, {
+                      shiftKey: event.shiftKey,
+                      toggle: event.ctrlKey || event.metaKey,
+                    })
+                  }
+                  onContextMenu={(event) => {
+                    if (event.ctrlKey) event.preventDefault();
+                  }}
                   onDoubleClick={() =>
                     readOnly || !isSeparator ? onLoad(track) : onSelectSeparator(track)
                   }
-                  aria-selected={index === selectedIndex || isRangeSelected}
-                  className={`group relative scroll-mt-8 cursor-default border-b border-border/40 ${reorderEnabled && !reordering ? "cursor-grab active:cursor-grabbing" : ""} ${dropTarget?.trackId === track.id ? (dropTarget.before ? "border-t-2 border-t-primary" : "border-b-2 border-b-primary") : ""} ${index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isRangeSelected ? "bg-primary/10" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
+                  aria-selected={isSelected}
+                  className={`group relative scroll-mt-8 cursor-default border-b border-border/40 ${reorderEnabled && !reordering ? "cursor-grab active:cursor-grabbing" : ""} ${dropTarget?.trackId === track.id ? (dropTarget.before ? "border-t-2 border-t-primary" : "border-b-2 border-b-primary") : ""} ${isSelected && index === selectedIndex ? "bg-primary/20 outline outline-1 -outline-offset-1 outline-primary" : isSelected ? "bg-primary/10" : index === selectedIndex ? "outline outline-1 -outline-offset-1 outline-primary/60" : index % 2 ? "bg-row-alt" : ""} ${isLoaded ? "text-accent" : ""} hover:bg-primary/10`}
                 >
                   <td className="w-10 px-1 py-1 text-center">
                     {!readOnly && (
@@ -231,7 +245,7 @@ export function TrackTable({
                         className="size-7 text-muted-foreground transition-opacity hover:bg-primary hover:text-primary-foreground"
                         onClick={(event) => {
                           event.stopPropagation();
-                          onSelect(index);
+                          onSelect(index, { shiftKey: false, toggle: false });
                           onLookup(track);
                         }}
                         aria-expanded={expandedLookupTrackId === track.id}
@@ -399,7 +413,7 @@ export function TrackTable({
                           );
                           const targetIndex = sourceIndex + (direction === "down" ? 1 : 0);
                           if (targetIndex < 0 || targetIndex >= tracks.length) return;
-                          onSelect(targetIndex);
+                          onSelect(targetIndex, { shiftKey: false, toggle: false });
                           rowRefs.current[targetIndex]?.focus();
                         }}
                         onCollapse={onCollapseLookup}
