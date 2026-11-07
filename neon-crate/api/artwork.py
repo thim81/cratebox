@@ -59,6 +59,8 @@ async def search_images(request: ImageSearch):
             spotify=request.spotify,
             soundcloud=request.soundcloud,
         )
+    except google_image_search.GoogleVerificationRequired as exc:
+        raise HTTPException(503, str(exc)) from None
     except Exception:
         raise HTTPException(502, "Image search is temporarily unavailable. Try again later.") from None
     return results
@@ -89,10 +91,14 @@ def search_image_results(
     if soundcloud:
         query += " SoundCloud"
     combined = list(catalogue_results)
+    verification_error = None
     google_results = []
     if google_images:
         try:
             google_results = google_image_search.search_google_images(query, limit=24)
+        except google_image_search.GoogleVerificationRequired as exc:
+            verification_error = exc
+            logger.warning("Google Images requires human verification: %s", exc)
         except Exception as exc:
             logger.warning("Google Images search failed: %s", exc)
         else:
@@ -106,12 +112,16 @@ def search_image_results(
                 return combined
 
     if not duckduckgo:
+        if verification_error and not combined:
+            raise verification_error
         return combined
     try:
         ddg_results = DDGS().images(query, max_results=24, safesearch="moderate")
     except Exception:
         if combined:
             return combined
+        if verification_error:
+            raise verification_error
         raise
     for item in ddg_results:
         if not isinstance(item, dict):
@@ -131,6 +141,8 @@ def search_image_results(
         seen_urls.add(image_url)
         if len(combined) == 24:
             break
+    if not combined and verification_error:
+        raise verification_error
     return combined
 
 @router.put("/api/artwork")

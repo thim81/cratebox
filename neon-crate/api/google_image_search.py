@@ -11,9 +11,20 @@ from urllib.request import urlopen
 from threading import Lock
 
 _SEARCH_LOCK = Lock()
+_MIN_SEARCH_INTERVAL_SECONDS = 2.0
+_LAST_SEARCH_STARTED = 0.0
+_RESULT_CACHE_TTL_SECONDS = 600.0
+_RESULT_CACHE_MAX_ITEMS = 32
+_RESULT_CACHE: dict[tuple[str, int], tuple[float, list[dict[str, str]]]] = {}
+_GOOGLE_COOLDOWN_SECONDS = 60.0
+_GOOGLE_COOLDOWN_UNTIL = 0.0
 _CHROME_PROFILE = Path("/tmp/cratedeck-chrome")
 _DEVTOOLS_PORT_FILE = _CHROME_PROFILE / "DevToolsActivePort"
 _CHROME_PROCESS: subprocess.Popen | None = None
+
+
+class GoogleVerificationRequired(RuntimeError):
+    """Google presented a human-verification challenge instead of search results."""
 
 
 def _stop_owned_chrome() -> None:
@@ -39,14 +50,89 @@ def _web_url(value: str) -> bool:
         return False
 
 
+def _wait_for_search_interval() -> None:
+    """Keep consecutive Google searches at least two seconds apart."""
+    global _LAST_SEARCH_STARTED
+    remaining = _MIN_SEARCH_INTERVAL_SECONDS - (time.monotonic() - _LAST_SEARCH_STARTED)
+    if remaining > 0:
+        time.sleep(remaining)
+    _LAST_SEARCH_STARTED = time.monotonic()
+
+
+def _human_verification_required(page) -> bool:
+    """Recognize Google's human-verification interstitials without interacting with them."""
+    if "/sorry/" in page.url.lower():
+        return True
+    for selector in (
+        'iframe[title="Captcha"]',
+        'iframe[src*="recaptcha"]',
+        'form[action*="sorry"]',
+        "#captcha-form",
+    ):
+        try:
+            if page.locator(selector).count():
+                return True
+        except Exception:
+            continue
+    try:
+        page_text = page.locator("body").inner_text(timeout=1500).lower()
+    except Exception:
+        return False
+    return any(
+        phrase in page_text
+        for phrase in (
+            "unusual traffic",
+            "automated queries",
+            "verify you are human",
+            "verify you're human",
+            "not a robot",
+        )
+    )
+
+
 def search_google_images(query: str, *, limit: int = 24) -> list[dict[str, str]]:
     """Read Google Images results from a dedicated, visible Chrome CDP session."""
+    global _GOOGLE_COOLDOWN_UNTIL
+    cache_key = (query, limit)
+    with _SEARCH_LOCK:
+        now = time.monotonic()
+        cached = _RESULT_CACHE.get(cache_key)
+        if cached:
+            expires_at, results = cached
+            if now < expires_at:
+                return [dict(item) for item in results]
+            _RESULT_CACHE.pop(cache_key, None)
+
+        if now < _GOOGLE_COOLDOWN_UNTIL:
+            seconds = int(_GOOGLE_COOLDOWN_UNTIL - now + 0.999)
+            raise GoogleVerificationRequired(
+                f"Google recently asked for human verification. Complete it in the minimized "
+                f"CrateDeck Chrome window, then retry in about {seconds} seconds."
+            )
+
+        try:
+            results = _search_google_images(query, limit=limit)
+        except GoogleVerificationRequired as exc:
+            _GOOGLE_COOLDOWN_UNTIL = time.monotonic() + _GOOGLE_COOLDOWN_SECONDS
+            raise GoogleVerificationRequired(
+                "Google is asking for human verification. Complete it in the minimized "
+                "CrateDeck Chrome window, then retry in about 60 seconds."
+            ) from exc
+
+        _RESULT_CACHE[cache_key] = (time.monotonic() + _RESULT_CACHE_TTL_SECONDS, results)
+        if len(_RESULT_CACHE) > _RESULT_CACHE_MAX_ITEMS:
+            _RESULT_CACHE.pop(next(iter(_RESULT_CACHE)))
+        return [dict(item) for item in results]
+
+
+def _search_google_images(query: str, *, limit: int) -> list[dict[str, str]]:
     from playwright.sync_api import sync_playwright
 
     search_url = "https://www.google.com/search?" + urlencode({"udm": "2", "q": query})
     results = []
     seen = set()
-    with _SEARCH_LOCK, sync_playwright() as playwright:
+    with sync_playwright() as playwright:
+        _wait_for_search_interval()
         endpoint = _ensure_chrome()
         browser = playwright.chromium.connect_over_cdp(
             endpoint, no_defaults=True, timeout=10000
@@ -66,19 +152,22 @@ def search_google_images(query: str, *, limit: int = 24) -> list[dict[str, str]]
             if reject_cookies.count() and reject_cookies.is_visible():
                 reject_cookies.click(timeout=3000)
 
+            if _human_verification_required(page):
+                raise GoogleVerificationRequired(
+                    "Google is asking for human verification. Complete it in the minimized "
+                    "CrateDeck Chrome window, then retry."
+                )
+
             cards = page.locator('[role="button"]:has(img[src*="encrypted-tbn"])')
             try:
                 cards.first.wait_for(state="visible", timeout=12000)
             except Exception as exc:
                 title = page.title()
                 page_text = " ".join(page.locator("body").inner_text(timeout=2000).split())[:240]
-                if (
-                    "unusual traffic" in page_text.lower()
-                    or page.locator('iframe[title="Captcha"]').count()
-                ):
-                    raise RuntimeError(
-                        "Google requires a human verification for this search. The minimized "
-                        "Chrome window has been left open for you to review."
+                if _human_verification_required(page):
+                    raise GoogleVerificationRequired(
+                        "Google is asking for human verification. Complete it in the minimized "
+                        "CrateDeck Chrome window, then retry."
                     ) from exc
                 raise RuntimeError(
                     f"Google Images cards unavailable (title={title!r}, cards={cards.count()}, "
