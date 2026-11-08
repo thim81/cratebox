@@ -96,6 +96,32 @@ export async function embedRekordboxArtwork(
   return { ...result, artwork_url: new URL(result.artwork_url, `${apiUrl}/`).toString() };
 }
 
+export function setCrateTrackRating(
+  apiUrl: string,
+  playlistId: string,
+  trackId: string,
+  rating: number,
+): Promise<{ rating: number }> {
+  return requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}/rating`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rating }),
+  });
+}
+
+export function setRekordboxTrackRating(
+  apiUrl: string,
+  playlistId: string,
+  trackId: string,
+  rating: number,
+): Promise<{ rating: number }> {
+  return requestJson(apiUrl, `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}/rating`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rating }),
+  });
+}
+
 export async function getPlaylists(apiUrl: string): Promise<Playlist[]> {
   const response = await fetch(`${apiUrl}/api/playlists`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);

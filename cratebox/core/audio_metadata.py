@@ -35,9 +35,9 @@ def read_embedded_rating(path: Path) -> int | None:
                     continue
                 if 0 <= value <= 5:
                     return round(value)
-                if value <= 100:
+                if 5 < value <= 100:
                     return min(5, round(value / 20))
-                if value <= 255:
+                if 100 < value <= 255:
                     return min(5, round(value * 5 / 255))
             return None
 

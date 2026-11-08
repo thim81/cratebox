@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from mutagen.id3 import POPM, TIT2
+from mutagen.id3 import POPM, TIT2, TXXX
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4
 
@@ -59,7 +59,7 @@ def test_read_embedded_rating_reads_m4a_freeform_rating(tmp_path):
     assert read_embedded_rating(source) == 3
 
 
-def test_read_embedded_rating_ignores_malformed_values(tmp_path):
+def test_read_embedded_rating_preserves_an_explicit_zero(tmp_path):
     source = tmp_path / "track.mp3"
     synthetic_mp3(source)
     audio = MP3(source)
@@ -67,3 +67,13 @@ def test_read_embedded_rating_ignores_malformed_values(tmp_path):
     audio.save(v2_version=3)
 
     assert read_embedded_rating(source) == 0
+
+
+def test_read_embedded_rating_ignores_out_of_range_txxx_values(tmp_path):
+    source = tmp_path / "track.mp3"
+    synthetic_mp3(source)
+    audio = MP3(source)
+    audio.tags.add(TXXX(encoding=3, desc="Rating", text="-20"))
+    audio.save(v2_version=3)
+
+    assert read_embedded_rating(source) is None

@@ -12,6 +12,7 @@ from .playlists import playlist_revision, router as playlists_router
 from .artwork import router as artwork_router
 from .streaming import router as streaming_router
 from .rekordbox_playlists import router as rekordbox_playlists_router
+from .ratings import router as ratings_router
 
 mcp = FastMCP("CrateBox")
 mcp_app = mcp.http_app(path="/")
@@ -229,3 +230,4 @@ app.include_router(playlists_router)
 app.include_router(artwork_router)
 app.include_router(streaming_router)
 app.include_router(rekordbox_playlists_router)
+app.include_router(ratings_router)

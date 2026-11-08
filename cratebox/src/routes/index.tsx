@@ -59,7 +59,10 @@ import {
   saveArtwork,
   embedArtwork,
   embedRekordboxArtwork,
+  setCrateTrackRating,
+  setRekordboxTrackRating,
 } from "@/lib/cratebox-api";
+import { updateTrackRating } from "@/lib/track-rating";
 import {
   fmtTime,
   type CollectionMatch,
@@ -201,6 +204,7 @@ function Index() {
     playlistName: string;
   } | null>(null);
   const [removingTracks, setRemovingTracks] = useState(false);
+  const [ratingSaving, setRatingSaving] = useState(false);
   const [separatorType, setSeparatorType] = useState<SeparatorType>("generic");
   const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
   const [addingCollectionTrackId, setAddingCollectionTrackId] = useState<string | null>(null);
@@ -471,7 +475,11 @@ function Index() {
         artwork_url: collectionArtworkUrl(apiUrl, match.id),
       };
       setAutoPlay(true);
-      setLoaded({ track, playlist: "Rekordbox collection" });
+      setLoaded({
+        track,
+        playlist: "Rekordbox collection",
+        ...(match.playlists[0]?.id ? { rekordboxPlaylistId: match.playlists[0].id } : {}),
+      });
     },
     [apiUrl, loaded],
   );
@@ -655,6 +663,41 @@ function Index() {
         sourceTrack: track,
         ...(track.artwork_url !== undefined ? { currentImageUrl: track.artwork_url } : {}),
       });
+    }
+  };
+
+  const rateLoadedTrack = async (rating: number) => {
+    const active = loaded;
+    if (!active || ratingSaving) return;
+    const track = active.track;
+    setRatingSaving(true);
+    try {
+      if (active.rekordboxPlaylistId && track.rekordbox_id) {
+        await setRekordboxTrackRating(
+          apiUrl,
+          active.rekordboxPlaylistId,
+          track.rekordbox_id,
+          rating,
+        );
+        setRekordboxTracks((current) =>
+          updateTrackRating(current, track.id, rating, track.rekordbox_id),
+        );
+      } else if (track.playlist_id) {
+        await setCrateTrackRating(apiUrl, track.playlist_id, track.id, rating);
+        setTracks((current) => updateTrackRating(current, track.id, rating));
+      } else {
+        throw new Error("Load this track from a CrateBox or Rekordbox playlist to rate it.");
+      }
+      setLoaded((current) =>
+        current?.track.id === track.id
+          ? { ...current, track: { ...current.track, rating } }
+          : current,
+      );
+      setApiError(null);
+    } catch (error) {
+      toast.error(`Couldn't save track rating (${error instanceof Error ? error.message : "request failed"})`);
+    } finally {
+      setRatingSaving(false);
     }
   };
   const showTrackInFinder = useCallback(
@@ -1438,6 +1481,11 @@ function Index() {
         onTimeChange={setPlaybackTime}
         onDurationChange={setPlaybackDuration}
         onEditArtwork={editLoadedArtwork}
+        onRate={(rating) => void rateLoadedTrack(rating)}
+        ratingSaving={ratingSaving || !(
+          loaded?.track.playlist_id ||
+          (loaded?.rekordboxPlaylistId && loaded.track.rekordbox_id)
+        )}
         onRevealTrack={(track) => void showTrackInFinder(track)}
       />
 

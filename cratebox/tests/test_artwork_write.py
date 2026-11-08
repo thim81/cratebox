@@ -546,3 +546,180 @@ def test_rekordbox_embed_endpoint_rejects_track_outside_playlist(tmp_path, monke
 
     assert response.status_code == 404
     assert called == ["get_playlists", "get_playlist_tracks"]
+
+
+def test_crate_rating_endpoint_updates_only_the_audio_rating(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import app as api_app
+    from core.audio_metadata import read_embedded_rating
+
+    source = tmp_path / "music" / "track.mp3"
+    source.parent.mkdir()
+    synthetic_mp3(source)
+    playlist_fixture(tmp_path, monkeypatch, source)
+
+    with TestClient(api_app) as client:
+        response = client.put(
+            "/api/playlists/Set/tracks/42-1/rating",
+            json={"rating": 4},
+            headers={"Origin": "http://localhost:4444"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"rating": 4}
+    assert str(source) not in response.text and "file_path" not in response.text
+    assert read_embedded_rating(source) == 4
+
+
+def test_rekordbox_rating_endpoint_resolves_membership_and_never_writes_collection(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import app as api_app
+    from api import rekordbox_playlists
+    from core.audio_metadata import read_embedded_rating
+
+    source = tmp_path / "music" / "track.mp3"
+    source.parent.mkdir()
+    synthetic_mp3(source)
+    calls = []
+
+    async def call_tool(name, arguments=None):
+        calls.append((name, arguments))
+        return {
+            "get_playlists": [{"id": "playlist-1"}],
+            "get_playlist_tracks": [{"id": "track-1"}],
+            "get_collection_tracks": [{"id": "track-1", "file_path": str(source)}],
+        }[name]
+
+    monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
+    with TestClient(api_app) as client:
+        response = client.put(
+            "/api/rekordbox/playlists/playlist-1/tracks/track-1/rating",
+            json={"rating": 5},
+            headers={"Origin": "http://localhost:4444"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"rating": 5}
+    assert str(source) not in response.text and "file_path" not in response.text
+    assert [call[0] for call in calls] == ["get_playlists", "get_playlist_tracks", "get_collection_tracks"]
+    assert read_embedded_rating(source) == 5
+
+
+def test_crate_rating_endpoint_rejects_out_of_range_values_without_writing(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import app as api_app
+
+    source = tmp_path / "music" / "track.mp3"
+    source.parent.mkdir()
+    synthetic_mp3(source)
+    playlist_fixture(tmp_path, monkeypatch, source)
+    original = source.read_bytes()
+
+    with TestClient(api_app) as client:
+        response = client.put(
+            "/api/playlists/Set/tracks/42-1/rating",
+            json={"rating": 6},
+            headers={"Origin": "http://localhost:4444"},
+        )
+
+    assert response.status_code == 422
+    assert source.read_bytes() == original
+
+
+def test_crate_rating_endpoint_rejects_hardlinked_audio_without_writing(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import app as api_app
+
+    source = tmp_path / "music" / "track.mp3"
+    source.parent.mkdir()
+    synthetic_mp3(source)
+    crates, playlist = playlist_fixture(tmp_path, monkeypatch, source)
+    hardlink = source.parent / "linked-track.mp3"
+    hardlink.hardlink_to(source)
+    playlist.write_text(f"#EXTM3U\n{hardlink}\n", encoding="utf-8")
+    (crates / "Set.json").write_text(
+        json.dumps({"format": 1, "name": "Set", "tracks": [{
+            "track_id": "42", "file_path": str(hardlink),
+        }]}),
+        encoding="utf-8",
+    )
+    original = source.read_bytes()
+
+    with TestClient(api_app) as client:
+        response = client.put(
+            "/api/playlists/Set/tracks/42-1/rating",
+            json={"rating": 4},
+            headers={"Origin": "http://localhost:4444"},
+        )
+
+    assert response.status_code == 400
+    assert source.read_bytes() == original
+
+
+def test_crate_rating_endpoint_rejects_untrusted_origin_without_writing(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import app as api_app
+
+    source = tmp_path / "music" / "track.mp3"
+    source.parent.mkdir()
+    synthetic_mp3(source)
+    playlist_fixture(tmp_path, monkeypatch, source)
+    original = source.read_bytes()
+
+    with TestClient(api_app) as client:
+        response = client.put(
+            "/api/playlists/Set/tracks/42-1/rating",
+            json={"rating": 4},
+            headers={"Origin": "https://attacker.example"},
+        )
+
+    assert response.status_code == 403
+    assert source.read_bytes() == original
+
+
+def test_rekordbox_rating_endpoint_rejects_non_member_before_resolving_path(monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import app as api_app
+    from api import rekordbox_playlists
+
+    calls = []
+
+    async def call_tool(name, arguments=None):
+        calls.append(name)
+        return {"get_playlists": [{"id": "playlist-1"}], "get_playlist_tracks": []}[name]
+
+    monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
+    with TestClient(api_app) as client:
+        response = client.put(
+            "/api/rekordbox/playlists/playlist-1/tracks/not-member/rating",
+            json={"rating": 3},
+            headers={"Origin": "http://localhost:4444"},
+        )
+
+    assert response.status_code == 404
+    assert calls == ["get_playlists", "get_playlist_tracks"]
+
+
+def test_rekordbox_playlist_rating_prefers_the_embedded_audio_rating(tmp_path, monkeypatch):
+    from api import rekordbox_playlists
+    from api.collection import collection_mcp
+
+    source = tmp_path / "music" / "track.mp3"
+    source.parent.mkdir()
+    synthetic_mp3(source)
+    artwork_write.set_audio_rating(source, 5)
+
+    async def call_tool(name, arguments=None):
+        if name == "get_playlist_tracks":
+            return [{"id": "track-1", "rating": 1, "title": "Test track"}]
+        if name == "get_collection_tracks":
+            return [{"id": "track-1", "file_path": str(source)}]
+        pytest.fail(f"Unexpected collection tool {name}")
+
+    monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
+    collection_mcp.track_paths.pop("track-1", None)
+
+    tracks = __import__("asyncio").run(rekordbox_playlists.get_rekordbox_playlist_tracks("playlist-1"))
+
+    collection_mcp.track_paths.pop("track-1", None)
+    assert tracks[0]["rating"] == 5

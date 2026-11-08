@@ -9,13 +9,13 @@ import {
   SkipBack,
   SkipForward,
   SlidersHorizontal,
-  Star,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { fmtTime, type Track } from "@/lib/crate-data";
 import { artworkImageKey, shouldShowArtwork } from "@/lib/artwork-state";
+import { RatingStars } from "@/components/RatingStars";
 import type WaveSurferType from "wavesurfer.js";
 
 export interface DeckHandle {
@@ -35,6 +35,8 @@ interface Props {
   onTimeChange: (seconds: number) => void;
   onDurationChange: (seconds: number) => void;
   onEditArtwork: (track: Track) => void;
+  onRate: (rating: number) => void;
+  ratingSaving: boolean;
   onRevealTrack: (track: Track) => void;
   ref?: Ref<DeckHandle>;
 }
@@ -51,6 +53,8 @@ export function Deck({
   onTimeChange,
   onDurationChange,
   onEditArtwork,
+  onRate,
+  ratingSaving,
   onRevealTrack,
   ref,
 }: Props) {
@@ -276,19 +280,7 @@ export function Deck({
                 {track.quality}
               </span>
             </div>
-            <span
-              className="flex gap-0.5"
-              role="img"
-              aria-label={`Rating: ${track.rating} out of 5 stars`}
-            >
-              {[1, 2, 3, 4, 5].map((star) => (
-                <Star
-                  key={star}
-                  size={14}
-                  className={star <= track.rating ? "fill-gold text-gold" : "text-muted-foreground"}
-                />
-              ))}
-            </span>
+            <RatingStars rating={track.rating} onChange={onRate} disabled={ratingSaving} />
           </div>
         )}
       </div>
