@@ -42,6 +42,15 @@ npm run dev:all
 
 The UI is at <http://localhost:4444/>. REST and Streamable HTTP MCP are served by the same API at <http://localhost:8000> and <http://localhost:8000/mcp/>. The API keeps local file locations on the server.
 
+For a production-style local run, build first, then start the API/MCP and built UI without Vite's development server:
+
+```sh
+npm run build
+npm run start:all
+```
+
+Both modes use ports 8000 and 4444. Stop the foreground command with Ctrl+C.
+
 The launcher writes service logs to `/tmp/cratebox-api.log` and `/tmp/cratebox-ui.log`. If startup fails, inspect those logs. The manual `dev:all` command is useful for foreground diagnostics.
 
 ## Use MCP

@@ -12,6 +12,15 @@ npm run dev:all
 
 The UI runs at <http://localhost:4444/> and the API at <http://localhost:8000/>. The API serves the MCP at <http://localhost:8000/mcp/>. Codex uses the repository launcher in `scripts/cratebox-mcp-launcher.py`; it checks these local endpoints and starts only missing services before proxying the HTTP MCP over stdio.
 
+For a production-style local run, build once and start the API/MCP with the built UI:
+
+```sh
+npm run build
+npm run start:all
+```
+
+This serves the compiled UI without Vite's development server. Use `npm run dev:all` while editing the app.
+
 The protected Rekordbox MCP worker starts lazily when collection data is requested. If it cannot start, local playlist browsing and playback remain available.
 
 ## Architecture and paths

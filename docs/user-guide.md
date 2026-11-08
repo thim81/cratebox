@@ -47,6 +47,15 @@ npm run dev:all
 
 This starts the Vite UI and API/MCP together. Logs from the Codex launcher are written to `/tmp/cratebox-api.log` and `/tmp/cratebox-ui.log`.
 
+For a production-style local run, build and start from `cratebox/`:
+
+```sh
+npm run build
+npm run start:all
+```
+
+This serves the built UI without Vite's development server while keeping REST and MCP on the API process. Stop either foreground command with Ctrl+C.
+
 ## 4. Explore and prepare playlists
 
 Try:

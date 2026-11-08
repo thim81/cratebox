@@ -7,6 +7,7 @@
     "dev": "vite dev",
     "dev:all": "sh scripts/dev-all.sh",
     "build": "vite build",
+    "start:all": "sh scripts/start-all.sh",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "oxlint",
