@@ -58,7 +58,7 @@ import {
   saveArtwork,
   embedArtwork,
   embedRekordboxArtwork,
-} from "@/lib/cratedeck-api";
+} from "@/lib/cratebox-api";
 import {
   fmtTime,
   type CollectionMatch,
@@ -67,7 +67,7 @@ import {
   type RekordboxPlaylist,
   type Track,
 } from "@/lib/crate-data";
-import type { SeparatorType } from "@/lib/cratedeck-api";
+import type { SeparatorType } from "@/lib/cratebox-api";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -95,13 +95,13 @@ export const Route = createFileRoute("/")({
   },
   head: () => ({
     meta: [
-      { title: "CrateDeck — DJ Crate Player for m3u8 Playlists" },
+      { title: "CrateBox — DJ Crate Player for m3u8 Playlists" },
       {
         name: "description",
         content:
           "Rekordbox-style DJ crate browser and waveform player for your local m3u8 playlists.",
       },
-      { property: "og:title", content: "CrateDeck — DJ Crate Player" },
+      { property: "og:title", content: "CrateBox — DJ Crate Player" },
       {
         property: "og:description",
         content: "Browse crates, sort by BPM and key, and play tracks with a live waveform.",
@@ -235,7 +235,7 @@ function Index() {
   const removeConfirmRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (localStorage.getItem("crate-deck-theme") === "light") {
+    if (localStorage.getItem("crate-box-theme") === "light") {
       setLightMode(true);
       document.documentElement.classList.add("light");
     }
@@ -245,7 +245,7 @@ function Index() {
     const nextLightMode = !lightMode;
     setLightMode(nextLightMode);
     document.documentElement.classList.toggle("light", nextLightMode);
-    localStorage.setItem("crate-deck-theme", nextLightMode ? "light" : "dark");
+    localStorage.setItem("crate-box-theme", nextLightMode ? "light" : "dark");
   };
 
   const refreshPlaylists = useCallback(async () => {
@@ -488,7 +488,7 @@ function Index() {
   const copySelectedRekordboxPlaylist = useCallback(async () => {
     const playlist = activeRekordboxPlaylist;
     if (!playlist || playlist.is_folder || !rekordboxTracks.length) return;
-    const name = window.prompt("Name for the CrateDeck copy:", playlist.name)?.trim();
+    const name = window.prompt("Name for the CrateBox copy:", playlist.name)?.trim();
     if (!name) return;
     setCopyingRekordboxId(playlist.id);
     try {
@@ -499,7 +499,7 @@ function Index() {
         if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
           if (
             !window.confirm(
-              `A CrateDeck playlist named “${name}” already exists. Replace its M3U8 and JSON files with this Rekordbox playlist?`,
+              `A CrateBox playlist named “${name}” already exists. Replace its M3U8 and JSON files with this Rekordbox playlist?`,
             )
           )
             return;
@@ -1507,7 +1507,7 @@ function Index() {
                     ) : (
                       <Copy size={13} />
                     )}
-                    Copy to CrateDeck
+                    Copy to CrateBox
                   </Button>
                 )}
               <span className="shrink-0 font-mono text-xs text-muted-foreground">
@@ -1552,7 +1552,7 @@ function Index() {
                 !activeRekordboxPlaylist.is_folder && (
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <select
-                      aria-label="Local CrateDeck playlist to insert into"
+                      aria-label="Local CrateBox playlist to insert into"
                       className="h-8 max-w-56 rounded border border-input bg-background px-2 text-xs text-foreground"
                       value={appendPlaylistId}
                       disabled={playlists.length === 0 || appendingTrackId !== null}
@@ -1561,7 +1561,7 @@ function Index() {
                         setApiError(null);
                       }}
                     >
-                      <option value="">Select CrateDeck playlist</option>
+                      <option value="">Select CrateBox playlist</option>
                       {playlists.map((playlist) => (
                         <option key={playlist.id} value={playlist.id}>
                           {playlist.name}
@@ -1584,7 +1584,7 @@ function Index() {
                   title={
                     appendDestination
                       ? `Add ${selectedRange.length} selected tracks to ${appendDestination.name}`
-                      : "Select a CrateDeck playlist first"
+                      : "Select a CrateBox playlist first"
                   }
                 >
                   {appendingTrackId === "__selection__" ? (
@@ -1730,7 +1730,7 @@ function Index() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Select a CrateDeck playlist</DialogTitle>
+            <DialogTitle>Select a CrateBox playlist</DialogTitle>
             <DialogDescription>
               Choose where to add “{pendingAppendTrack?.title ?? "this track"}”.
             </DialogDescription>

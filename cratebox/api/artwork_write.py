@@ -67,7 +67,7 @@ def resolve_playlist_mp3(playlist_id: str, track_id: str) -> Path:
     from . import playlists
 
     if playlists.PLAYLIST_DIR != playlists.DEFAULT_PLAYLIST_DIR or playlists.DEFAULT_PLAYLIST_DIR.is_symlink():
-        raise ArtworkWriteError("Artwork embedding is limited to CrateDeck's playlists folder")
+        raise ArtworkWriteError("Artwork embedding is limited to CrateBox's playlists folder")
     matches = [path for path in playlists.playlist_files() if path.stem == playlist_id]
     if len(matches) != 1 or matches[0].is_symlink():
         raise ArtworkWriteError("The selected playlist is unavailable or ambiguous")
@@ -175,7 +175,7 @@ def _fetch_https(host: str, ip_address: str, target: str):
         connection.request(
             "GET",
             target,
-            headers={"User-Agent": "CrateDeck/1.0", "Accept": "image/jpeg,image/png"},
+            headers={"User-Agent": "CrateBox/1.0", "Accept": "image/jpeg,image/png"},
         )
         response = connection.getresponse()
         body = response.read(MAX_IMAGE_BYTES + 1)
@@ -282,7 +282,7 @@ def _write_backup(source: Path, backup_directory: Path, expected_digest: str) ->
     backup_directory.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile("wb", dir=backup_directory, prefix=".cratedeck-backup-", delete=False) as target:
+        with tempfile.NamedTemporaryFile("wb", dir=backup_directory, prefix=".cratebox-backup-", delete=False) as target:
             temporary = Path(target.name)
             with source.open("rb") as original:
                 shutil.copyfileobj(original, target, length=1024 * 1024)
@@ -396,7 +396,7 @@ def _embed_m4a_cover(source: Path, info: os.stat_result, image_data: bytes, mime
 
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile("wb", suffix=".m4a", prefix=".cratedeck-artwork-", dir=source.parent, delete=False) as staged_file:
+        with tempfile.NamedTemporaryFile("wb", suffix=".m4a", prefix=".cratebox-artwork-", dir=source.parent, delete=False) as staged_file:
             temporary = Path(staged_file.name)
         shutil.copyfile(source, temporary)
         os.chmod(temporary, stat.S_IMODE(info.st_mode) | stat.S_IWUSR)
@@ -459,7 +459,7 @@ def embed_cover_art(source: Path, image_data: bytes, mime: str) -> Path:
 
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile("wb", suffix=".mp3", prefix=".cratedeck-artwork-", dir=source.parent, delete=False) as staged_file:
+        with tempfile.NamedTemporaryFile("wb", suffix=".mp3", prefix=".cratebox-artwork-", dir=source.parent, delete=False) as staged_file:
             temporary = Path(staged_file.name)
         shutil.copyfile(source, temporary)
         os.chmod(temporary, stat.S_IMODE(info.st_mode) | stat.S_IWUSR)

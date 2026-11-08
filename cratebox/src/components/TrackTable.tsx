@@ -15,7 +15,7 @@ import { PlaylistMembershipBadge } from "@/components/PlaylistMembershipBadge";
 import { SeparatorSwapChoices } from "@/components/SeparatorSwapChoices";
 import { Button } from "@/components/ui/button";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
-import { PLAYLIST_SEPARATORS, type SeparatorType } from "@/lib/cratedeck-api";
+import { PLAYLIST_SEPARATORS, type SeparatorType } from "@/lib/cratebox-api";
 
 export type SortKey = "number" | "title" | "artist" | "duration" | "rating" | "bpm" | "key";
 export type SortState = { k: SortKey | null; dir: 1 | -1 };
@@ -362,13 +362,13 @@ export function TrackTable({
                           event.stopPropagation();
                           onAppendToPlaylist(track);
                         }}
-                        aria-label={`Add ${track.title} to a CrateDeck playlist`}
+                        aria-label={`Add ${track.title} to a CrateBox playlist`}
                         title={
                           appendDisabled
-                            ? "No CrateDeck playlist available"
+                            ? "No CrateBox playlist available"
                             : appendDestinationSelected
-                              ? "Add to selected CrateDeck playlist"
-                              : "Choose a CrateDeck playlist"
+                              ? "Add to selected CrateBox playlist"
+                              : "Choose a CrateBox playlist"
                         }
                       >
                         {appendingTrackId === track.id ? (

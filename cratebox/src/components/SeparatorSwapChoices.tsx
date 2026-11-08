@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PLAYLIST_SEPARATORS, type SeparatorType } from "@/lib/cratedeck-api";
+import { PLAYLIST_SEPARATORS, type SeparatorType } from "@/lib/cratebox-api";
 import type { Track } from "@/lib/crate-data";
 
 interface Props {

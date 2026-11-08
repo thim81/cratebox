@@ -10,7 +10,7 @@ from mutagen.mp3 import MP3
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "neon-crate"))
+sys.path.insert(0, str(REPO_ROOT / "cratebox"))
 from api import artwork_write, playlists
 
 
@@ -318,9 +318,9 @@ def test_embed_endpoint_writes_only_selected_mp3_and_clears_old_override(tmp_pat
     original = source.read_bytes()
     output, _ = playlist_fixture(tmp_path, monkeypatch, source)
     monkeypatch.setattr(artwork_data, "PLAN_DIRECTORY", output)
-    monkeypatch.setattr(artwork_data, "ARTWORK_FILE", output / "cratedeck-artwork.json")
+    monkeypatch.setattr(artwork_data, "ARTWORK_FILE", output / "cratebox-artwork.json")
     monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", output / "audio-backups")
-    (output / "cratedeck-artwork.json").write_text(
+    (output / "cratebox-artwork.json").write_text(
         json.dumps({"playlists": {}, "tracks": {"Set": {"42-1": "https://old.example/cover.png"}}}),
         encoding="utf-8",
     )
@@ -408,9 +408,9 @@ def test_embed_endpoint_restores_old_override_when_mp3_write_fails(tmp_path, mon
     original = source.read_bytes()
     output, _ = playlist_fixture(tmp_path, monkeypatch, source)
     monkeypatch.setattr(artwork_data, "PLAN_DIRECTORY", output)
-    monkeypatch.setattr(artwork_data, "ARTWORK_FILE", output / "cratedeck-artwork.json")
+    monkeypatch.setattr(artwork_data, "ARTWORK_FILE", output / "cratebox-artwork.json")
     old_override = "https://old.example/cover.png"
-    (output / "cratedeck-artwork.json").write_text(
+    (output / "cratebox-artwork.json").write_text(
         json.dumps({"playlists": {}, "tracks": {"Set": {"42-1": old_override}}}),
         encoding="utf-8",
     )

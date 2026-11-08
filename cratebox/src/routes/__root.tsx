@@ -79,10 +79,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "CrateDeck — DJ Crate Player" },
+      { title: "CrateBox — DJ Crate Player" },
       { name: "description", content: "DJ crate web player for local m3u8 playlists" },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "CrateDeck — DJ Crate Player" },
+      { property: "og:title", content: "CrateBox — DJ Crate Player" },
       { property: "og:description", content: "DJ crate web player for local m3u8 playlists" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

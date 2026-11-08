@@ -1,5 +1,7 @@
 # Rekordbx
 
+**CrateBox — A direct, playful nod to Rekordbox, hinting at crate management and track prep.**
+
 **Your Rekordbox collection, in conversation.**
 
 Search the music you own, rediscover tracks in your library, and build playlist

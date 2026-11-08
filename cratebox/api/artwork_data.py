@@ -67,7 +67,7 @@ def read_artwork_overrides():
     except FileNotFoundError:
         return {"playlists": {}, "tracks": {}}
     except (OSError, UnicodeError, json.JSONDecodeError):
-        raise HTTPException(500, "Could not read CrateDeck artwork settings") from None
+        raise HTTPException(500, "Could not read CrateBox artwork settings") from None
 
 
 def write_artwork_overrides(value):
@@ -77,7 +77,7 @@ def write_artwork_overrides(value):
     try:
         PLAN_DIRECTORY.mkdir(exist_ok=True)
         with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=PLAN_DIRECTORY, prefix=".cratedeck-artwork-", delete=False
+            "w", encoding="utf-8", dir=PLAN_DIRECTORY, prefix=".cratebox-artwork-", delete=False
         ) as file:
             temporary = Path(file.name)
             file.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
@@ -87,5 +87,5 @@ def write_artwork_overrides(value):
     except OSError:
         if temporary:
             temporary.unlink(missing_ok=True)
-        raise HTTPException(500, "Could not save CrateDeck artwork settings") from None
+        raise HTTPException(500, "Could not save CrateBox artwork settings") from None
 

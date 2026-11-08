@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { searchImages } from "@/lib/cratedeck-api";
+import { searchImages } from "@/lib/cratebox-api";
 import type { ImageResult } from "@/lib/crate-data";
 
 interface Props {

@@ -1,4 +1,4 @@
-"""FastAPI application setup for the local CrateDeck API."""
+"""FastAPI application setup for the local CrateBox API."""
 
 from contextlib import asynccontextmanager
 
@@ -18,7 +18,7 @@ async def lifespan(_app):
     finally:
         await collection_mcp.close()
 
-app = FastAPI(title="CrateDeck playlist API", lifespan=lifespan)
+app = FastAPI(title="CrateBox playlist API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

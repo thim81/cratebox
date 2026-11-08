@@ -11,10 +11,10 @@ local playlist exporter.
 The original Rekordbox database, playlists, analysis files and audio remain
 read-only source data. Docker is not used.
 
-CrateDeck can also launch this MCP on the first track lookup through its local
+CrateBox can also launch this MCP on the first track lookup through its local
 API. If Rekordbox is closed, the worker creates a fresh verified snapshot. If
 it is open, the worker serves the newest verified snapshot already on disk. The
-worker stops when CrateDeck's API shuts down.
+worker stops when CrateBox's API shuts down.
 
 ## Set up
 
@@ -181,7 +181,7 @@ URL and returns its ordered, numbered artist/title entries. Add
 `spotify_tracklist` to the client tool allowlist to enable it. It requires
 network access to Spotify and does not access the Rekordbox collection.
 
-`lookup_similar_tracks_for_cratedeck` is reserved for the local CrateDeck API.
+`lookup_similar_tracks_for_cratebox` is reserved for the local CrateBox API.
 It returns file paths for immediate server-side playback and must stay out of
 conversational MCP client allowlists; the API removes paths before responding to
 the browser.
@@ -189,7 +189,7 @@ the browser.
 `get_track_locations` is a generic read-only collection contract for trusted
 local application APIs that need to verify an existing ID/path pairing. It
 returns paths and must also stay out of conversational MCP client allowlists.
-The CrateDeck API compares these values internally before updating a playlist;
+The CrateBox API compares these values internally before updating a playlist;
 browser responses contain no audio paths.
 
 ## Protection boundaries

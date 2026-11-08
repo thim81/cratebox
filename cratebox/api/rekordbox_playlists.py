@@ -99,7 +99,7 @@ async def call_tool(name: str, arguments: dict | None = None):
         message = next((item.text for item in result.content if hasattr(item, "text")), "")
         logger.error("Rekordbox MCP tool returned an error (%s): %s", name, message)
         if "already exists" in message.lower():
-            raise HTTPException(409, "A CrateDeck playlist with this name already exists.")
+            raise HTTPException(409, "A CrateBox playlist with this name already exists.")
         if name == "export_playlist":
             raise HTTPException(400, message or "Could not export the Rekordbox playlist.")
         if name == "get_track_locations":
@@ -238,7 +238,7 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
 async def copy_rekordbox_playlist(playlist_id: str, request: CopyPlaylistRequest):
     name = request.name.strip()
     if not name:
-        raise HTTPException(400, "Enter a name for the CrateDeck copy.")
+        raise HTTPException(400, "Enter a name for the CrateBox copy.")
 
     source = next(
         (record for record in await playlist_records() if str(record.get("id")) == playlist_id),

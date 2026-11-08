@@ -90,7 +90,7 @@ export function CrateSidebar({
           onClick={() => onSourceChange("crate")}
         >
           <img src="/favicon.svg" alt="" aria-hidden="true" className="size-4" />
-          CrateDeck
+          CrateBox
         </Button>
         <Button
           size="sm"
@@ -277,12 +277,12 @@ export function CrateSidebar({
       <div className="border-t border-sidebar-border p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
         {source === "crate"
           ? "↑↓ browse · ⌘↑↓ load · ⇧↑↓ select · ⌘⌫ remove · ←→ seek 5s"
-          : "Read only · Copy to CrateDeck to edit"}
+          : "Read only · Copy to CrateBox to edit"}
       </div>
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New CrateDeck playlist</DialogTitle>
+            <DialogTitle>New CrateBox playlist</DialogTitle>
             <DialogDescription>Create an empty playlist to add tracks to.</DialogDescription>
           </DialogHeader>
           <form

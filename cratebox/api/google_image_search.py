@@ -18,7 +18,7 @@ _RESULT_CACHE_MAX_ITEMS = 32
 _RESULT_CACHE: dict[tuple[str, int], tuple[float, list[dict[str, str]]]] = {}
 _GOOGLE_COOLDOWN_SECONDS = 60.0
 _GOOGLE_COOLDOWN_UNTIL = 0.0
-_CHROME_PROFILE = Path("/tmp/cratedeck-chrome")
+_CHROME_PROFILE = Path("/tmp/cratebox-chrome")
 _DEVTOOLS_PORT_FILE = _CHROME_PROFILE / "DevToolsActivePort"
 _CHROME_PROCESS: subprocess.Popen | None = None
 
@@ -107,7 +107,7 @@ def search_google_images(query: str, *, limit: int = 24) -> list[dict[str, str]]
             seconds = int(_GOOGLE_COOLDOWN_UNTIL - now + 0.999)
             raise GoogleVerificationRequired(
                 f"Google recently asked for human verification. Complete it in the minimized "
-                f"CrateDeck Chrome window, then retry in about {seconds} seconds."
+                f"CrateBox Chrome window, then retry in about {seconds} seconds."
             )
 
         try:
@@ -116,7 +116,7 @@ def search_google_images(query: str, *, limit: int = 24) -> list[dict[str, str]]
             _GOOGLE_COOLDOWN_UNTIL = time.monotonic() + _GOOGLE_COOLDOWN_SECONDS
             raise GoogleVerificationRequired(
                 "Google is asking for human verification. Complete it in the minimized "
-                "CrateDeck Chrome window, then retry in about 60 seconds."
+                "CrateBox Chrome window, then retry in about 60 seconds."
             ) from exc
 
         _RESULT_CACHE[cache_key] = (time.monotonic() + _RESULT_CACHE_TTL_SECONDS, results)
@@ -155,7 +155,7 @@ def _search_google_images(query: str, *, limit: int) -> list[dict[str, str]]:
             if _human_verification_required(page):
                 raise GoogleVerificationRequired(
                     "Google is asking for human verification. Complete it in the minimized "
-                    "CrateDeck Chrome window, then retry."
+                    "CrateBox Chrome window, then retry."
                 )
 
             cards = page.locator('[role="button"]:has(img[src*="encrypted-tbn"])')
@@ -167,7 +167,7 @@ def _search_google_images(query: str, *, limit: int) -> list[dict[str, str]]:
                 if _human_verification_required(page):
                     raise GoogleVerificationRequired(
                         "Google is asking for human verification. Complete it in the minimized "
-                        "CrateDeck Chrome window, then retry."
+                        "CrateBox Chrome window, then retry."
                     ) from exc
                 raise RuntimeError(
                     f"Google Images cards unavailable (title={title!r}, cards={cards.count()}, "

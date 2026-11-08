@@ -9,7 +9,7 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 
-USER_AGENT = "CrateDeck/1.0 (https://github.com/thim/rekordbx)"
+USER_AGENT = "CrateBox/1.0 (https://github.com/thim/rekordbx)"
 _JSON_LIMIT = 2 * 1024 * 1024
 _MB_LOCK = threading.Lock()
 _LAST_MB_REQUEST = 0.0

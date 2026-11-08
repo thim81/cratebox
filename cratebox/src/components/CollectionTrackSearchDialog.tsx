@@ -22,7 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { fmtTime, type CollectionMatch, type Track } from "@/lib/crate-data";
-import { lookupCollection } from "@/lib/cratedeck-api";
+import { lookupCollection } from "@/lib/cratebox-api";
 
 interface Props {
   apiUrl: string;

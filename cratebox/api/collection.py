@@ -54,7 +54,7 @@ class CollectionMcp:
                 await client.__aenter__()
                 tool_names = {tool.name for tool in await client.list_tools()}
                 required_tools = {
-                    "lookup_similar_tracks_for_cratedeck", "get_track_details",
+                    "lookup_similar_tracks_for_cratebox", "get_track_details",
                     "get_playlists", "get_playlist_tracks", "get_track_locations",
                     "export_playlist",
                 }
@@ -74,7 +74,7 @@ class CollectionMcp:
     async def call_tool(self, name: str, arguments: dict | None = None):
         async with self.call_lock:
             attempts = 2 if name in {
-                "lookup_similar_tracks_for_cratedeck", "get_track_details",
+                "lookup_similar_tracks_for_cratebox", "get_track_details",
                 "get_playlists", "get_playlist_tracks", "get_track_locations",
             } else 1
             for attempt in range(attempts):
@@ -139,7 +139,7 @@ async def collection_lookup(request: CollectionLookup):
                 title = str(source.get("title") or title).strip()
             if artist and title:
                 result = await collection_mcp.call_tool(
-                    "lookup_similar_tracks_for_cratedeck", {"artist": artist, "title": title},
+                    "lookup_similar_tracks_for_cratebox", {"artist": artist, "title": title},
                 )
                 matches = await result_value(result)
             elif isinstance(source, dict):
@@ -159,7 +159,7 @@ async def collection_lookup(request: CollectionLookup):
                 matches = []
         else:
             result = await collection_mcp.call_tool(
-                "lookup_similar_tracks_for_cratedeck", {"artist": artist, "title": title},
+                "lookup_similar_tracks_for_cratebox", {"artist": artist, "title": title},
             )
             matches = await result_value(result)
         if not isinstance(matches, list):

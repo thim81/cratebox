@@ -231,7 +231,7 @@ def _require_local_artwork_origin(http_request: Request):
         or parsed_origin.query
         or parsed_origin.fragment
     ):
-        raise HTTPException(403, "Artwork embedding is allowed only from the local CrateDeck interface")
+        raise HTTPException(403, "Artwork embedding is allowed only from the local CrateBox interface")
 
 
 @router.put("/api/rekordbox/playlists/{playlist_id}/tracks/{track_id}/artwork/embed")

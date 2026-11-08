@@ -10,7 +10,7 @@ args = [
 startup_timeout_sec = 120
 tool_timeout_sec = 120
 enabled_tools = [
-  # Do not enable lookup_similar_tracks_for_cratedeck; it returns local audio paths to the app API.
+  # Do not enable lookup_similar_tracks_for_cratebox; it returns local audio paths to the app API.
   "search_tracks",
   "get_track_details",
   "get_playlists",
