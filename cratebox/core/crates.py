@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import tempfile
 
+from .audio_metadata import read_embedded_rating
+
 SEPARATOR_TRACK_TYPES = {
     "228753448": "generic",
     "118082420": "90s",
@@ -151,35 +153,6 @@ def playlist_entries(
         yield line_number, plan_index, audio, row_id, rekordbox_id
 
 
-def _mp3_rating(path: Path) -> int:
-    try:
-        from mutagen import MutagenError
-        from mutagen.id3 import ID3
-        tags = ID3(path)
-    except ImportError:
-        return 0
-    except (OSError, MutagenError):
-        return 0
-
-    popularimeters = tags.getall("POPM")
-    if popularimeters:
-        value = max(int(frame.rating) for frame in popularimeters)
-        return min(5, (value * 5 + 127) // 255)
-    for frame in tags.getall("TXXX"):
-        if frame.desc.strip().casefold() != "rating":
-            continue
-        try:
-            value = float(str(frame.text[0]).strip())
-        except (IndexError, TypeError, ValueError):
-            continue
-        if 0 <= value <= 5:
-            return round(value)
-        if value <= 100:
-            return min(5, round(value / 20))
-        return min(5, round(value * 5 / 255))
-    return 0
-
-
 def parse_crate_tracks(
     path: Path,
     crate_directory: Path,
@@ -242,6 +215,7 @@ def parse_crate_tracks(
             audio_bpm = 0
         bitrate = getattr(info, "bitrate", 0) or 0
         plan_rating = plan_number("rating", -1, integer=True)
+        embedded_rating = read_embedded_rating(audio)
         plan_playlists = plan_metadata.get("playlists")
         playlists = [
             {"id": item["id"], "name": item["name"]}
@@ -258,8 +232,8 @@ def parse_crate_tracks(
             "album": plan_text("album", tag("album")),
             "genre": plan_text("genre"),
             "duration": plan_number("duration", round(getattr(info, "length", 0) or 0), integer=True),
-            "rating": plan_rating if 0 < plan_rating <= 5 else (
-                _mp3_rating(audio) if audio.suffix.lower() == ".mp3" else 0
+            "rating": embedded_rating if embedded_rating is not None else (
+                plan_rating if 0 < plan_rating <= 5 else 0
             ),
             "play_count": plan_number("play_count", 0, integer=True),
             "cue_count": plan_number("cue_count", 0, integer=True),

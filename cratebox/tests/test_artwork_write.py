@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from mutagen.id3 import APIC, TIT2
 from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -35,6 +36,18 @@ def synthetic_mp3(path: Path) -> None:
     audio.tags.add(APIC(encoding=3, mime="image/png", type=3, desc="Front", data=png(b"\xff\x00\x00")))
     audio.tags.add(APIC(encoding=3, mime="image/png", type=4, desc="Back", data=png(b"\x00\x00\xff")))
     audio.save(v2_version=3)
+
+
+def synthetic_m4a(path: Path) -> None:
+    import shutil
+    import subprocess
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg is required to generate an M4A fixture")
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", "0.1", "-c:a", "aac", str(path)],
+        check=True,
+    )
 
 
 def mpeg_stream(path: Path) -> bytes:
@@ -126,6 +139,67 @@ def test_invalid_image_leaves_mp3_unchanged(tmp_path):
 
     with pytest.raises(artwork_write.ArtworkWriteError):
         artwork_write.embed_cover_art(source, b"not an image", "image/png")
+
+    assert source.read_bytes() == original
+
+
+def test_set_audio_rating_updates_mp3_and_preserves_audio_and_tags(tmp_path):
+    source = tmp_path / "track.mp3"
+    synthetic_mp3(source)
+    original_stream = mpeg_stream(source)
+    duration = MP3(source).info.length
+
+    result = artwork_write.set_audio_rating(source, 4)
+
+    updated = MP3(source)
+    assert result is None
+    assert next(frame.rating for frame in updated.tags.getall("POPM") if frame.email == "cratebox") == 204
+    assert str(updated.tags["TIT2"]) == "Test track"
+    assert mpeg_stream(source) == original_stream
+    assert updated.info.length == pytest.approx(duration)
+    assert not (tmp_path / "audio-backups").exists()
+
+
+def test_set_audio_rating_updates_m4a_and_preserves_other_tags(tmp_path):
+    source = tmp_path / "track.m4a"
+    synthetic_m4a(source)
+    audio = MP4(source)
+    audio.tags["\xa9nam"] = ["Test track"]
+    audio.save()
+    duration = MP4(source).info.length
+
+    artwork_write.set_audio_rating(source, 3)
+
+    updated = MP4(source)
+    assert updated.tags["----:com.apple.iTunes:RATING"] == [b"3"]
+    assert updated.tags["\xa9nam"] == ["Test track"]
+    assert updated.info.length == pytest.approx(duration)
+
+
+def test_set_audio_rating_zero_is_persisted_and_invalid_values_fail_safely(tmp_path):
+    source = tmp_path / "track.mp3"
+    synthetic_mp3(source)
+    artwork_write.set_audio_rating(source, 0)
+    assert any(frame.email == "cratebox" and frame.rating == 0 for frame in MP3(source).tags.getall("POPM"))
+    original = source.read_bytes()
+
+    with pytest.raises(artwork_write.ArtworkWriteError):
+        artwork_write.set_audio_rating(source, 6)
+
+    assert source.read_bytes() == original
+
+
+def test_set_audio_rating_leaves_original_intact_when_replace_fails(tmp_path, monkeypatch):
+    source = tmp_path / "track.mp3"
+    synthetic_mp3(source)
+    original = source.read_bytes()
+
+    def fail_replace(*_args):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(artwork_write, "_replace_source", fail_replace)
+    with pytest.raises(artwork_write.ArtworkWriteError):
+        artwork_write.set_audio_rating(source, 2)
 
     assert source.read_bytes() == original
     assert not (tmp_path / "backups").exists()

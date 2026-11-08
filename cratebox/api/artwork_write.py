@@ -15,9 +15,9 @@ from urllib.parse import urljoin, urlsplit
 import zlib
 
 from mutagen import MutagenError
-from mutagen.id3 import APIC, ID3
+from mutagen.id3 import APIC, ID3, POPM
 from mutagen.mp3 import MP3
-from mutagen.mp4 import MP4, MP4Cover
+from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -26,6 +26,120 @@ _JPEG_SOF = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0
 
 class ArtworkWriteError(ValueError):
     """An artwork update was rejected or could not be completed safely."""
+
+
+def _mp3_audio_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        header = stream.read(10)
+        if header[:3] == b"ID3" and len(header) == 10:
+            tag_size = sum((header[6 + offset] & 0x7F) << (7 * (3 - offset)) for offset in range(4))
+            stream.seek(10 + tag_size)
+        else:
+            stream.seek(0)
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _mp3_non_cratebox_tags(tags: ID3):
+    return {
+        key: (type(frame), frame.__dict__)
+        for key, frame in tags.items()
+        if not (isinstance(frame, POPM) and frame.email.casefold() == "cratebox")
+    }
+
+
+def _mp4_non_rating_tags(tags):
+    return {key: value for key, value in (tags or {}).items() if key != "----:com.apple.iTunes:RATING"}
+
+
+def set_audio_rating(source: Path, rating: int) -> None:
+    """Safely write a CrateBox 0–5 rating to an MP3 or M4A file."""
+    if isinstance(rating, bool) or not isinstance(rating, int) or not 0 <= rating <= 5:
+        raise ArtworkWriteError("Rating must be a whole number from 0 to 5")
+    source = Path(source)
+    info = _validate_source(source)
+    temporary = None
+    try:
+        if source.suffix.lower() == ".mp3":
+            original = MP3(source)
+            if original.info is None:
+                raise ArtworkWriteError("The selected MP3 is not readable")
+            duration = original.info.length
+            version = original.tags.version[1] if original.tags else 3
+            if version not in (3, 4):
+                raise ArtworkWriteError("Only MP3 files with ID3v2.3 or ID3v2.4 tags are supported")
+            audio_hash = _mp3_audio_hash(source)
+            tag_snapshot = _mp3_non_cratebox_tags(original.tags or ID3())
+            fingerprint = _fingerprint(source)
+        else:
+            original = MP4(source)
+            if original.info is None:
+                raise ArtworkWriteError("The selected M4A is not readable")
+            duration = original.info.length
+            audio_hash = _mp4_media_data(source)
+            tag_snapshot = _mp4_non_rating_tags(original.tags)
+            fingerprint = _fingerprint(source)
+
+        with tempfile.NamedTemporaryFile(
+            "wb", suffix=source.suffix.lower(), prefix=".cratebox-rating-", dir=source.parent, delete=False,
+        ) as staged_file:
+            temporary = Path(staged_file.name)
+        shutil.copyfile(source, temporary)
+        os.chmod(temporary, stat.S_IMODE(info.st_mode) | stat.S_IWUSR)
+
+        if source.suffix.lower() == ".mp3":
+            staged = MP3(temporary)
+            if staged.tags is None:
+                staged.add_tags()
+            for key, frame in list(staged.tags.items()):
+                if isinstance(frame, POPM) and frame.email.casefold() == "cratebox":
+                    del staged.tags[key]
+            raw_rating = (0, 51, 102, 153, 204, 255)[rating]
+            staged.tags.add(POPM(email="cratebox", rating=raw_rating, count=0))
+            staged.save(v2_version=version)
+            verified = MP3(temporary)
+            from core.audio_metadata import read_embedded_rating
+
+            if (
+                verified.info is None
+                or abs(verified.info.length - duration) > 1e-6
+                or _mp3_audio_hash(temporary) != audio_hash
+                or _mp3_non_cratebox_tags(verified.tags or ID3()) != tag_snapshot
+                or read_embedded_rating(temporary) != rating
+            ):
+                raise ArtworkWriteError("The staged MP3 failed its audio or tag integrity check")
+        else:
+            staged = MP4(temporary)
+            if staged.tags is None:
+                staged.add_tags()
+            staged.tags["----:com.apple.iTunes:RATING"] = [MP4FreeForm(str(rating).encode("utf-8"))]
+            staged.save()
+            verified = MP4(temporary)
+            from core.audio_metadata import read_embedded_rating
+
+            if (
+                verified.info is None
+                or abs(verified.info.length - duration) > 1e-6
+                or _mp4_media_data(temporary) != audio_hash
+                or _mp4_non_rating_tags(verified.tags) != tag_snapshot
+                or read_embedded_rating(temporary) != rating
+            ):
+                raise ArtworkWriteError("The staged M4A failed its audio or tag integrity check")
+
+        if _fingerprint(source) != fingerprint:
+            raise ArtworkWriteError("The source audio file changed during the rating update")
+        shutil.copystat(source, temporary)
+        _replace_source(temporary, source)
+        temporary = None
+    except ArtworkWriteError:
+        raise
+    except (OSError, MutagenError, ValueError, struct.error):
+        raise ArtworkWriteError("Could not update the audio rating; the original was left unchanged") from None
+    finally:
+        if temporary:
+            temporary.unlink(missing_ok=True)
 
 
 def _path_has_symlink(path: Path) -> bool:

@@ -89,6 +89,30 @@ def test_crate_track_parser_prefers_saved_metadata_and_keeps_file_location_inter
     }]
 
 
+def test_crate_track_parser_prefers_embedded_rating_over_saved_plan_rating(tmp_path):
+    from mutagen.id3 import POPM
+    from mutagen.mp3 import MP3
+    import mutagen
+
+    audio = tmp_path / "track.mp3"
+    audio.write_bytes((bytes.fromhex("fffb9064") + bytes(413)) * 20)
+    media = MP3(audio)
+    media.add_tags()
+    media.tags.add(POPM(email="cratebox", rating=204, count=0))
+    media.save(v2_version=3)
+    playlist = tmp_path / "Set.m3u8"
+    playlist.write_text(f"#EXTM3U\n{audio}\n", encoding="utf-8")
+    crate_directory = tmp_path / ".cratebox" / "crates"
+    crate_directory.mkdir(parents=True)
+    (crate_directory / "Set.json").write_text(json.dumps({"tracks": [{
+        "track_id": "42", "file_path": str(audio), "rating": 2,
+    }]}))
+
+    records = parse_crate_tracks(playlist, crate_directory, media_reader=mutagen.File)
+
+    assert records[0]["rating"] == 4
+
+
 def test_create_crate_writes_empty_m3u_and_json_pair(tmp_path):
     playlists = tmp_path / "playlists"
     crates = tmp_path / ".cratebox" / "crates"
