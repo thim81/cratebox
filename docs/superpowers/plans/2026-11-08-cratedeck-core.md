@@ -2,7 +2,7 @@
 
 Approved plan: rename application to cratebox; extract Core; minimize protected adapter; host MCP with REST; refresh UI.
 
-Constraints: current checkout; no subagents; upstream unchanged; original collection/audio unchanged.
+Constraints: current checkout; no subagents; upstream unchanged; original Rekordbox collection data unchanged. Artwork edits may write directly to the selected local MP3 under CrateBox's own `playlists/` directory, without creating a backup, as explicitly authorized by the user.
 
 - Baseline: UI 2 tests pass; build passes. API 31 pass, 5 existing image-search failures (missing playwright/environment-dependent Google fallback).
 - Adapter baseline: running.
@@ -37,3 +37,6 @@ Constraints: current checkout; no subagents; upstream unchanged; original collec
 - Inspectr.dev: attempted tool discovery and MCP connection; its endpoint still returns 404 during SSE probing, so direct FastMCP client/stdio checks were used instead.
 - Fresh verification: adapter `44 passed`; frontend `2 passed`; production build passed. Core/API suite: `47 passed, 5 failed`; all failures are the previously observed artwork image-search tests whose network fallback returns live Google Images results instead of mocked catalogue/DuckDuckGo responses. Export-specific tests passed in the suite. Launcher and MCP proxy startup were separately exercised, including idempotent reuse of running services and the public-tool allowlist.
 - Outstanding: embedded-browser verification of playlist refresh during playback; final whole-change review; review/commit this export + launcher + docs stage. API test failures above remain environment-dependent and unrelated to this stage, but need a stable offline test seam before final plan closure.
+- New requested stage: move the consumer-neutral Rekordbox adapter project from the repository root into `cratebox/rekordbx-mcp/`. Keep it a separate package and data provider, not part of Core; preserve its snapshot protections and storage locations. Update source references, launcher commands, uv invocations, docs, config examples and tests for the new path; rerun adapter, API and frontend checks.
+- New artwork decision: remove the required retained backup flow for artwork embedding. The operation may modify the original selected MP3 directly, without writing a backup. Keep the existing selection boundary: only a file resolved from a selected entry in the repository's own `playlists/` folder may be edited. Test the in-place edit against temporary audio fixtures and verify the resulting embedded image. Update repository instructions and docs to reflect that explicit allowance when implementing this step.
+- Browser verification currently shows the CrateBox UI starts, while the collection MCP is idle and no playlist tracks are loaded; playback-refresh verification remains pending a usable local playlist and collection connection.
