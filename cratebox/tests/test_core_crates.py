@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import sys
+import asyncio
 
 import pytest
 
@@ -10,11 +11,15 @@ from core.crates import (
     ApplicationConflict,
     ApplicationError,
     ApplicationNotFound,
+    append_crate_tracks,
     create_crate,
     parse_crate_tracks,
+    insert_crate_separator,
+    insert_crate_track,
     playlist_entries,
     read_plan_ids,
     remove_crate_tracks,
+    replace_crate_separator,
     reorder_crate_tracks,
     replace_crate_track,
 )
@@ -177,6 +182,122 @@ def test_replace_track_updates_file_and_drops_stale_metadata(tmp_path):
     assert "title" not in track and "rating" not in track
 
 
+def test_append_crate_tracks_validates_existing_snapshot_then_appends_in_order(tmp_path):
+    playlists, crates, audio_paths = _write_crate(tmp_path, ["42", "43"])
+    extra = tmp_path / "extra.mp3"
+    extra.write_bytes(b"extra")
+    tracks = {
+        "42": {"id": "42", "file_path": str(audio_paths[0]), "title": "One"},
+        "43": {"id": "43", "file_path": str(audio_paths[1]), "title": "Two"},
+        "99": {"id": "99", "file_path": str(extra), "title": "Three"},
+    }
+
+    async def resolve_tracks(**selector):
+        return [tracks[track_id] for track_id in selector["track_ids"]]
+
+    result = asyncio.run(append_crate_tracks(
+        "Set", ["99"], resolve_tracks, playlists, crates, playlists,
+    ))
+
+    assert result["track_count"] == 3
+    assert [item["track_id"] for item in json.loads((crates / "Set.json").read_text())["tracks"]] == [
+        "42", "43", "99",
+    ]
+    assert (playlists / "Set.m3u8").read_text().splitlines() == [
+        "#EXTM3U", *(tracks[track_id]["file_path"] for track_id in ("42", "43", "99")),
+    ]
+
+
+def test_insert_crate_track_after_duplicate_row_uses_row_occurrence(tmp_path):
+    playlists, crates, audio_paths = _write_crate(tmp_path, ["42", "42"])
+    extra = tmp_path / "extra.mp3"
+    extra.write_bytes(b"extra")
+    tracks = {
+        "42": {"id": "42", "file_path": str(audio_paths[0]), "title": "Existing"},
+        "99": {"id": "99", "file_path": str(extra), "title": "Inserted"},
+    }
+
+    async def resolve_tracks(**selector):
+        return [tracks[track_id] for track_id in selector["track_ids"]]
+
+    result = asyncio.run(insert_crate_track(
+        "Set", "99", "42-2", resolve_tracks, playlists, crates, playlists,
+    ))
+
+    assert result["track_id"] == "99-1"
+    assert [item["track_id"] for item in json.loads((crates / "Set.json").read_text())["tracks"]] == [
+        "42", "42", "99",
+    ]
+
+
+def test_insert_crate_separator_resolves_fixed_file_and_updates_both_artifacts(tmp_path, monkeypatch):
+    from core import export as crate_export
+
+    playlists, crates, audio_paths = _write_crate(tmp_path, ["42"])
+    separator_directory = tmp_path / "separators"
+    separator_directory.mkdir()
+    separator = separator_directory / "Separator.wav"
+    separator.write_bytes(b"separator")
+    monkeypatch.setattr(crate_export, "SEPARATOR_DIRECTORY", separator_directory)
+    by_id = {
+        "42": {"id": "42", "file_path": str(audio_paths[0]), "title": "Track"},
+        "228753448": {"id": "228753448", "file_path": str(separator), "title": "Separator"},
+    }
+
+    async def resolve_tracks(**selector):
+        if "track_ids" in selector:
+            return [by_id[track_id] for track_id in selector["track_ids"]]
+        return [by_id["228753448"]]
+
+    result = asyncio.run(insert_crate_separator(
+        "Set", "generic", "42-1", resolve_tracks, playlists, crates, playlists,
+    ))
+
+    records = json.loads((crates / "Set.json").read_text())["tracks"]
+    assert [item["track_id"] for item in records] == ["42", "228753448"]
+    assert records[1]["separator_type"] == "generic"
+    assert result["track_count"] == 1 and result["separator_count"] == 1
+
+
+def test_replace_crate_separator_uses_registered_fixed_track_and_updates_pair(tmp_path, monkeypatch):
+    from core import export as crate_export
+
+    playlists = tmp_path / "playlists"
+    crates = tmp_path / ".cratebox" / "crates"
+    separators = tmp_path / "separators"
+    playlists.mkdir()
+    crates.mkdir(parents=True)
+    separators.mkdir()
+    current = separators / "Separator.wav"
+    replacement = separators / "Separator-90.wav"
+    current.write_bytes(b"current")
+    replacement.write_bytes(b"replacement")
+    monkeypatch.setattr(crate_export, "SEPARATOR_DIRECTORY", separators)
+    playlist = playlists / "Set.m3u8"
+    playlist.write_text(f"#EXTM3U\n{current}\n", encoding="utf-8")
+    (crates / "Set.json").write_text(json.dumps({"format": 1, "name": "Set", "tracks": [{
+        "track_id": "228753448", "file_path": str(current), "separator_type": "generic",
+    }]}))
+    locations = {
+        "228753448": {"id": "228753448", "file_path": str(current)},
+        "118082420": {"id": "118082420", "file_path": str(replacement)},
+    }
+
+    async def resolve_tracks(**selector):
+        return [locations[track_id] for track_id in selector["track_ids"]]
+
+    result = asyncio.run(replace_crate_separator(
+        "Set", "228753448-1", "90s", resolve_tracks, playlists, crates, playlists,
+    ))
+
+    record = json.loads((crates / "Set.json").read_text())["tracks"][0]
+    assert record["track_id"] == "118082420"
+    assert record["file_path"] == str(replacement)
+    assert record["separator_type"] == "90s"
+    assert playlist.read_text().splitlines() == ["#EXTM3U", str(replacement)]
+    assert result == {"name": "Set", "track_count": 0, "separator_count": 1, "updated_existing": True}
+
+
 def _write_crate(tmp_path, track_ids, *, extinf=False):
     playlists = tmp_path / "playlists"
     crates = tmp_path / ".cratebox" / "crates"
@@ -185,9 +306,13 @@ def _write_crate(tmp_path, track_ids, *, extinf=False):
     audio_paths = []
     lines = ["#EXTM3U\n"]
     tracks = []
+    audio_by_id = {}
     for index, track_id in enumerate(track_ids, 1):
-        audio = tmp_path / f"track-{index}.mp3"
-        audio.write_bytes(b"audio")
+        audio = audio_by_id.get(track_id)
+        if audio is None:
+            audio = tmp_path / f"track-{index}.mp3"
+            audio.write_bytes(b"audio")
+            audio_by_id[track_id] = audio
         audio_paths.append(audio)
         if extinf:
             lines.append(f"#EXTINF:{index},Track {index}\n")

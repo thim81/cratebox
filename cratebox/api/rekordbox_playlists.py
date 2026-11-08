@@ -12,14 +12,15 @@ from pydantic import BaseModel
 from .artwork_data import embedded_artwork
 from .collection import collection_mcp
 from .config import DEFAULT_PLAYLIST_DIR, CRATE_DIRECTORY, PLAYLIST_DIR
-from .playlists import (
-    atomic_write,
-    playlist_entries,
-    playlist_files,
-    playlist_mutation_lock,
-    read_plan_ids,
-)
+from .playlists import playlist_mutation_lock
 from core.export import export_playlist as core_export_playlist
+from core.crates import (
+    ApplicationError,
+    append_crate_tracks as core_append_crate_tracks,
+    insert_crate_separator as core_insert_crate_separator,
+    insert_crate_track as core_insert_crate_track,
+    replace_crate_separator as core_replace_crate_separator,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -40,26 +41,6 @@ class ReplaceSeparatorRequest(BaseModel):
     type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
     separator_row_id: str
     confirm_update: bool = False
-
-
-SEPARATOR_TRACK_TYPES = {
-    "228753448": "generic",
-    "118082420": "90s",
-    "38579759": "R&B",
-    "242295304": "Ambi",
-    "244354734": "Salsa",
-    "247266859": "Party",
-    "32984962": "Dance",
-}
-SEPARATOR_TRACK_FILES = {
-    "generic": "Separator.wav",
-    "90s": "Separator-90.wav",
-    "R&B": "Separator-RB.wav",
-    "Ambi": "Separator-Ambi.wav",
-    "Salsa": "Separator-Salsa.wav",
-    "Party": "Separator-Party.wav",
-    "Dance": "Separator-Dance.wav",
-}
 
 
 class AppendTrackRequest(BaseModel):
@@ -150,48 +131,35 @@ async def export_local_playlist(
         raise HTTPException(502, "Playlist export failed.") from None
 
 
+async def apply_crate_operation(operation, *args):
+    async def resolve_tracks(**selector):
+        return await call_tool("get_collection_tracks", selector)
+
+    try:
+        return await operation(
+            *args, resolve_tracks, PLAYLIST_DIR, CRATE_DIRECTORY, DEFAULT_PLAYLIST_DIR,
+        )
+    except HTTPException:
+        raise
+    except ApplicationError as error:
+        raise HTTPException(error.status_code, error.detail) from None
+    except FileExistsError as error:
+        raise HTTPException(409, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    except OSError:
+        logger.exception("CrateBox playlist operation could not write the paired artifacts")
+        raise HTTPException(500, "Cannot write the playlist and plan files.") from None
+    except Exception:
+        logger.exception("CrateBox playlist operation failed")
+        raise HTTPException(502, "Playlist operation failed.") from None
+
+
 async def playlist_records():
     records = await call_tool("get_playlists")
     if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
         raise HTTPException(502, "Unexpected Rekordbox playlist list.")
     return records
-
-
-def local_playlist_with_plan(playlist_id: str):
-    if DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR:
-        raise HTTPException(403, "Playlist edits are limited to the app's playlists folder")
-    matches = [item for item in playlist_files() if item.stem == playlist_id]
-    if len(matches) != 1 or matches[0].suffix.lower() != ".m3u8":
-        raise HTTPException(409, "Playlist edits require one unambiguous .m3u8 playlist")
-
-    path = matches[0]
-    try:
-        with path.open(encoding="utf-8-sig", newline="") as playlist:
-            lines = playlist.readlines()
-    except (OSError, UnicodeError) as exc:
-        raise HTTPException(500, "Could not read playlist") from exc
-
-    _, plan = read_plan_ids(path, lines)
-    if plan is None or plan[1] is None:
-        raise HTTPException(409, "A valid track-ID and file-path plan is required to edit this playlist")
-    return path, plan, lines
-
-
-async def validate_plan_locations(plan):
-    track_ids, file_paths = plan
-    locations = await call_tool("get_collection_tracks", {"track_ids": track_ids})
-    if not isinstance(locations, list) or len(locations) != len(track_ids):
-        raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
-    try:
-        for track_id, file_path, location in zip(track_ids, file_paths, locations, strict=True):
-            if (
-                not isinstance(location, dict)
-                or str(location.get("id")) != track_id
-                or Path(location.get("file_path", "")).resolve() != Path(file_path).resolve()
-            ):
-                raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
-    except (OSError, RuntimeError, TypeError, ValueError):
-        raise HTTPException(409, "The playlist and its track-ID plan are out of sync") from None
 
 
 @router.get("/api/rekordbox/playlists")
@@ -313,24 +281,14 @@ async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRe
     if not request.confirm_update:
         raise HTTPException(400, "Confirm updating this playlist before inserting a separator.")
     async with playlist_mutation_lock(playlist_id):
-        path, plan, lines = local_playlist_with_plan(playlist_id)
-        await validate_plan_locations(plan)
-        entries = list(playlist_entries(path, lines, plan))
-        target = next((entry for entry in entries if entry[3] == request.after_track_id), None)
-        if target is None:
-            raise HTTPException(404, "Selected track not found in playlist")
-
-        exported = await export_local_playlist(
-            path.stem,
-            track_ids=plan[0],
-            update_existing=True,
-            separators=[{"type": request.type, "before_track": target[1] + 2}],
+        exported = await apply_crate_operation(
+            core_insert_crate_separator, playlist_id, request.type, request.after_track_id,
         )
         if not isinstance(exported, dict):
             raise HTTPException(502, "Unexpected playlist export response.")
         return {
-            "name": str(exported.get("name") or path.stem),
-            "track_count": int(exported.get("track_count") or len(plan[0])),
+            "name": str(exported.get("name") or playlist_id),
+            "track_count": int(exported.get("track_count") or 0),
             "separator_count": int(exported.get("separator_count") or 0),
             "updated_existing": bool(exported.get("updated_existing")),
         }
@@ -340,111 +298,11 @@ async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRe
 async def replace_playlist_separator(playlist_id: str, request: ReplaceSeparatorRequest):
     if not request.confirm_update:
         raise HTTPException(400, "Confirm updating this playlist before replacing a separator.")
-    if not request.separator_row_id:
-        raise HTTPException(400, "A separator row ID is required.")
-
     async with playlist_mutation_lock(playlist_id):
-        path, plan, lines = local_playlist_with_plan(playlist_id)
-        separator_occurrences: dict[str, int] = {}
-        target_entry = None
-        plan_index = None
-        for plan_index, track_id in enumerate(plan[0]):
-            if track_id in SEPARATOR_TRACK_TYPES:
-                occurrence = separator_occurrences.get(track_id, 0) + 1
-                separator_occurrences[track_id] = occurrence
-                row_id = f"{track_id}-{occurrence}"
-                if row_id == request.separator_row_id:
-                    target_entry = next(
-                        (
-                            entry for entry in playlist_entries(path, lines, plan)
-                            if entry[3] == row_id
-                        ),
-                        None,
-                    )
-                    break
-
-        if plan_index is None or target_entry is None:
-            raise HTTPException(404, "Separator not found in playlist.")
-
-        replacement_track_id = next(
-            track_id for track_id, separator_type in SEPARATOR_TRACK_TYPES.items()
-            if separator_type == request.type
+        return await apply_crate_operation(
+            core_replace_crate_separator,
+            playlist_id, request.separator_row_id, request.type,
         )
-        locations = await call_tool(
-            "get_collection_tracks",
-            {"track_ids": [plan[0][plan_index], replacement_track_id]},
-        )
-        if (
-            not isinstance(locations, list)
-            or len(locations) != 2
-            or any(not isinstance(item, dict) for item in locations)
-            or str(locations[0].get("id")) != plan[0][plan_index]
-            or str(locations[1].get("id")) != replacement_track_id
-        ):
-            raise HTTPException(502, "Unexpected Rekordbox track locations.")
-        try:
-            current_path = Path(locations[0]["file_path"])
-            replacement_path = Path(locations[1]["file_path"])
-            if (
-                current_path.resolve() != Path(plan[1][plan_index]).resolve()
-                or not replacement_path.is_absolute()
-                or not replacement_path.is_file()
-                or replacement_path.name != SEPARATOR_TRACK_FILES[request.type]
-                or replacement_path.resolve().parent != current_path.resolve().parent
-            ):
-                raise HTTPException(409, "The separator and its track-ID plan are out of sync")
-        except (KeyError, OSError, RuntimeError, TypeError, ValueError):
-            raise HTTPException(409, "The separator and its track-ID plan are out of sync") from None
-
-        plan_path = CRATE_DIRECTORY / f"{path.stem}.json"
-        try:
-            plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
-            plan_items = plan_data["tracks"]
-            if not isinstance(plan_items[plan_index], dict):
-                raise ValueError
-            plan_items[plan_index]["track_id"] = replacement_track_id
-            plan_items[plan_index]["file_path"] = str(replacement_path)
-            plan_items[plan_index]["separator_type"] = request.type
-        except (
-            AttributeError,
-            IndexError,
-            KeyError,
-            TypeError,
-            OSError,
-            UnicodeError,
-            json.JSONDecodeError,
-            ValueError,
-        ):
-            raise HTTPException(409, "The playlist and its track-ID plan are out of sync") from None
-
-        line_number = target_entry[0]
-        old_playlist_text = "".join(lines)
-        line_ending = (
-            "\r\n" if lines[line_number].endswith("\r\n")
-            else "\n" if lines[line_number].endswith("\n") else ""
-        )
-        lines[line_number] = f"{replacement_path}{line_ending}"
-        plan_text = json.dumps(plan_data, ensure_ascii=False, indent=2) + "\n"
-        playlist_updated = False
-        try:
-            atomic_write(path, "".join(lines))
-            playlist_updated = True
-            atomic_write(plan_path, plan_text)
-        except OSError as exc:
-            if playlist_updated:
-                try:
-                    atomic_write(path, old_playlist_text)
-                except OSError:
-                    raise HTTPException(500, "Playlist and track-ID plan may be out of sync") from None
-            raise HTTPException(500, "Could not update playlist") from exc
-
-        separator_count = sum(item in SEPARATOR_TRACK_TYPES for item in plan[0])
-        return {
-            "name": path.stem,
-            "track_count": len(plan[0]) - separator_count,
-            "separator_count": separator_count,
-            "updated_existing": True,
-        }
 
 
 @router.post("/api/playlists/{playlist_id}/tracks/append")
@@ -459,21 +317,15 @@ async def append_rekordbox_track(playlist_id: str, request: AppendTrackRequest):
 async def append_rekordbox_tracks(playlist_id: str, request: AppendTracksRequest):
     if not request.confirm_update:
         raise HTTPException(400, "Confirm inserting this track into the playlist.")
-    track_ids = [track_id.strip() for track_id in request.track_ids]
-    if not track_ids or any(not track_id for track_id in track_ids):
-        raise HTTPException(400, "At least one Rekordbox track ID is required")
-
     async with playlist_mutation_lock(playlist_id):
-        path, plan, _ = local_playlist_with_plan(playlist_id)
-        await validate_plan_locations(plan)
-        exported = await export_local_playlist(
-            path.stem, track_ids=[*plan[0], *track_ids], update_existing=True,
+        exported = await apply_crate_operation(
+            core_append_crate_tracks, playlist_id, request.track_ids,
         )
         if not isinstance(exported, dict):
             raise HTTPException(502, "Unexpected playlist export response.")
         return {
-            "name": str(exported.get("name") or path.stem),
-            "track_count": int(exported.get("track_count") or len(plan[0]) + len(track_ids)),
+            "name": str(exported.get("name") or playlist_id),
+            "track_count": int(exported.get("track_count") or 0),
             "updated_existing": bool(exported.get("updated_existing")),
         }
 
@@ -482,36 +334,16 @@ async def append_rekordbox_tracks(playlist_id: str, request: AppendTracksRequest
 async def insert_rekordbox_track(playlist_id: str, request: InsertTrackRequest):
     if not request.confirm_update:
         raise HTTPException(400, "Confirm inserting this track into the playlist.")
-    track_id = request.track_id.strip()
-    after_track_id = request.after_track_id.strip()
-    if not track_id or not after_track_id:
-        raise HTTPException(400, "Both Rekordbox track IDs are required")
-
     async with playlist_mutation_lock(playlist_id):
-        path, plan, lines = local_playlist_with_plan(playlist_id)
-        await validate_plan_locations(plan)
-        target = next(
-            (
-                entry
-                for entry in playlist_entries(path, lines, plan, include_missing=True)
-                if entry[3] == after_track_id
-            ),
-            None,
+        result = await apply_crate_operation(
+            core_insert_crate_track, playlist_id, request.track_id, request.after_track_id,
         )
-        if target is None:
-            raise HTTPException(404, "Selected track not found in playlist")
-
-        insertion_index = target[1] + 1
-        track_ids = [*plan[0][:insertion_index], track_id, *plan[0][insertion_index:]]
-        exported = await export_local_playlist(
-            path.stem, track_ids=track_ids, update_existing=True,
-        )
+        exported = result["export"]
         if not isinstance(exported, dict):
             raise HTTPException(502, "Unexpected playlist export response.")
-        occurrence = track_ids[:insertion_index].count(track_id) + 1
         return {
-            "track_id": f"{track_id}-{occurrence}",
-            "name": str(exported.get("name") or path.stem),
-            "track_count": int(exported.get("track_count") or len(track_ids)),
+            "track_id": result["track_id"],
+            "name": str(exported.get("name") or playlist_id),
+            "track_count": int(exported.get("track_count") or 0),
             "updated_existing": bool(exported.get("updated_existing")),
         }

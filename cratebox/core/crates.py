@@ -7,6 +7,16 @@ import os
 from pathlib import Path
 import tempfile
 
+SEPARATOR_TRACK_TYPES = {
+    "228753448": "generic",
+    "118082420": "90s",
+    "38579759": "R&B",
+    "242295304": "Ambi",
+    "244354734": "Salsa",
+    "247266859": "Party",
+    "32984962": "Dance",
+}
+
 
 class ApplicationError(Exception):
     def __init__(self, detail: str, status_code: int = 500):
@@ -514,6 +524,199 @@ def reorder_crate_tracks(
             raise ApplicationConflict("The playlist and its track-ID plan are out of sync") from None
     _write_crate_pair(path, "".join(lines), "".join(updated_lines), plan_path, plan_data)
     return {"moved": True}
+
+
+def _editable_crate(
+    playlist_id: str, playlist_directory: Path, crate_directory: Path,
+    default_playlist_directory: Path,
+):
+    if Path(default_playlist_directory).is_symlink() or Path(playlist_directory) != Path(default_playlist_directory):
+        raise ApplicationForbidden("Playlist edits are limited to the app's playlists folder")
+    matches = [path for path in playlist_files(playlist_directory) if path.stem == playlist_id]
+    if len(matches) != 1 or matches[0].suffix.lower() != ".m3u8":
+        raise ApplicationConflict("Playlist edits require one unambiguous .m3u8 playlist")
+    path = matches[0]
+    lines, _, plan, _ = _read_crate(path, crate_directory)
+    if plan is None or plan[1] is None:
+        raise ApplicationConflict("A valid track-ID and file-path plan is required to edit this playlist")
+    return path, plan, lines
+
+
+async def _validate_active_plan(plan, resolve_tracks) -> None:
+    track_ids, file_paths = plan
+    locations = await resolve_tracks(track_ids=track_ids)
+    if not isinstance(locations, list) or len(locations) != len(track_ids):
+        raise ApplicationConflict("The playlist and its track-ID plan are out of sync")
+    try:
+        for track_id, file_path, location in zip(track_ids, file_paths, locations, strict=True):
+            if (
+                not isinstance(location, dict)
+                or str(location.get("id")) != track_id
+                or not Path(location.get("file_path", "")).is_absolute()
+                or Path(location["file_path"]).resolve() != Path(file_path).resolve()
+            ):
+                raise ApplicationConflict("The playlist and its track-ID plan are out of sync")
+    except (OSError, RuntimeError, TypeError, ValueError):
+        raise ApplicationConflict("The playlist and its track-ID plan are out of sync") from None
+
+
+async def append_crate_tracks(
+    playlist_id: str, track_ids: list[str], resolve_tracks,
+    playlist_directory: Path, crate_directory: Path, default_playlist_directory: Path,
+) -> dict:
+    if (
+        not track_ids or any(not isinstance(item, str) or not item.strip() for item in track_ids)
+    ):
+        raise ApplicationValidationError("At least one Rekordbox track ID is required")
+    path, plan, _ = _editable_crate(
+        playlist_id, playlist_directory, crate_directory, default_playlist_directory,
+    )
+    await _validate_active_plan(plan, resolve_tracks)
+    from .export import export_playlist
+    return await export_playlist(
+        path.stem, track_ids=[*plan[0], *(item.strip() for item in track_ids)],
+        file_paths=None, resolve_tracks=resolve_tracks, crate_directory=crate_directory,
+        playlists_directory=playlist_directory, update_existing=True,
+    )
+
+
+async def insert_crate_track(
+    playlist_id: str, track_id: str, after_track_id: str, resolve_tracks,
+    playlist_directory: Path, crate_directory: Path, default_playlist_directory: Path,
+) -> dict:
+    track_id, after_track_id = track_id.strip(), after_track_id.strip()
+    if not track_id or not after_track_id:
+        raise ApplicationValidationError("Both Rekordbox track IDs are required")
+    path, plan, lines = _editable_crate(
+        playlist_id, playlist_directory, crate_directory, default_playlist_directory,
+    )
+    await _validate_active_plan(plan, resolve_tracks)
+    target = next((
+        entry for entry in playlist_entries(path, lines, plan, include_missing=True)
+        if entry[3] == after_track_id
+    ), None)
+    if target is None:
+        raise ApplicationNotFound("Selected track not found in playlist")
+    insertion_index = target[1] + 1
+    track_ids = [*plan[0][:insertion_index], track_id, *plan[0][insertion_index:]]
+    from .export import export_playlist
+    exported = await export_playlist(
+        path.stem, track_ids=track_ids, resolve_tracks=resolve_tracks,
+        file_paths=None,
+        crate_directory=crate_directory, playlists_directory=playlist_directory,
+        update_existing=True,
+    )
+    occurrence = track_ids[:insertion_index].count(track_id) + 1
+    return {"export": exported, "track_id": f"{track_id}-{occurrence}"}
+
+
+async def insert_crate_separator(
+    playlist_id: str, separator_type: str, after_track_id: str, resolve_tracks,
+    playlist_directory: Path, crate_directory: Path, default_playlist_directory: Path,
+) -> dict:
+    from .export import SEPARATOR_FILES, export_playlist
+
+    if separator_type not in SEPARATOR_FILES:
+        raise ApplicationValidationError("Invalid separator type")
+    path, plan, lines = _editable_crate(
+        playlist_id, playlist_directory, crate_directory, default_playlist_directory,
+    )
+    await _validate_active_plan(plan, resolve_tracks)
+    target = next((
+        entry for entry in playlist_entries(path, lines, plan)
+        if entry[3] == after_track_id
+    ), None)
+    if target is None:
+        raise ApplicationNotFound("Selected track not found in playlist")
+    return await export_playlist(
+        path.stem, track_ids=plan[0], file_paths=None,
+        resolve_tracks=resolve_tracks, crate_directory=crate_directory,
+        playlists_directory=playlist_directory, update_existing=True,
+        separators=[{"type": separator_type, "before_track": target[1] + 2}],
+    )
+
+
+async def replace_crate_separator(
+    playlist_id: str, separator_row_id: str, separator_type: str, resolve_tracks,
+    playlist_directory: Path, crate_directory: Path, default_playlist_directory: Path,
+) -> dict:
+    from .export import SEPARATOR_FILES
+
+    if separator_type not in SEPARATOR_FILES:
+        raise ApplicationValidationError("Invalid separator type")
+    path, plan, lines = _editable_crate(
+        playlist_id, playlist_directory, crate_directory, default_playlist_directory,
+    )
+    separator_occurrences = {}
+    plan_index = None
+    for index, track_id in enumerate(plan[0]):
+        if track_id not in SEPARATOR_TRACK_TYPES:
+            continue
+        occurrence = separator_occurrences.get(track_id, 0) + 1
+        separator_occurrences[track_id] = occurrence
+        if f"{track_id}-{occurrence}" == separator_row_id:
+            plan_index = index
+            break
+    if plan_index is None:
+        raise ApplicationNotFound("Separator not found in playlist.")
+
+    target_entry = next((
+        entry for entry in playlist_entries(path, lines, plan)
+        if entry[3] == separator_row_id
+    ), None)
+    if target_entry is None:
+        raise ApplicationNotFound("Separator not found in playlist.")
+    replacement_track_id = next(
+        track_id for track_id, kind in SEPARATOR_TRACK_TYPES.items()
+        if kind == separator_type
+    )
+    locations = await resolve_tracks(track_ids=[plan[0][plan_index], replacement_track_id])
+    if (
+        not isinstance(locations, list) or len(locations) != 2
+        or any(not isinstance(item, dict) for item in locations)
+        or str(locations[0].get("id")) != plan[0][plan_index]
+        or str(locations[1].get("id")) != replacement_track_id
+    ):
+        raise ApplicationError("Unexpected Rekordbox track locations.", 502)
+    try:
+        current_path = Path(locations[0]["file_path"])
+        replacement_path = Path(locations[1]["file_path"])
+        if (
+            current_path.resolve() != Path(plan[1][plan_index]).resolve()
+            or not replacement_path.is_absolute()
+            or not replacement_path.is_file()
+            or replacement_path.name != SEPARATOR_FILES[separator_type]
+            or replacement_path.resolve().parent != current_path.resolve().parent
+        ):
+            raise ApplicationConflict("The separator and its track-ID plan are out of sync")
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError):
+        raise ApplicationConflict("The separator and its track-ID plan are out of sync") from None
+
+    plan_path = Path(crate_directory) / f"{path.stem}.json"
+    try:
+        plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan_items = plan_data["tracks"]
+        if not isinstance(plan_items[plan_index], dict):
+            raise ValueError
+        plan_items[plan_index]["track_id"] = replacement_track_id
+        plan_items[plan_index]["file_path"] = str(replacement_path)
+        plan_items[plan_index]["separator_type"] = separator_type
+    except (AttributeError, IndexError, KeyError, TypeError, OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        raise ApplicationConflict("The playlist and its track-ID plan are out of sync") from None
+
+    original_text = "".join(lines)
+    line_number = target_entry[0]
+    line_ending = "\r\n" if lines[line_number].endswith("\r\n") else "\n" if lines[line_number].endswith("\n") else ""
+    lines[line_number] = f"{replacement_path}{line_ending}"
+    _write_crate_pair(path, original_text, "".join(lines), plan_path, plan_data)
+
+    separator_count = sum(track_id in SEPARATOR_TRACK_TYPES for track_id in plan[0])
+    return {
+        "name": path.stem,
+        "track_count": len(plan[0]) - separator_count,
+        "separator_count": separator_count,
+        "updated_existing": True,
+    }
 
 
 def atomic_write(path: Path, content: str) -> None:
