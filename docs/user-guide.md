@@ -6,7 +6,7 @@
 
 CrateBox combines a local playlist UI, REST API, Core services, and MCP endpoint. A small Rekordbox adapter provides generic data from a verified snapshot. The app runs on macOS with Python 3.12, uv, Node.js, and Codex. Docker is not used.
 
-The original Rekordbox database, playlists, analysis files, and metadata are read-only. Audio is read-only except for the explicit artwork operation: it modifies only an MP3 selected from a playlist in the repository's own `playlists/` folder, after creating and verifying an exact backup under `output/audio-backups/`.
+The Rekordbox database, playlists, XML exports, analysis files, and metadata are read-only. CrateBox can update only embedded cover artwork on an MP3/M4A selected from a local crate or a Rekordbox playlist. It stages and verifies the change before atomically replacing the selected audio file; it does not retain a backup. Other audio edits are not allowed.
 
 ## 1. Install
 
