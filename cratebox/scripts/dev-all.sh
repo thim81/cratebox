@@ -2,7 +2,12 @@
 set -eu
 
 api_dir=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
-mcp_dir=$(CDPATH= cd "$api_dir/../rekordbx-mcp" && pwd)
+repository_root=$(CDPATH= cd "$api_dir/.." && pwd)
+mcp_dir=$(CDPATH= cd "$api_dir/rekordbx-mcp" && pwd)
+existing_mcp_env="$repository_root/rekordbx-mcp/.venv"
+if [ -x "$existing_mcp_env/bin/python" ] && [ ! -x "$mcp_dir/.venv/bin/python" ]; then
+  export UV_PROJECT_ENVIRONMENT="$existing_mcp_env"
+fi
 uv --directory "$mcp_dir" run --locked --with fastapi --with uvicorn --with mutagen --with ddgs --with playwright \
   uvicorn --app-dir "$api_dir" --reload-dir "$api_dir" --reload-dir "$mcp_dir/src" \
   server:app --port 8000 --reload &

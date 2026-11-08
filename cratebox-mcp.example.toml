@@ -1,7 +1,7 @@
 [mcp_servers.cratebox]
 command = "/opt/homebrew/bin/uv"
 args = [
-  "--directory", "/Users/thim/Sites/rekordbx/rekordbx-mcp",
+  "--directory", "/Users/thim/Sites/rekordbx/cratebox/rekordbx-mcp",
   "run", "--locked",
   "--with", "fastapi",
   "--with", "uvicorn",

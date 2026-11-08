@@ -17,6 +17,13 @@ def test_installed_command_runs_under_new_name():
     assert "update-upstream" in result.stdout
 
 
+def test_default_snapshot_storage_stays_at_original_repository_location():
+    repository_root = Path(__file__).resolve().parents[3]
+    assert cli.DEFAULT_SNAPSHOT_DIRECTORY == (
+        repository_root / "rekordbx-mcp" / ".cache" / "rekordbox-snapshots"
+    )
+
+
 def startup_args(monkeypatch, source, destination):
     monkeypatch.setattr(sys, "argv", [
         "rekordbx-mcp", "start", "--source", str(source),

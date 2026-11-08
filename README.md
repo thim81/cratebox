@@ -4,6 +4,8 @@
 
 CrateBox is a local playlist workspace for preparing and playing DJ sets. Its UI, REST API, and MCP interface share one Core in the `cratebox/` app. A small protected Rekordbox adapter supplies generic snapshot-backed collection data.
 
+In CrateBox's domain model, a **crate** is an app-owned ordered working set. Its JSON record lives in `.cratebox/crates/`; its exported M3U8 lives in `playlists/`. See the [architecture overview](cratebox/architecture.md) for the component and storage boundaries.
+
 The app runs on macOS with Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js, and Codex. Rekordbox's original database and playlists remain unchanged.
 
 ## Features
@@ -21,7 +23,7 @@ The app runs on macOS with Python 3.12, [uv](https://docs.astral.sh/uv/), Node.j
 From the repository root:
 
 ```sh
-uv --directory rekordbx-mcp sync --locked --python 3.12
+uv --directory cratebox/rekordbx-mcp sync --locked --python 3.12
 cd cratebox
 npm install
 ```
@@ -54,7 +56,7 @@ The Rekordbox adapter uses a verified snapshot and read-only SQLCipher connectio
 
 Original Rekordbox files and audio remain read-only, except the app's explicit artwork operation: it embeds artwork only into an MP3 selected from the repository's own `playlists/` folder, after creating and verifying a byte-for-byte backup in `output/audio-backups/`.
 
-Read the [user guide](docs/user-guide.md), [CrateBox API notes](cratebox/README.md), and [adapter protection details](rekordbx-mcp/README.md).
+Read the [user guide](docs/user-guide.md), [CrateBox API notes](cratebox/README.md), and [adapter protection details](cratebox/rekordbx-mcp/README.md).
 
 ## Development and tests
 
@@ -68,8 +70,8 @@ npm run build
 Python tests from the repository root:
 
 ```sh
-uv --directory rekordbx-mcp run --locked pytest -q
-uv --directory rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../cratebox/tests -q
+uv --directory cratebox/rekordbx-mcp run --locked pytest -q
+uv --directory cratebox/rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../tests -q
 ```
 
 The Rekordbox MCP is pinned and unmodified upstream. Update it explicitly with `rekordbx-mcp update-upstream`; see the [adapter update guide](docs/user-guide.md#6-update-the-upstream-mcp).

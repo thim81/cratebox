@@ -1,6 +1,6 @@
 # CrateBox user guide
 
-[Product overview](../README.md) · [CrateBox app](../cratebox/README.md) · [Adapter details](../rekordbx-mcp/README.md)
+[Product overview](../README.md) · [CrateBox app](../cratebox/README.md) · [Adapter details](../cratebox/rekordbx-mcp/README.md)
 
 **CrateBox — A direct, playful nod to Rekordbox, hinting at crate management and track prep.**
 
@@ -13,12 +13,12 @@ The original Rekordbox database, playlists, analysis files, and metadata are rea
 From the repository root:
 
 ```sh
-uv --directory rekordbx-mcp sync --locked --python 3.12
+uv --directory cratebox/rekordbx-mcp sync --locked --python 3.12
 cd cratebox
 npm install
 ```
 
-The Python project uses Python 3.12. uv keeps that environment in `rekordbx-mcp/.venv/`.
+The Python project uses Python 3.12. uv keeps that environment in `cratebox/rekordbx-mcp/.venv/`.
 
 ## 2. Configure Codex
 
@@ -37,7 +37,7 @@ When the Rekordbox worker first connects:
 - If Rekordbox and its agents are closed, it creates and verifies a fresh copy of `master.db`.
 - If Rekordbox is running, it reuses only the newest verified snapshot already on disk. It never copies the live database and fails if no valid snapshot is available.
 
-Snapshots are kept under `rekordbx-mcp/.cache/rekordbox-snapshots/`. The worker pins one verified snapshot for its lifetime. To refresh it, close Rekordbox and its agents, then restart the worker or API. A collection-startup failure does not interrupt local playlist browsing or playback.
+Snapshots remain under the existing repository-root `rekordbx-mcp/.cache/rekordbox-snapshots/` location. The worker pins one verified snapshot for its lifetime. To refresh it, close Rekordbox and its agents, then restart the worker or API. A collection-startup failure does not interrupt local playlist browsing or playback.
 
 For foreground diagnostics, run from `cratebox/`:
 
@@ -76,16 +76,16 @@ If the requested name already exists, confirm whether to replace the existing pa
 Upstream updates are explicit. Check for a new revision:
 
 ```sh
-uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream --check
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp update-upstream --check
 ```
 
 Stop active MCP sessions, then install and run compatibility/safety checks:
 
 ```sh
-uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp update-upstream
 ```
 
-The updater pins an exact commit and rolls back dependency files if checks fail. Review and commit the changed `rekordbx-mcp/pyproject.toml` and `rekordbx-mcp/uv.lock` after a successful update. New upstream tools are not exposed automatically.
+The updater pins an exact commit and rolls back dependency files if checks fail. Review and commit the changed `cratebox/rekordbx-mcp/pyproject.toml` and `cratebox/rekordbx-mcp/uv.lock` after a successful update. New upstream tools are not exposed automatically.
 
 ## 7. Troubleshooting
 
@@ -103,13 +103,13 @@ The updater pins an exact commit and rolls back dependency files if checks fail.
 Adapter tests:
 
 ```sh
-uv --directory rekordbx-mcp run --locked pytest -q
+uv --directory cratebox/rekordbx-mcp run --locked pytest -q
 ```
 
 CrateBox API/Core tests:
 
 ```sh
-uv --directory rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../cratebox/tests -q
+uv --directory cratebox/rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../tests -q
 ```
 
 Frontend tests and build, from `cratebox/`:
@@ -125,8 +125,8 @@ npm run build
 | `cratebox/api/` | REST and MCP adapters |
 | `cratebox/core/` | Shared playlist, export, lookup, Spotify, Sockseek, lock, and revision services |
 | `cratebox/tests/` | CrateBox API and Core tests |
-| `rekordbx-mcp/src/rekordbx_mcp/` | Generic protected collection adapter |
-| `rekordbx-mcp/tests/` | Adapter tests |
+| `cratebox/rekordbx-mcp/src/rekordbx_mcp/` | Generic protected collection adapter |
+| `cratebox/rekordbx-mcp/tests/` | Adapter tests |
 
 ## Privacy and limits
 

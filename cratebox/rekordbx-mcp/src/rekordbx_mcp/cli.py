@@ -4,6 +4,11 @@ from pathlib import Path
 
 from .snapshot import create_snapshot, latest_snapshot, rekordbox_is_running
 
+DEFAULT_SNAPSHOT_DIRECTORY = (
+    Path(__file__).resolve().parents[4]
+    / "rekordbx-mcp" / ".cache" / "rekordbox-snapshots"
+)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -16,7 +21,7 @@ def main():
         default=Path.home() / "Library/Pioneer/rekordbox/master.db",
     )
     copy_options.add_argument(
-        "--destination", type=Path, default=Path(".cache/rekordbox-snapshots"),
+        "--destination", type=Path, default=DEFAULT_SNAPSHOT_DIRECTORY,
     )
     commands.add_parser(
         "snapshot", parents=[copy_options], help="Copy bytes with Rekordbox closed",

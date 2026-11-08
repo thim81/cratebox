@@ -31,7 +31,7 @@ class CollectionMcp:
         self.client = None
         self.lock = asyncio.Lock()
         self.call_lock = asyncio.Lock()
-        self.project = REPO_ROOT / "rekordbx-mcp"
+        self.project = REPO_ROOT / "cratebox" / "rekordbx-mcp"
         self.track_paths: dict[str, Path] = {}
 
     async def status(self):

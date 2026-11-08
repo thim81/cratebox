@@ -3,7 +3,7 @@
 [mcp_servers.rekordbox]
 command = "/opt/homebrew/bin/uv"
 args = [
-  "--directory", "/Users/thim/Sites/rekordbx/rekordbx-mcp",
+  "--directory", "/Users/thim/Sites/rekordbx/cratebox/rekordbx-mcp",
   "run", "--locked", "--offline",
   "rekordbx-mcp", "start"
 ]

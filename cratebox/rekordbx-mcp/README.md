@@ -9,8 +9,8 @@ The original Rekordbox database, playlists, XML exports, analysis files, metadat
 From the repository root:
 
 ```sh
-uv --directory rekordbx-mcp sync --locked --python 3.12
-uv --directory rekordbx-mcp run --locked rekordbx-mcp --help
+uv --directory cratebox/rekordbx-mcp sync --locked --python 3.12
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp --help
 ```
 
 The upstream source is pinned in `pyproject.toml`, and the dependency resolution is pinned by `uv.lock`. The adapter imports upstream reading functions without changing the installed upstream files.
@@ -20,7 +20,7 @@ For a standalone consumer, use [`codex-mcp.example.toml`](codex-mcp.example.toml
 To start the adapter manually for diagnostics, close Rekordbox and its background agents, then run:
 
 ```sh
-uv --directory rekordbx-mcp run --locked rekordbx-mcp start
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp start
 ```
 
 When Rekordbox is closed, `start` creates and verifies a fresh snapshot. When Rekordbox is running, it reuses only the newest verified snapshot already on disk; it fails if no valid snapshot is available. It never copies the live database. The worker uses one fixed snapshot path for its lifetime.
@@ -28,10 +28,10 @@ When Rekordbox is closed, `start` creates and verifies a fresh snapshot. When Re
 Use `snapshot` to create a copy without starting an MCP session:
 
 ```sh
-uv --directory rekordbx-mcp run --locked rekordbx-mcp snapshot
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp snapshot
 ```
 
-Snapshots live under `.cache/rekordbox-snapshots/`, are ignored by Git, and contain private library metadata. The source is checked before and after copying; transaction sidecars, hash mismatches, and invalid manifests prevent a snapshot from being served.
+Snapshots remain under the existing repository-root `rekordbx-mcp/.cache/rekordbox-snapshots/` location, are ignored by Git, and contain private library metadata. The source is checked before and after copying; transaction sidecars, hash mismatches, and invalid manifests prevent a snapshot from being served.
 
 ## Generic collection contract
 
@@ -54,13 +54,13 @@ The adapter does not expose collection mutation, playlist export, Spotify, Socks
 Check for a new upstream revision without changing the installation:
 
 ```sh
-uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream --check
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp update-upstream --check
 ```
 
 For an explicit update, stop active MCP sessions and run:
 
 ```sh
-uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp update-upstream
 ```
 
 The updater resolves the new revision to an exact commit, updates the pin and lockfile, runs compatibility and safety tests, and rolls back dependency files if an update fails. Review and commit `pyproject.toml` and `uv.lock` only after the update succeeds. New upstream tools are never enabled automatically.
@@ -68,7 +68,7 @@ The updater resolves the new revision to an exact commit, updates the pin and lo
 ## Tests
 
 ```sh
-uv --directory rekordbx-mcp run --locked pytest -q
+uv --directory cratebox/rekordbx-mcp run --locked pytest -q
 ```
 
 Tests use synthetic encrypted collections and cover snapshot creation/verification, source preservation, database write restrictions, reconnect restrictions, direct calls to forbidden tools, generic track resolution, and an MCP stdio session through the snapshot launcher.

@@ -16,12 +16,14 @@ The protected Rekordbox MCP worker starts lazily when collection data is request
 
 ## Architecture and paths
 
+See [architecture.md](architecture.md) for the definition of a CrateBox crate and the boundaries between the UI, API, Core, MCP, and Rekordbox adapter.
+
 - `src/` contains the UI.
 - `api/` defines REST and MCP adapters and keeps local audio paths on the server.
 - `core/` contains shared app behavior used by REST and MCP.
 - `tests/` contains Core and API tests.
 - `server.py` preserves the `server:app` Uvicorn entry point.
-- `../rekordbx-mcp/` contains the generic snapshot-backed Rekordbox provider and its own tests.
+- `rekordbx-mcp/` contains the generic snapshot-backed Rekordbox provider and its own tests.
 
 The Core exporter writes M3U8 playlists to the repository's `playlists/` folder and CrateBox JSON metadata to `.cratebox/crates/`. Existing JSON files in `output/` are left untouched and are not read. Replacement requires explicit confirmation. No export imports into Rekordbox.
 
@@ -32,7 +34,7 @@ CrateBox may embed artwork only into an MP3 selected from the repository's own `
 From the repository root:
 
 ```sh
-uv --directory rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../cratebox/tests -q
+uv --directory cratebox/rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../tests -q
 ```
 
 From this directory, run frontend checks:
