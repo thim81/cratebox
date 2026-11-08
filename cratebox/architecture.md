@@ -16,6 +16,8 @@ CrateBox uses “crate” for this app-owned concept. A Rekordbox playlist is so
 - **CrateBox MCP (`api/`)** exposes an allowlisted local MCP interface in the same process as REST and delegates behavior to Core.
 - **Rekordbox adapter (`rekordbx-mcp/`)** supplies generic collection data from verified read-only snapshots. It does not own CrateBox crate behavior.
 
+CrateBox can update embedded cover art only for an audio file selected through a local crate or a Rekordbox playlist. The API stages and verifies the changed tags, then atomically replaces the audio file; it keeps no backup. Rekordbox database, playlist, XML, and analysis data remain unchanged.
+
 ## Storage boundaries
 
 - `.cratebox/crates/` stores CrateBox-owned JSON crate records; `.cratebox/` is local app state.

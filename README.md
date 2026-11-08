@@ -63,7 +63,7 @@ For export, pass ordered `track_ids` or `file_paths`. IDs preserve duplicates an
 
 The Rekordbox adapter uses a verified snapshot and read-only SQLCipher connection, an SQL authorizer, and a fixed upstream reading-tool allowlist. When Rekordbox is closed it makes a fresh snapshot; when Rekordbox is running it reuses only the newest verified snapshot already present. Startup fails if the required snapshot is unavailable or verification fails.
 
-Original Rekordbox files and audio remain read-only, except the app's explicit artwork operation: it embeds artwork only into an MP3 selected from the repository's own `playlists/` folder, after creating and verifying a byte-for-byte backup in `output/audio-backups/`.
+The Rekordbox database, playlists, XML exports, and analysis files remain read-only. CrateBox can update embedded cover artwork on an MP3/M4A selected from one of its own crates or from a Rekordbox playlist. It stages and verifies the tag update, then atomically replaces that audio file; it does not keep a separate backup.
 
 Read the [user guide](docs/user-guide.md), [CrateBox API notes](cratebox/README.md), and [adapter protection details](cratebox/rekordbx-mcp/README.md).
 

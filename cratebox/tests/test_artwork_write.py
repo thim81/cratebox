@@ -62,19 +62,18 @@ def playlist_fixture(tmp_path, monkeypatch, audio: Path, *, entry="42"):
     return output_dir, playlist
 
 
-def test_embed_cover_backups_exact_bytes_and_preserves_mp3_tags(tmp_path, monkeypatch):
+def test_embed_cover_updates_original_and_preserves_mp3_tags_without_backup(tmp_path):
     source = tmp_path / "track.mp3"
     synthetic_mp3(source)
     original = source.read_bytes()
     original_stream = mpeg_stream(source)
     original_duration = MP3(source).info.length
-    backup_dir = tmp_path / "backups"
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", backup_dir)
-
-    backup = artwork_write.embed_cover_art(source, png(b"\x00\xff\x00"), "image/png")
+    result = artwork_write.embed_cover_art(source, png(b"\x00\xff\x00"), "image/png")
 
     updated = MP3(source)
-    assert backup.read_bytes() == original
+    assert result is None
+    assert source.read_bytes() != original
+    assert not (tmp_path / "audio-backups").exists()
     assert updated.info.length == pytest.approx(original_duration)
     assert mpeg_stream(source) == original_stream
     assert updated.tags.version == (2, 3, 0)
@@ -120,11 +119,10 @@ def test_resolve_playlist_mp3_rejects_symlink_and_hardlink(tmp_path, monkeypatch
         artwork_write.resolve_playlist_mp3("Set", "42-1")
 
 
-def test_invalid_image_leaves_mp3_unchanged(tmp_path, monkeypatch):
+def test_invalid_image_leaves_mp3_unchanged(tmp_path):
     source = tmp_path / "track.mp3"
     synthetic_mp3(source)
     original = source.read_bytes()
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
 
     with pytest.raises(artwork_write.ArtworkWriteError):
         artwork_write.embed_cover_art(source, b"not an image", "image/png")
@@ -226,29 +224,17 @@ def test_download_cover_art_rejects_redirects_bad_images_and_oversize(
         artwork_write.download_cover_image("https://images.example/cover.png")
 
 
-def test_backup_failure_does_not_change_source(tmp_path, monkeypatch):
+def test_artwork_update_does_not_create_a_backup_directory(tmp_path):
     source = tmp_path / "track.mp3"
     synthetic_mp3(source)
-    original = source.read_bytes()
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
-
-    def fail_backup(*_args, **_kwargs):
-        raise OSError("backup failed")
-
-    monkeypatch.setattr(artwork_write, "_write_backup", fail_backup)
-    with pytest.raises(artwork_write.ArtworkWriteError):
-        artwork_write.embed_cover_art(source, png(b"\x01\x02\x03"), "image/png")
-
-    assert source.read_bytes() == original
+    artwork_write.embed_cover_art(source, png(b"\x01\x02\x03"), "image/png")
+    assert not (tmp_path / "audio-backups").exists()
 
 
 def test_tag_write_failure_does_not_change_source(tmp_path, monkeypatch):
     source = tmp_path / "track.mp3"
     synthetic_mp3(source)
     original = source.read_bytes()
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
-    monkeypatch.setattr(artwork_write, "_write_backup", lambda *_args: tmp_path / "backup.mp3")
-
     def fail_save(*_args, **_kwargs):
         raise OSError("tag write failed")
 
@@ -263,7 +249,6 @@ def test_replace_failure_does_not_change_source(tmp_path, monkeypatch):
     source = tmp_path / "track.mp3"
     synthetic_mp3(source)
     original = source.read_bytes()
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
     monkeypatch.setattr(artwork_write, "_replace_source", lambda *_args: (_ for _ in ()).throw(OSError("replace failed")))
 
     with pytest.raises(artwork_write.ArtworkWriteError):
@@ -276,8 +261,6 @@ def test_staged_validation_failure_does_not_change_source(tmp_path, monkeypatch)
     source = tmp_path / "track.mp3"
     synthetic_mp3(source)
     original = source.read_bytes()
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
-
     def fail_validation(*_args, **_kwargs):
         raise artwork_write.ArtworkWriteError("staged MP3 validation failed")
 
@@ -293,7 +276,6 @@ def test_concurrent_source_change_is_not_overwritten(tmp_path, monkeypatch):
     synthetic_mp3(source)
     original = source.read_bytes()
     changed = original + b"changed concurrently"
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
     real_validate = getattr(artwork_write, "_validate_staged", lambda *_args: None)
 
     def change_source(*args, **kwargs):
@@ -318,7 +300,6 @@ def test_embed_endpoint_writes_only_selected_mp3_and_clears_old_override(tmp_pat
     original = source.read_bytes()
     output, _ = playlist_fixture(tmp_path, monkeypatch, source)
     monkeypatch.setattr(artwork_data, "ARTWORK_FILE", output / "cratebox-artwork.json")
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", output / "audio-backups")
     (output / "cratebox-artwork.json").write_text(
         json.dumps({"playlists": {}, "tracks": {"Set": {"42-1": "https://old.example/cover.png"}}}),
         encoding="utf-8",
@@ -334,13 +315,14 @@ def test_embed_endpoint_writes_only_selected_mp3_and_clears_old_override(tmp_pat
         )
 
     assert response.status_code == 200, response.text
+    assert response.json()["backup_id"] is None
     assert "track.mp3" not in response.text
     assert "file_path" not in response.json()
     assert response.json()["artwork_url"].startswith("/api/playlists/Set/tracks/42-1/artwork?v=")
     assert source.read_bytes() != original
     assert next(frame.data for frame in MP3(source).tags.getall("APIC") if frame.type == 3) == selected
     assert artwork_data.read_artwork_overrides()["tracks"] == {}
-    assert len(list((output / "audio-backups").glob("*.mp3"))) == 1
+    assert not (output / "audio-backups").exists()
 
 
 def test_embed_endpoint_returns_a_fresh_artwork_url_for_each_update(tmp_path, monkeypatch):
@@ -351,7 +333,6 @@ def test_embed_endpoint_returns_a_fresh_artwork_url_for_each_update(tmp_path, mo
     source.parent.mkdir()
     synthetic_mp3(source)
     playlist_fixture(tmp_path, monkeypatch, source)
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
     selected_images = [png(b"\x00\xff\x00"), png(b"\x00\x00\xff")]
     monkeypatch.setattr(
         artwork_write,
@@ -439,8 +420,6 @@ def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio
     source = tmp_path / "music" / "track.mp3"
     source.parent.mkdir()
     synthetic_mp3(source)
-    original = source.read_bytes()
-    monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", tmp_path / "backups")
     monkeypatch.setattr(artwork_write, "download_cover_image", lambda _url: (png(b"\x01\x02\x03"), "image/png"))
     calls = []
 
@@ -464,10 +443,11 @@ def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio
 
     assert response.status_code == 200, response.text
     assert "file_path" not in response.text
+    assert response.json()["backup_id"] is None
     assert response.json()["artwork_url"].startswith("/api/collection/tracks/track-1/artwork?v=")
     assert [call[0] for call in calls] == ["get_playlists", "get_playlist_tracks", "get_collection_tracks"]
     assert next(frame.data for frame in MP3(source).tags.getall("APIC") if frame.type == 3) == png(b"\x01\x02\x03")
-    assert next((tmp_path / "backups").glob("*.mp3")).read_bytes() == original
+    assert not (tmp_path / "backups").exists()
 
 
 def test_rekordbox_embed_endpoint_rejects_track_outside_playlist(tmp_path, monkeypatch):

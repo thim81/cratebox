@@ -195,7 +195,7 @@ def embed_artwork(request: ArtworkEmbed, http_request: Request):
                 updated_overrides["tracks"].pop(request.playlist_id, None)
             write_artwork_overrides(updated_overrides)
         try:
-            backup = artwork_write.embed_cover_art(source, image_data, mime)
+            artwork_write.embed_cover_art(source, image_data, mime)
         except Exception:
             if had_override:
                 original_overrides.setdefault("tracks", {}).setdefault(request.playlist_id, {})[
@@ -210,7 +210,7 @@ def embed_artwork(request: ArtworkEmbed, http_request: Request):
         f"/api/playlists/{quote(request.playlist_id, safe='')}/tracks/"
         f"{quote(request.track_id, safe='')}/artwork?v={uuid4().hex}"
     )
-    return {"backup_id": backup.name, "artwork_url": artwork_url}
+    return {"backup_id": None, "artwork_url": artwork_url}
 
 
 def _require_local_artwork_origin(http_request: Request):
@@ -270,14 +270,14 @@ async def embed_rekordbox_artwork(
         source = Path(locations[0]["file_path"])
         artwork_write._validate_source(source)
         image_data, mime = artwork_write.download_cover_image(request.image_url)
-        backup = artwork_write.embed_cover_art(source, image_data, mime)
+        artwork_write.embed_cover_art(source, image_data, mime)
     except artwork_write.ArtworkWriteError as exc:
         raise HTTPException(400, str(exc)) from None
 
     from .collection import collection_mcp
     collection_mcp.track_paths[track_id] = source
     return {
-        "backup_id": backup.name,
+        "backup_id": None,
         "artwork_url": f"/api/collection/tracks/{quote(track_id, safe='')}/artwork?v={uuid4().hex}",
     }
 

@@ -12,7 +12,6 @@ import stat
 import struct
 import tempfile
 from urllib.parse import urljoin, urlsplit
-import uuid
 import zlib
 
 from mutagen import MutagenError
@@ -20,10 +19,7 @@ from mutagen.id3 import APIC, ID3
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
 
-from .config import OUTPUT_DIRECTORY
-
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
-BACKUP_DIRECTORY = OUTPUT_DIRECTORY / "audio-backups"
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _JPEG_SOF = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
 
@@ -52,7 +48,7 @@ def _path_has_symlink(path: Path) -> bool:
 def _validate_source(path: Path) -> os.stat_result:
     path = Path(path)
     if path.suffix.lower() not in {".mp3", ".m4a"} or _path_has_symlink(path):
-        raise ArtworkWriteError("Select a regular MP3 or M4A file from the playlist")
+        raise ArtworkWriteError("Select a regular MP3 or M4A audio file")
     try:
         info = path.stat()
     except OSError:
@@ -276,32 +272,6 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _write_backup(source: Path, backup_directory: Path, expected_digest: str) -> Path:
-    if OUTPUT_DIRECTORY.is_symlink() or _path_has_symlink(backup_directory):
-        raise ArtworkWriteError("The artwork backup directory is not safe")
-    backup_directory.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile("wb", dir=backup_directory, prefix=".cratebox-backup-", delete=False) as target:
-            temporary = Path(target.name)
-            with source.open("rb") as original:
-                shutil.copyfileobj(original, target, length=1024 * 1024)
-            target.flush()
-            os.fsync(target.fileno())
-        if _sha256(temporary) != expected_digest or _sha256(source) != expected_digest:
-            raise ArtworkWriteError("The source changed while its backup was being made")
-        shutil.copystat(source, temporary)
-        backup = backup_directory / f"{source.stem}-{uuid.uuid4().hex}{source.suffix.lower()}"
-        os.replace(temporary, backup)
-        return backup
-    except Exception as exc:
-        if temporary:
-            temporary.unlink(missing_ok=True)
-        if isinstance(exc, ArtworkWriteError):
-            raise
-        raise ArtworkWriteError("Could not create a verified audio backup") from None
-
-
 def _fingerprint(path: Path) -> tuple[int, int, int, int, str]:
     info = path.stat()
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, _sha256(path)
@@ -379,7 +349,7 @@ def _mp4_tags_snapshot(audio: MP4):
     return {key: value for key, value in (audio.tags or {}).items() if key != "covr"}
 
 
-def _embed_m4a_cover(source: Path, info: os.stat_result, image_data: bytes, mime: str) -> Path:
+def _embed_m4a_cover(source: Path, info: os.stat_result, image_data: bytes, mime: str) -> None:
     try:
         original = MP4(source)
         if original.info is None:
@@ -388,11 +358,10 @@ def _embed_m4a_cover(source: Path, info: os.stat_result, image_data: bytes, mime
         original_tags = _mp4_tags_snapshot(original)
         media_data = _mp4_media_data(source)
         fingerprint = _fingerprint(source)
-        backup = _write_backup(source, BACKUP_DIRECTORY, fingerprint[4])
     except ArtworkWriteError:
         raise
     except (OSError, MutagenError, ValueError):
-        raise ArtworkWriteError("The selected file could not be backed up as a valid M4A") from None
+        raise ArtworkWriteError("The selected file could not be read as a valid M4A") from None
 
     temporary = None
     try:
@@ -424,7 +393,7 @@ def _embed_m4a_cover(source: Path, info: os.stat_result, image_data: bytes, mime
         shutil.copystat(source, temporary)
         _replace_source(temporary, source)
         temporary = None
-        return backup
+        return None
     except ArtworkWriteError:
         raise
     except (OSError, MutagenError, ValueError, struct.error):
@@ -434,8 +403,8 @@ def _embed_m4a_cover(source: Path, info: os.stat_result, image_data: bytes, mime
             temporary.unlink(missing_ok=True)
 
 
-def embed_cover_art(source: Path, image_data: bytes, mime: str) -> Path:
-    """Back up, stage, validate, and atomically replace an MP3 or M4A's cover."""
+def embed_cover_art(source: Path, image_data: bytes, mime: str) -> None:
+    """Stage, validate, and atomically update an MP3 or M4A cover in place."""
     source = Path(source)
     info = _validate_source(source)
     _validate_image(image_data, mime)
@@ -451,11 +420,10 @@ def embed_cover_art(source: Path, image_data: bytes, mime: str) -> Path:
         if version not in (3, 4):
             raise ArtworkWriteError("Only MP3 files with ID3v2.3 or ID3v2.4 tags are supported")
         fingerprint = _fingerprint(source)
-        backup = _write_backup(source, BACKUP_DIRECTORY, fingerprint[4])
     except ArtworkWriteError:
         raise
     except (OSError, MutagenError, ValueError):
-        raise ArtworkWriteError("The selected file could not be backed up as a valid MP3") from None
+        raise ArtworkWriteError("The selected file could not be read as a valid MP3") from None
 
     temporary = None
     try:
@@ -479,7 +447,7 @@ def embed_cover_art(source: Path, image_data: bytes, mime: str) -> Path:
         shutil.copystat(source, temporary)
         _replace_source(temporary, source)
         temporary = None
-        return backup
+        return None
     except ArtworkWriteError:
         raise
     except (OSError, MutagenError, ValueError, struct.error):

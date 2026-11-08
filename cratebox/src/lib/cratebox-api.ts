@@ -65,8 +65,8 @@ export async function embedArtwork(
   playlistId: string,
   trackId: string,
   imageUrl: string,
-): Promise<{ backup_id: string; artwork_url: string }> {
-  const result = await requestJson<{ backup_id: string; artwork_url: string }>(
+): Promise<{ backup_id: null; artwork_url: string }> {
+  const result = await requestJson<{ backup_id: null; artwork_url: string }>(
     apiUrl,
     "/api/artwork/embed",
     {
@@ -83,8 +83,8 @@ export async function embedRekordboxArtwork(
   playlistId: string,
   trackId: string,
   imageUrl: string,
-): Promise<{ backup_id: string; artwork_url: string }> {
-  const result = await requestJson<{ backup_id: string; artwork_url: string }>(
+): Promise<{ backup_id: null; artwork_url: string }> {
+  const result = await requestJson<{ backup_id: null; artwork_url: string }>(
     apiUrl,
     `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}/artwork/embed`,
     {
