@@ -162,6 +162,9 @@ function Index() {
   const [rekordboxRefreshing, setRekordboxRefreshing] = useState(false);
   const [rekordboxLoaded, setRekordboxLoaded] = useState(false);
   const [copyingRekordboxId, setCopyingRekordboxId] = useState<string | null>(null);
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+  const [copyName, setCopyName] = useState("");
+  const [copyConflict, setCopyConflict] = useState(false);
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [collectionStatus, setCollectionStatus] = useState<CollectionStatus>({
     state: "idle",
@@ -308,17 +311,15 @@ function Index() {
         }
         setApiError(null);
       } catch {
-        // Retain the last displayed data and retry on the next poll or focus.
+        // Retain the last displayed data and retry on the next focus.
       }
     };
     void checkRevision();
-    const timer = window.setInterval(() => void checkRevision(), 2000);
     const onFocus = () => void checkRevision();
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
     return () => {
       active = false;
-      window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
@@ -546,37 +547,33 @@ function Index() {
   const copySelectedRekordboxPlaylist = useCallback(async () => {
     const playlist = activeRekordboxPlaylist;
     if (!playlist || playlist.is_folder || !rekordboxTracks.length) return;
-    const name = window.prompt("Name for the CrateBox copy:", playlist.name)?.trim();
+    const name = copyName.trim();
     if (!name) return;
     setCopyingRekordboxId(playlist.id);
     try {
       let copied;
       try {
-        copied = await copyRekordboxPlaylist(apiUrl, playlist.id, name);
+        copied = await copyRekordboxPlaylist(apiUrl, playlist.id, name, copyConflict);
       } catch (error) {
         if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
-          if (
-            !window.confirm(
-              `A CrateBox playlist named “${name}” already exists. Replace its M3U8 and JSON files with this Rekordbox playlist?`,
-            )
-          )
-            return;
-          copied = await copyRekordboxPlaylist(apiUrl, playlist.id, name, true);
-        } else {
-          throw error;
+          setCopyConflict(true);
+          return;
         }
+        throw error;
       }
       await refreshPlaylists();
       setRekordboxError(null);
       setActiveId(copied.name);
       setPlaylistSource("crate");
       updateCrateUrl(copied.name);
+      setCopyDialogOpen(false);
+      setCopyConflict(false);
     } catch (error) {
       setRekordboxError(error instanceof Error ? error.message : "Could not copy the playlist.");
     } finally {
       setCopyingRekordboxId(null);
     }
-  }, [activeRekordboxPlaylist, apiUrl, rekordboxTracks.length, refreshPlaylists, updateCrateUrl]);
+  }, [activeRekordboxPlaylist, apiUrl, copyConflict, copyName, rekordboxTracks.length, refreshPlaylists, updateCrateUrl]);
 
   const appendTracksToPlaylist = useCallback(
     async (tracks: Track[], destinationId: string) => {
@@ -1558,7 +1555,11 @@ function Index() {
                     disabled={
                       rekordboxTracks.length === 0 || copyingRekordboxId === activeRekordboxId
                     }
-                    onClick={() => void copySelectedRekordboxPlaylist()}
+                    onClick={() => {
+                      setCopyName(activeRekordboxPlaylist.name);
+                      setCopyConflict(false);
+                      setCopyDialogOpen(true);
+                    }}
                   >
                     {copyingRekordboxId === activeRekordboxId ? (
                       <LoaderCircle size={13} className="animate-spin" />
@@ -1957,6 +1958,73 @@ function Index() {
               Replace
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={copyDialogOpen}
+        onOpenChange={(open) => {
+          if (copyingRekordboxId) return;
+          setCopyDialogOpen(open);
+          if (!open) setCopyConflict(false);
+        }}
+      >
+        <DialogContent>
+          <form
+            className="space-y-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void copySelectedRekordboxPlaylist();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Copy playlist to CrateBox</DialogTitle>
+              <DialogDescription>
+                Create an editable crate from “{activeRekordboxPlaylist?.name}”.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <label htmlFor="cratebox-copy-name" className="text-sm font-medium">
+                Crate name
+              </label>
+              <Input
+                id="cratebox-copy-name"
+                autoFocus
+                value={copyName}
+                disabled={copyingRekordboxId !== null}
+                onChange={(event) => {
+                  setCopyName(event.target.value);
+                  setCopyConflict(false);
+                }}
+                placeholder="Name this crate"
+              />
+            </div>
+            {copyConflict && (
+              <div role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <p className="font-medium">A crate with this name already exists.</p>
+                <p className="mt-1 text-muted-foreground">
+                  Replacing it overwrites its playlist with the selected Rekordbox playlist.
+                </p>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={copyingRekordboxId !== null}
+                onClick={() => setCopyDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!copyName.trim() || copyingRekordboxId !== null}
+              >
+                {copyingRekordboxId ? <LoaderCircle className="animate-spin" /> : <Copy />}
+                {copyConflict ? "Replace crate" : "Copy to CrateBox"}
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
 

@@ -120,6 +120,24 @@ async def get_rekordbox_playlists():
     from .rekordbox_playlists import get_rekordbox_playlists as list_records
     return await list_records()
 
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
+async def get_history_sessions(include_folders: bool = False, limit: int = 100):
+    """List Rekordbox DJ history sessions, optionally including folder entries."""
+    from .collection import collection_mcp
+    from .rekordbox_playlists import result_value
+    return result_value(await collection_mcp.call_tool("get_history_sessions", {
+        "include_folders": include_folders, "limit": limit,
+    }))
+
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
+async def get_session_tracks(session_id: str):
+    """Read tracks and performance context from a Rekordbox history session."""
+    from .collection import collection_mcp
+    from .rekordbox_playlists import result_value
+    return result_value(await collection_mcp.call_tool("get_session_tracks", {
+        "session_id": session_id,
+    }))
+
 @mcp.tool
 async def get_library_stats():
     """Read aggregate statistics from the protected collection snapshot."""
