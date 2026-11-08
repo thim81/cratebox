@@ -1,3 +1,4 @@
+import copy
 import json
 import struct
 import sys
@@ -5,9 +6,9 @@ import zlib
 from pathlib import Path
 
 import pytest
-from mutagen.id3 import APIC, TIT2
+from mutagen.id3 import APIC, POPM, TALB, TIT2, TXXX
 from mutagen.mp3 import MP3
-from mutagen.mp4 import MP4
+from mutagen.mp4 import MP4, MP4Cover
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -56,6 +57,14 @@ def mpeg_stream(path: Path) -> bytes:
         tag_size = sum((data[index] & 0x7F) << (7 * (3 - offset)) for offset, index in enumerate(range(6, 10)))
         return data[10 + tag_size :]
     return data
+
+
+def id3_frames_except_cratebox_rating(tags):
+    return sorted(
+        (key, copy.deepcopy(frame.__dict__))
+        for key, frame in tags.items()
+        if not (isinstance(frame, POPM) and frame.email.casefold() == "cratebox")
+    )
 
 
 def playlist_fixture(tmp_path, monkeypatch, audio: Path, *, entry="42"):
@@ -146,6 +155,11 @@ def test_invalid_image_leaves_mp3_unchanged(tmp_path):
 def test_set_audio_rating_updates_mp3_and_preserves_audio_and_tags(tmp_path):
     source = tmp_path / "track.mp3"
     synthetic_mp3(source)
+    before = MP3(source)
+    before.tags.add(TALB(encoding=3, text="Test album"))
+    before.tags.add(TXXX(encoding=3, desc="Publisher", text="Example Records"))
+    before.save(v2_version=3)
+    original_tags = id3_frames_except_cratebox_rating(MP3(source).tags)
     original_stream = mpeg_stream(source)
     duration = MP3(source).info.length
 
@@ -154,7 +168,7 @@ def test_set_audio_rating_updates_mp3_and_preserves_audio_and_tags(tmp_path):
     updated = MP3(source)
     assert result is None
     assert next(frame.rating for frame in updated.tags.getall("POPM") if frame.email == "cratebox") == 204
-    assert str(updated.tags["TIT2"]) == "Test track"
+    assert id3_frames_except_cratebox_rating(updated.tags) == original_tags
     assert mpeg_stream(source) == original_stream
     assert updated.info.length == pytest.approx(duration)
     assert not (tmp_path / "audio-backups").exists()
@@ -165,14 +179,26 @@ def test_set_audio_rating_updates_m4a_and_preserves_other_tags(tmp_path):
     synthetic_m4a(source)
     audio = MP4(source)
     audio.tags["\xa9nam"] = ["Test track"]
+    audio.tags["\xa9ART"] = ["Test artist"]
+    audio.tags["covr"] = [MP4Cover(png(b"\x00\xff\x00"), imageformat=MP4Cover.FORMAT_PNG)]
     audio.save()
-    duration = MP4(source).info.length
+    original = MP4(source)
+    duration = original.info.length
+    original_tags = {
+        key: copy.deepcopy(value)
+        for key, value in original.tags.items()
+        if key != "----:com.apple.iTunes:RATING"
+    }
 
     artwork_write.set_audio_rating(source, 3)
 
     updated = MP4(source)
     assert updated.tags["----:com.apple.iTunes:RATING"] == [b"3"]
-    assert updated.tags["\xa9nam"] == ["Test track"]
+    assert {
+        key: value
+        for key, value in updated.tags.items()
+        if key != "----:com.apple.iTunes:RATING"
+    } == original_tags
     assert updated.info.length == pytest.approx(duration)
 
 
