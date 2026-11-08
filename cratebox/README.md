@@ -43,7 +43,7 @@ CrateBox may update embedded cover artwork on an MP3/M4A selected from one of it
 From the repository root:
 
 ```sh
-uv --directory cratebox/rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../tests -q
+uv --directory cratebox/rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen --with playwright pytest ../tests -q
 ```
 
 From this directory, run frontend checks:

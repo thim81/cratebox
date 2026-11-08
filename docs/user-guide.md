@@ -118,7 +118,7 @@ uv --directory cratebox/rekordbx-mcp run --locked pytest -q
 CrateBox API/Core tests:
 
 ```sh
-uv --directory cratebox/rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../tests -q
+uv --directory cratebox/rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen --with playwright pytest ../tests -q
 ```
 
 Frontend tests and build, from `cratebox/`:

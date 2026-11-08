@@ -80,7 +80,7 @@ Python tests from the repository root:
 
 ```sh
 uv --directory cratebox/rekordbx-mcp run --locked pytest -q
-uv --directory cratebox/rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../tests -q
+uv --directory cratebox/rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen --with playwright pytest ../tests -q
 ```
 
 The Rekordbox MCP is pinned and unmodified upstream. Update it explicitly with `rekordbx-mcp update-upstream`; see the [adapter update guide](docs/user-guide.md#6-update-the-upstream-mcp).

@@ -114,7 +114,10 @@ def test_search_uses_itunes_then_musicbrainz_then_duckduckgo(monkeypatch):
     monkeypatch.setattr(music_artwork, "musicbrainz_search", musicbrainz_search)
     monkeypatch.setattr(artwork, "DDGS", FakeDDGS)
 
-    results = artwork.search_image_results("Artist Track", artist="Artist", album="Album")
+    results = artwork.search_image_results(
+        "Artist Track", artist="Artist", album="Album",
+        musicbrainz=True, google_images=False, duckduckgo=True,
+    )
 
     assert results[0] == mb
     assert results[1]["source"] == "DuckDuckGo"
@@ -141,7 +144,10 @@ def test_search_tops_up_catalogue_results_to_twenty_four_distinct_images(monkeyp
     monkeypatch.setattr(music_artwork, "search_music_artwork", lambda *_args, **_kwargs: catalogue)
     monkeypatch.setattr(artwork, "DDGS", FakeDDGS)
 
-    results = artwork.search_image_results("Artist Track", artist="Artist", album="Album")
+    results = artwork.search_image_results(
+        "Artist Track", artist="Artist", album="Album",
+        musicbrainz=True, google_images=False, duckduckgo=True,
+    )
 
     assert len(results) == 24
     assert results[:2] == catalogue
@@ -159,7 +165,9 @@ def test_search_keeps_catalogue_results_if_duckduckgo_supplement_fails(monkeypat
     monkeypatch.setattr(music_artwork, "search_music_artwork", lambda *_args, **_kwargs: catalogue)
     monkeypatch.setattr(artwork, "DDGS", BrokenDDGS)
 
-    assert artwork.search_image_results("Artist Track") == catalogue
+    assert artwork.search_image_results(
+        "Artist Track", musicbrainz=True, google_images=False, duckduckgo=True,
+    ) == catalogue
 
 
 def test_catalogue_uses_track_metadata_when_itunes_has_no_match(monkeypatch):
@@ -195,7 +203,9 @@ def test_search_falls_back_to_duckduckgo_when_catalogues_are_empty(monkeypatch):
 
     monkeypatch.setattr(artwork, "DDGS", FakeDDGS)
 
-    result = artwork.search_image_results("query")
+    result = artwork.search_image_results(
+        "query", musicbrainz=True, google_images=False, duckduckgo=True,
+    )
 
     assert result[0]["source"] == "DuckDuckGo"
     assert calls == ["itunes", "musicbrainz"]
@@ -211,4 +221,6 @@ def test_search_continues_after_catalogue_errors(monkeypatch):
 
     monkeypatch.setattr(artwork, "DDGS", FakeDDGS)
 
-    assert artwork.search_image_results("query")[0]["source"] == "DuckDuckGo"
+    assert artwork.search_image_results(
+        "query", musicbrainz=True, google_images=False, duckduckgo=True,
+    )[0]["source"] == "DuckDuckGo"
