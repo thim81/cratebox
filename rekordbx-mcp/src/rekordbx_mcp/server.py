@@ -2,26 +2,19 @@
 
 import argparse
 import asyncio
-import json
-import re
-import unicodedata
 import sys
 from contextlib import asynccontextmanager, suppress
-from difflib import SequenceMatcher
 from functools import wraps
-from html.parser import HTMLParser
 from pathlib import Path
 from threading import Lock
 from types import SimpleNamespace
 from typing import Literal
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 from rekordbox_mcp import database as upstream_database
 from rekordbox_mcp import server as upstream
 from pyrekordbox.masterdb.models import DjmdCue, DjmdPlaylist, DjmdSongPlaylist
@@ -29,7 +22,6 @@ from sqlalchemy import func
 
 from .database import SnapshotDatabase, content_by_ids
 from .export import OUTPUT_DIRECTORY, PLAYLISTS_DIRECTORY, export_playlist as write_playlist
-from .sockseek import create_sockseek_list as write_sockseek_list
 from .snapshot import verify_snapshot
 
 
@@ -56,81 +48,9 @@ async def _serialized_database_to_thread(function, /, *args, **kwargs):
 # Upstream database methods use asyncio.to_thread internally, including close().
 # Serialize those calls because SnapshotMasterDatabase uses one StaticPool connection.
 upstream_database.asyncio = SimpleNamespace(to_thread=_serialized_database_to_thread)
-_MATCH_TRANSLITERATION = str.maketrans({
-    "æ": "ae", "œ": "oe", "ø": "o", "ł": "l", "đ": "d",
-    "ð": "d", "þ": "th", "ħ": "h", "ı": "i",
-})
-_ARTIST_SEPARATOR = re.compile(r"\s*(?:[,;&]|\b(?:feat(?:uring)?|ft)\.?|\bx\b)\s*", re.I)
-_TITLE_VERSION_MARKERS = {
-    "acapella", "club", "clean", "dirty", "edit", "extended", "intro",
-    "instrumental", "live", "mashup", "mix", "outro", "radio", "remix",
-    "transition", "version", "vip",
-}
-_TITLE_VERSION_SUFFIXES = (
-    "extended remix", "extended mix", "radio edit", "intro edit", "outro edit",
-    "quick edit", "short edit", "extended", "instrumental", "acapella",
-    "transition", "mashup", "bootleg", "rework", "remix", "version", "clean",
-    "dirty", "radio", "intro", "outro", "edit", "mix", "club", "live", "vip",
-)
-
-
-class _SpotifyDataParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.capture = False
-        self.data = ""
-
-    def handle_starttag(self, tag, attrs):
-        if tag == "script" and dict(attrs).get("id") == "__NEXT_DATA__":
-            self.capture = True
-
-    def handle_data(self, data):
-        if self.capture:
-            self.data += data
-
-    def handle_endtag(self, tag):
-        if tag == "script":
-            self.capture = False
-
-
-class PlaylistReference(BaseModel):
-    id: str
-    name: str
-
-
-class LookupTrack(BaseModel):
-    id: str
-    title: str
-    artist: str
-    album: str
-    duration: int
-    bpm: float
-    key: str
-    rating: int
-    play_count: int
-    similarity: float
-    cue_count: int = 0
-    playlist_count: int = 0
-    playlists: list[PlaylistReference] = Field(default_factory=list)
-
-
-class CrateBoxLookupTrack(LookupTrack):
-    file_path: str
-
-
-class TrackLocation(BaseModel):
-    track_id: str
-    file_path: str
-
-
 class PlaylistSeparator(BaseModel):
     type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
     before_track: int
-
-
-class SockseekTrack(BaseModel):
-    artist: str
-    title: str
 
 
 class ExportInputPrivacy(Middleware):
@@ -155,77 +75,6 @@ def redact_paths(value):
     if isinstance(value, list):
         return [redact_paths(item) for item in value]
     return value
-
-
-def normalize_match_text(value: str) -> str:
-    value = value.casefold().translate(_MATCH_TRANSLITERATION)
-    decomposed = unicodedata.normalize("NFKD", value)
-    unaccented = "".join(char for char in decomposed if not unicodedata.combining(char))
-    words = "".join(char if char.isalnum() else " " for char in unaccented)
-    return " ".join(words.split())
-
-
-def artist_credits(value: str) -> set[str]:
-    return {
-        normalized
-        for credit in _ARTIST_SEPARATOR.split(value)
-        if (normalized := normalize_match_text(credit))
-    }
-
-
-def normalize_track_title(value: str) -> str:
-    original = normalize_match_text(value)
-    while match := re.search(r"\s*[\[(]([^\])]+)[\])]\s*$", value):
-        suffix = normalize_match_text(match.group(1))
-        if not _TITLE_VERSION_MARKERS.intersection(suffix.split()):
-            break
-        value = value[:match.start()]
-
-    normalized = normalize_match_text(value)
-    while normalized:
-        suffix = next(
-            (item for item in _TITLE_VERSION_SUFFIXES if normalized.endswith(f" {item}")),
-            None,
-        )
-        if suffix is None:
-            break
-        normalized = normalized[: -(len(suffix) + 1)]
-    return normalized or original
-
-
-def similarity(left: str, right: str) -> float:
-    normalized_left = normalize_match_text(left)
-    normalized_right = normalize_match_text(right)
-    if not normalized_left or not normalized_right:
-        return 0.0
-    sequence_score = SequenceMatcher(None, normalized_left, normalized_right).ratio()
-    left_words, right_words = set(normalized_left.split()), set(normalized_right.split())
-    token_score = 2 * len(left_words & right_words) / (len(left_words) + len(right_words))
-    return max(sequence_score, token_score)
-
-
-def order_match_candidates(candidates: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
-    groups: dict[tuple[int, float, int, int], list[tuple[float, dict]]] = {}
-    for score, candidate in candidates:
-        group = (
-            int(candidate.pop("_exact_title", False)),
-            score,
-            int(candidate.get("rating") or 0),
-            int(candidate.get("play_count") or 0),
-        )
-        groups.setdefault(group, []).append((score, candidate))
-
-    ordered = []
-    for group in sorted(groups, reverse=True):
-        matches = groups[group]
-        matches.sort(key=lambda item: item[0], reverse=True)
-        # Missing metadata does not count as lower quality; compare a field only
-        # when every candidate at this rating/play-count tier has it.
-        for field in ("bit_depth", "sample_rate", "bitrate"):
-            if all(int(candidate.get(field) or 0) > 0 for _, candidate in matches):
-                matches.sort(key=lambda item: int(item[1][field]), reverse=True)
-        ordered.extend(matches)
-    return ordered
 
 
 def build_server(
@@ -266,65 +115,6 @@ def build_server(
 
     server = FastMCP("Rekordbox snapshot (read-only)", lifespan=lifespan)
     server.add_middleware(ExportInputPrivacy())
-
-    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True})
-    async def spotify_tracklist(url: str) -> list[str]:
-        """Get an ordered, numbered artist/title tracklist from a public Spotify playlist URL."""
-        match = re.fullmatch(r"https?://open\.spotify\.com/playlist/([a-zA-Z0-9]+)(?:[/?#].*)?", url.strip())
-        if not match:
-            raise ToolError("Provide a valid open.spotify.com playlist URL.")
-
-        def fetch_tracklist():
-            request = Request(
-                f"https://open.spotify.com/embed/playlist/{match.group(1)}",
-                headers={"User-Agent": "Mozilla/5.0", "Accept": "text/html"},
-            )
-            with urlopen(request, timeout=15) as response:
-                html = response.read().decode("utf-8")
-            parser = _SpotifyDataParser()
-            parser.feed(html)
-            if not parser.data:
-                raise ValueError("Playlist metadata was not present in Spotify's response")
-            try:
-                tracks = json.loads(parser.data)["props"]["pageProps"]["state"]["data"]["entity"]["trackList"]
-            except (json.JSONDecodeError, KeyError, TypeError) as error:
-                raise ValueError("Spotify's playlist metadata format was not recognized") from error
-            result = []
-            for i, track in enumerate(tracks, 1):
-                artists = track.get("artists")
-                if isinstance(artists, list):
-                    artist_names = [
-                        artist if isinstance(artist, str) else artist.get("name")
-                        for artist in artists if isinstance(artist, (str, dict))
-                    ]
-                    artist_names = [name for name in artist_names if name]
-                elif isinstance(artists, str):
-                    artist_names = [artists]
-                else:
-                    artist_names = []
-                if not artist_names:
-                    subtitle = track.get("subtitle")
-                    artist_names = [subtitle] if isinstance(subtitle, str) and subtitle else []
-                title = track.get("title")
-                if not isinstance(title, str) or not title or not artist_names:
-                    raise ValueError("Spotify's playlist metadata is missing track titles or artists")
-                result.append(f"{i:02d}. {', '.join(artist_names)} - {title}")
-            return result
-
-        try:
-            return await asyncio.to_thread(fetch_tracklist)
-        except HTTPError as error:
-            logger.warning("Spotify playlist lookup returned HTTP {}", error.code)
-            raise ToolError(f"Spotify rejected the playlist request (HTTP {error.code}).") from None
-        except URLError:
-            logger.exception("Spotify playlist lookup could not reach Spotify")
-            raise ToolError("Could not reach Spotify; check network access from the Rekordbox MCP process.") from None
-        except ValueError as error:
-            logger.warning("Spotify playlist metadata unavailable: {}", error)
-            raise ToolError(str(error)) from None
-        except Exception:
-            logger.exception("Spotify playlist lookup failed")
-            raise ToolError("Spotify playlist lookup failed while parsing its response.") from None
 
     def wrap(original, tool_name: str):
         @wraps(original)
@@ -473,196 +263,6 @@ def build_server(
                 return await run_database_operation(resolve)
             except ValueError:
                 raise ToolError("A selector must resolve to active collection tracks; each file location must match exactly one track.") from None
-
-    async def rank_similar_tracks(artist: str, title: str, limit: int):
-        artist = artist.strip()
-        title = title.strip()
-        if not artist and not title:
-            raise ToolError("Provide an artist, title, or both for collection lookup.")
-        if not 1 <= limit <= 50:
-            raise ToolError("Limit must be between 1 and 50.")
-
-        async with _upstream_lock:
-            upstream.db = database
-            upstream._db_initialized = True
-            upstream.ensure_database_connected = ensure_connected
-            try:
-                await ensure_connected()
-
-                def ranked_candidates():
-                    ranked = []
-                    source_artists = artist_credits(artist) if artist else set()
-                    source_title = normalize_track_title(title) if title else ""
-                    for content in database._get_active_content():
-                        candidate_artist = str(getattr(content, "ArtistName", "") or "")
-                        candidate_artists = artist_credits(candidate_artist)
-                        artist_matches = [
-                            (source_credit, candidate_credit)
-                            for source_credit in source_artists
-                            for candidate_credit in candidate_artists
-                            if source_credit in candidate_credit or candidate_credit in source_credit
-                        ]
-                        if source_artists and not artist_matches:
-                            continue
-                        artist_score = max(
-                            (similarity(source_credit, candidate_credit)
-                             for source_credit, candidate_credit in artist_matches),
-                            default=0,
-                        )
-                        candidate = database._content_to_track(content).model_dump()
-                        candidate["_content"] = content
-                        candidate["file_path"] = str(getattr(content, "FolderPath", "") or "")
-                        candidate["bit_depth"] = int(getattr(content, "BitDepth", 0) or 0)
-                        candidate_title = normalize_track_title(str(candidate.get("title") or ""))
-                        candidate["_exact_title"] = (
-                            bool(source_title) and source_title == candidate_title
-                        )
-                        title_score = similarity(source_title, candidate_title) if source_title else 0
-                        score = (
-                            (0.35 * artist_score if source_artists else 0)
-                            + (0.65 * title_score if source_title else 0)
-                        ) / (0.35 * bool(source_artists) + 0.65 * bool(source_title))
-                        ranked.append((score, candidate))
-                    selected = order_match_candidates(ranked)[:limit]
-                    track_ids = [str(candidate.get("id") or "") for _, candidate in selected]
-                    playlist_rows = (
-                        database.db.session.query(
-                            DjmdSongPlaylist.ContentID,
-                            DjmdPlaylist.ID,
-                            DjmdPlaylist.Name,
-                        )
-                        .join(DjmdPlaylist, DjmdPlaylist.ID == DjmdSongPlaylist.PlaylistID)
-                        .filter(
-                            DjmdSongPlaylist.ContentID.in_(track_ids),
-                            DjmdSongPlaylist.rb_local_deleted == 0,
-                            DjmdPlaylist.rb_local_deleted == 0,
-                        )
-                        .distinct()
-                        .order_by(DjmdPlaylist.Name)
-                        .all()
-                    )
-                    playlist_memberships = {}
-                    for content_id, playlist_id, playlist_name in playlist_rows:
-                        playlist_memberships.setdefault(str(content_id), {})[str(playlist_id)] = {
-                            "id": str(playlist_id),
-                            "name": str(playlist_name or ""),
-                        }
-                    for _, candidate in selected:
-                        content = candidate.pop("_content")
-                        candidate["cue_count"] = sum(
-                            not getattr(cue, "rb_local_deleted", 0)
-                            for cue in (getattr(content, "Cues", None) or [])
-                        )
-                        candidate_playlists = list(
-                            playlist_memberships.get(str(candidate.get("id") or ""), {}).values(),
-                        )
-                        candidate["playlists"] = candidate_playlists
-                        candidate["playlist_count"] = len(candidate_playlists)
-                    return selected
-
-                ranked = await run_database_operation(ranked_candidates)
-            except Exception:
-                logger.exception("Rekordbox collection lookup failed")
-                raise ToolError(
-                    "Collection lookup failed; check the local server logs."
-                ) from None
-
-        return ranked
-
-    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
-    async def lookup_similar_tracks(
-        artist: str, title: str, limit: int = 50,
-    ) -> list[LookupTrack]:
-        """Find normalized artist/title matches, ranked by exact title, similarity, rating, plays, and quality."""
-        ranked = await rank_similar_tracks(artist, title, limit)
-        return [LookupTrack(
-            id=str(candidate.get("id") or ""),
-            title=str(candidate.get("title") or ""),
-            artist=str(candidate.get("artist") or ""),
-            album=str(candidate.get("album") or ""),
-            duration=candidate.get("length") or candidate.get("duration") or 0,
-            bpm=candidate.get("bpm") or 0,
-            key=str(candidate.get("key") or ""),
-            rating=candidate.get("rating") or 0,
-            play_count=candidate.get("play_count") or 0,
-            cue_count=candidate.get("cue_count") or 0,
-            playlist_count=candidate.get("playlist_count") or 0,
-            playlists=candidate.get("playlists") or [],
-            similarity=round(score * 100, 1),
-        ) for score, candidate in ranked]
-
-    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
-    async def lookup_similar_tracks_for_cratebox(
-        artist: str, title: str, limit: int = 50,
-    ) -> list[CrateBoxLookupTrack]:
-        """App-only lookup that includes paths for CrateBox's local API playback."""
-        ranked = await rank_similar_tracks(artist, title, limit)
-        return [CrateBoxLookupTrack(
-            id=str(candidate.get("id") or ""),
-            title=str(candidate.get("title") or ""),
-            artist=str(candidate.get("artist") or ""),
-            album=str(candidate.get("album") or ""),
-            duration=candidate.get("length") or candidate.get("duration") or 0,
-            bpm=candidate.get("bpm") or 0,
-            key=str(candidate.get("key") or ""),
-            rating=candidate.get("rating") or 0,
-            play_count=candidate.get("play_count") or 0,
-            cue_count=candidate.get("cue_count") or 0,
-            playlist_count=candidate.get("playlist_count") or 0,
-            playlists=candidate.get("playlists") or [],
-            similarity=round(score * 100, 1),
-            file_path=str(candidate.get("file_path") or ""),
-        ) for score, candidate in ranked]
-
-    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
-    async def get_track_locations(track_ids: list[str]) -> list[TrackLocation]:
-        """Resolve ordered track IDs to paths for trusted local application APIs."""
-        if not track_ids or len(track_ids) > 1000 or any(not item for item in track_ids):
-            raise ToolError("Provide between 1 and 1000 track IDs.")
-        async with _upstream_lock:
-            upstream.db = database
-            upstream._db_initialized = True
-            upstream.ensure_database_connected = ensure_connected
-            try:
-                await ensure_connected()
-
-                def resolve_locations():
-                    contents = content_by_ids(database.db, track_ids)
-                    if any(
-                        track_id not in contents
-                        or contents[track_id].rb_local_deleted
-                        or not contents[track_id].FolderPath
-                        for track_id in track_ids
-                    ):
-                        raise ValueError
-                    return [
-                        TrackLocation(track_id=track_id, file_path=str(contents[track_id].FolderPath))
-                        for track_id in track_ids
-                    ]
-
-                return await run_database_operation(resolve_locations)
-            except ValueError:
-                raise ToolError("One or more tracks are unavailable in the active collection.") from None
-            except Exception:
-                logger.exception("Track location lookup failed")
-                raise ToolError("Track location lookup failed; check the local server logs.") from None
-
-    @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False})
-    async def create_sockseek_list(name: str, tracks: list[SockseekTrack]) -> dict:
-        """Create a Sockseek song-search list and a ready-to-run command.
-
-        Writes a new list under downloads/<name>/. The returned command uses
-        repository-relative paths and is for manual execution; this tool never
-        runs Sockseek or downloads audio.
-        Existing lists are never overwritten.
-        """
-        try:
-            return write_sockseek_list(name, [track.model_dump() for track in tracks])
-        except (ValueError, FileExistsError) as error:
-            raise ToolError(str(error)) from None
-        except OSError:
-            logger.exception("Sockseek list creation failed")
-            raise ToolError("Cannot write the Sockseek list under downloads/; check permissions.") from None
 
     @server.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
     async def export_playlist(

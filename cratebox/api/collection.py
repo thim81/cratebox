@@ -13,6 +13,7 @@ from fastmcp.client.transports import StdioTransport
 from pydantic import BaseModel
 
 from .config import REPO_ROOT
+from ..core.matching import lookup_matches
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class CollectionLookup(BaseModel):
     artist: str | None = None
     title: str | None = None
     track_id: str | None = None
+    limit: int = 50
 
 class CollectionMcp:
     def __init__(self):
@@ -54,8 +56,8 @@ class CollectionMcp:
                 await client.__aenter__()
                 tool_names = {tool.name for tool in await client.list_tools()}
                 required_tools = {
-                    "lookup_similar_tracks_for_cratebox", "get_track_details",
-                    "get_playlists", "get_playlist_tracks", "get_track_locations",
+                    "get_collection_tracks", "get_track_details",
+                    "get_playlists", "get_playlist_tracks",
                     "export_playlist",
                 }
                 if not required_tools <= tool_names:
@@ -74,8 +76,8 @@ class CollectionMcp:
     async def call_tool(self, name: str, arguments: dict | None = None):
         async with self.call_lock:
             attempts = 2 if name in {
-                "lookup_similar_tracks_for_cratebox", "get_track_details",
-                "get_playlists", "get_playlist_tracks", "get_track_locations",
+                "get_track_details", "get_collection_tracks", "get_playlists",
+                "get_playlist_tracks",
             } else 1
             for attempt in range(attempts):
                 client = await self.connect()
@@ -117,10 +119,15 @@ async def collection_lookup(request: CollectionLookup):
     artist = (request.artist or "").strip()
     title = (request.title or "").strip()
     track_id = (request.track_id or "").strip()
+    limit = request.limit
+    if not 1 <= limit <= 50:
+        raise HTTPException(400, "Limit must be between 1 and 50.")
     if not track_id and not artist and not title:
         raise HTTPException(400, "Provide a Rekordbox track ID, artist, title, or both.")
     try:
         async def result_value(tool_result):
+            if tool_result.is_error:
+                raise RuntimeError("Collection lookup failed.")
             structured = tool_result.structured_content
             value = structured.get("result") if isinstance(structured, dict) and "result" in structured else structured
             if value is None:
@@ -128,6 +135,30 @@ async def collection_lookup(request: CollectionLookup):
             if value is None and tool_result.content:
                 value = json.loads(tool_result.content[0].text)
             return value
+
+        async def fetch_page(offset: int, page_size: int):
+            result = await collection_mcp.call_tool("get_collection_tracks", {
+                "offset": offset, "limit": page_size,
+            })
+            value = await result_value(result)
+            if not isinstance(value, list):
+                raise ValueError("Unexpected collection track page.")
+            return value
+
+        async def resolve_ids(track_ids: list[str]):
+            result = await collection_mcp.call_tool("get_collection_tracks", {"track_ids": track_ids})
+            value = await result_value(result)
+            if not isinstance(value, list):
+                raise ValueError("Unexpected collection track response.")
+            return value
+
+        async def ranked(lookup_artist: str, lookup_title: str):
+            return [
+                {**candidate, "similarity": round(score * 100, 1)}
+                for score, candidate in await lookup_matches(
+                    fetch_page, lookup_artist, lookup_title, limit=limit,
+                )
+            ]
 
         if track_id:
             details = await collection_mcp.call_tool("get_track_details", {"track_id": track_id})
@@ -138,30 +169,15 @@ async def collection_lookup(request: CollectionLookup):
                 artist = str(source.get("artist") or artist).strip()
                 title = str(source.get("title") or title).strip()
             if artist and title:
-                result = await collection_mcp.call_tool(
-                    "lookup_similar_tracks_for_cratebox", {"artist": artist, "title": title},
-                )
-                matches = await result_value(result)
+                matches = await ranked(artist, title)
             elif isinstance(source, dict):
-                matches = [{
-                    "id": str(source.get("id") or track_id),
-                    "title": str(source.get("title") or ""),
-                    "artist": str(source.get("artist") or ""),
-                    "album": str(source.get("album") or ""),
-                    "duration": source.get("duration") or source.get("length") or 0,
-                    "bpm": source.get("bpm") or 0,
-                    "key": str(source.get("key") or ""),
-                    "rating": source.get("rating") or 0,
-                    "play_count": source.get("play_count") or 0,
-                    "similarity": 100,
-                }]
+                matches = await resolve_ids([track_id])
+                if matches:
+                    matches[0]["similarity"] = 100
             else:
                 matches = []
         else:
-            result = await collection_mcp.call_tool(
-                "lookup_similar_tracks_for_cratebox", {"artist": artist, "title": title},
-            )
-            matches = await result_value(result)
+            matches = await ranked(artist, title)
         if not isinstance(matches, list):
             raise ValueError("Unexpected collection lookup response.")
         public_matches = []

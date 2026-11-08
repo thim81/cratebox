@@ -451,7 +451,7 @@ def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio
         return {
             "get_playlists": [{"id": "playlist-1"}],
             "get_playlist_tracks": [{"id": "track-1"}],
-            "get_track_locations": [{"track_id": "track-1", "file_path": str(source)}],
+            "get_collection_tracks": [{"id": "track-1", "file_path": str(source)}],
         }[name]
 
     monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
@@ -467,7 +467,7 @@ def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio
     assert response.status_code == 200, response.text
     assert "file_path" not in response.text
     assert response.json()["artwork_url"].startswith("/api/collection/tracks/track-1/artwork?v=")
-    assert [call[0] for call in calls] == ["get_playlists", "get_playlist_tracks", "get_track_locations"]
+    assert [call[0] for call in calls] == ["get_playlists", "get_playlist_tracks", "get_collection_tracks"]
     assert next(frame.data for frame in MP3(source).tags.getall("APIC") if frame.type == 3) == png(b"\x01\x02\x03")
     assert next((tmp_path / "backups").glob("*.mp3")).read_bytes() == original
 

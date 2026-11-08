@@ -102,7 +102,7 @@ async def call_tool(name: str, arguments: dict | None = None):
             raise HTTPException(409, "A CrateBox playlist with this name already exists.")
         if name == "export_playlist":
             raise HTTPException(400, message or "Could not export the Rekordbox playlist.")
-        if name == "get_track_locations":
+        if name == "get_collection_tracks":
             raise HTTPException(409, "One or more playlist tracks no longer match the Rekordbox collection.")
         raise HTTPException(502, "Rekordbox playlist request failed.")
     try:
@@ -140,14 +140,14 @@ def local_playlist_with_plan(playlist_id: str):
 
 async def validate_plan_locations(plan):
     track_ids, file_paths = plan
-    locations = await call_tool("get_track_locations", {"track_ids": track_ids})
+    locations = await call_tool("get_collection_tracks", {"track_ids": track_ids})
     if not isinstance(locations, list) or len(locations) != len(track_ids):
         raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
     try:
         for track_id, file_path, location in zip(track_ids, file_paths, locations, strict=True):
             if (
                 not isinstance(location, dict)
-                or str(location.get("track_id")) != track_id
+                or str(location.get("id")) != track_id
                 or Path(location.get("file_path", "")).resolve() != Path(file_path).resolve()
             ):
                 raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
@@ -181,13 +181,13 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
     occurrences: dict[str, int] = {}
     tracks = []
     track_ids = [str(record["id"]) for record in records if record.get("id") is not None]
-    locations = await call_tool("get_track_locations", {"track_ids": track_ids}) if track_ids else []
+    locations = await call_tool("get_collection_tracks", {"track_ids": track_ids}) if track_ids else []
     if not isinstance(locations, list) or len(locations) != len(track_ids):
         raise HTTPException(502, "Unexpected Rekordbox track locations.")
     for track_id, location in zip(track_ids, locations, strict=True):
         if (
             not isinstance(location, dict)
-            or str(location.get("track_id")) != track_id
+            or str(location.get("id")) != track_id
             or not isinstance(location.get("file_path"), str)
             or not Path(location["file_path"]).is_absolute()
             or any(character in location["file_path"] for character in "\r\n\x00\x85\u2028\u2029")
@@ -335,15 +335,15 @@ async def replace_playlist_separator(playlist_id: str, request: ReplaceSeparator
             if separator_type == request.type
         )
         locations = await call_tool(
-            "get_track_locations",
+            "get_collection_tracks",
             {"track_ids": [plan[0][plan_index], replacement_track_id]},
         )
         if (
             not isinstance(locations, list)
             or len(locations) != 2
             or any(not isinstance(item, dict) for item in locations)
-            or str(locations[0].get("track_id")) != plan[0][plan_index]
-            or str(locations[1].get("track_id")) != replacement_track_id
+            or str(locations[0].get("id")) != plan[0][plan_index]
+            or str(locations[1].get("id")) != replacement_track_id
         ):
             raise HTTPException(502, "Unexpected Rekordbox track locations.")
         try:

@@ -29,7 +29,5 @@ enabled_tools = [
   "get_recent_sessions",
   "get_history_stats",
   "search_history_sessions",
-  "spotify_tracklist",
-  "export_playlist",
-  "create_sockseek_list"
+  "export_playlist"
 ]

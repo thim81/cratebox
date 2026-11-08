@@ -255,11 +255,11 @@ async def embed_rekordbox_artwork(
         isinstance(item, dict) and str(item.get("id")) == track_id for item in tracks
     ):
         raise HTTPException(404, "Track not found in Rekordbox playlist.")
-    locations = await call_tool("get_track_locations", {"track_ids": [track_id]})
+    locations = await call_tool("get_collection_tracks", {"track_ids": [track_id]})
     if (
         not isinstance(locations, list) or len(locations) != 1
         or not isinstance(locations[0], dict)
-        or str(locations[0].get("track_id")) != track_id
+        or str(locations[0].get("id")) != track_id
         or not isinstance(locations[0].get("file_path"), str)
         or any(character in locations[0]["file_path"] for character in "\r\n\x00\x85\u2028\u2029")
         or not Path(locations[0]["file_path"]).is_absolute()

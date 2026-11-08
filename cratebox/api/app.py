@@ -1,9 +1,11 @@
 """FastAPI application setup for the local CrateBox API."""
 
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastmcp import FastMCP
 
 from .collection import collection_mcp, router as collection_router
 from .playlists import router as playlists_router
@@ -11,14 +13,157 @@ from .artwork import router as artwork_router
 from .streaming import router as streaming_router
 from .rekordbox_playlists import router as rekordbox_playlists_router
 
+mcp = FastMCP("CrateBox")
+mcp_app = mcp.http_app(path="/")
+
 @asynccontextmanager
 async def lifespan(_app):
     try:
-        yield
+        async with mcp_app.lifespan(mcp_app):
+            yield
     finally:
         await collection_mcp.close()
 
 app = FastAPI(title="CrateBox playlist API", lifespan=lifespan)
+
+@mcp.tool
+async def cratebox_list_playlists():
+    """List locally editable CrateBox playlists."""
+    from .playlists import list_playlists
+    return list_playlists()
+
+@mcp.tool
+async def cratebox_get_playlist(playlist_id: str):
+    """Get a local playlist and its ordered tracks."""
+    from .playlists import get_playlist
+    return get_playlist(playlist_id)
+
+@mcp.tool
+async def cratebox_create_playlist(name: str):
+    """Create an empty local playlist."""
+    from .playlists import PlaylistCreate, create_playlist
+    return create_playlist(PlaylistCreate(name=name))
+
+@mcp.tool
+async def cratebox_remove_tracks(playlist_id: str, track_ids: list[str]):
+    """Remove selected rows from a local playlist."""
+    from .playlists import delete_tracks
+    return await delete_tracks(playlist_id, track_ids)
+
+@mcp.tool
+async def cratebox_reorder_tracks(
+    playlist_id: str, source_track_ids: list[str], target_track_id: str, before: bool,
+):
+    """Move ordered rows before or after a target row in a local playlist."""
+    from .playlists import PlaylistReorder, reorder_track
+    return await reorder_track(playlist_id, PlaylistReorder(
+        source_track_ids=source_track_ids, target_track_id=target_track_id, before=before,
+    ))
+
+@mcp.tool
+async def lookup_similar_tracks(artist: str = "", title: str = "", limit: int = 50):
+    """Find candidate tracks in the protected Rekordbox snapshot."""
+    from .collection import CollectionLookup, collection_lookup
+    result = await collection_lookup(CollectionLookup(artist=artist, title=title, limit=limit))
+    return result["matches"]
+
+@mcp.tool
+async def search_tracks(
+    query: str = "", artist: str | None = None, title: str | None = None,
+    genre: str | None = None, key: str | None = None, bpm_min: float | None = None,
+    bpm_max: float | None = None, rating_min: int | None = None, limit: int = 50,
+):
+    """Search active tracks in the protected Rekordbox snapshot."""
+    from .collection import collection_mcp
+    result = await collection_mcp.call_tool("search_tracks", {
+        "query": query, "artist": artist, "title": title, "genre": genre,
+        "key": key, "bpm_min": bpm_min, "bpm_max": bpm_max,
+        "rating_min": rating_min, "limit": limit,
+    })
+    from .rekordbox_playlists import result_value
+    return result_value(result)
+
+@mcp.tool
+async def get_track_details(track_id: str):
+    """Read one track's collection metadata."""
+    from .collection import collection_mcp
+    from .rekordbox_playlists import result_value
+    return result_value(await collection_mcp.call_tool("get_track_details", {"track_id": track_id}))
+
+@mcp.tool
+async def get_rekordbox_playlists():
+    """Browse read-only Rekordbox playlists and folders."""
+    from .rekordbox_playlists import get_rekordbox_playlists as list_records
+    return await list_records()
+
+@mcp.tool
+async def get_library_stats():
+    """Read aggregate statistics from the protected collection snapshot."""
+    from .collection import collection_mcp
+    from .rekordbox_playlists import result_value
+    return result_value(await collection_mcp.call_tool("get_library_stats"))
+
+@mcp.tool
+async def cratebox_copy_rekordbox_playlist(playlist_id: str, name: str, update_existing: bool = False):
+    """Copy a Rekordbox playlist into CrateBox; confirm before replacing an existing export."""
+    from .rekordbox_playlists import CopyPlaylistRequest, copy_rekordbox_playlist
+    return await copy_rekordbox_playlist(playlist_id, CopyPlaylistRequest(
+        name=name, update_existing=update_existing,
+    ))
+
+@mcp.tool
+async def cratebox_append_tracks(playlist_id: str, track_ids: list[str], confirm_update: bool = False):
+    """Append collection track IDs to a local playlist; confirm before modifying it."""
+    from .rekordbox_playlists import AppendTracksRequest, append_rekordbox_tracks
+    return await append_rekordbox_tracks(playlist_id, AppendTracksRequest(
+        track_ids=track_ids, confirm_update=confirm_update,
+    ))
+
+@mcp.tool
+async def cratebox_insert_track(playlist_id: str, track_id: str, after_track_id: str, confirm_update: bool = False):
+    """Insert a collection track after a playlist row; confirm before modifying it."""
+    from .rekordbox_playlists import InsertTrackRequest, insert_rekordbox_track
+    return await insert_rekordbox_track(playlist_id, InsertTrackRequest(
+        track_id=track_id, after_track_id=after_track_id, confirm_update=confirm_update,
+    ))
+
+@mcp.tool
+async def cratebox_insert_separator(playlist_id: str, separator_type: str, after_track_id: str, confirm_update: bool = False):
+    """Insert a fixed separator track after a playlist row; confirm before modifying it."""
+    from .rekordbox_playlists import InsertSeparatorRequest, insert_playlist_separator
+    return await insert_playlist_separator(playlist_id, InsertSeparatorRequest(
+        type=separator_type, after_track_id=after_track_id, confirm_update=confirm_update,
+    ))
+
+@mcp.tool
+async def spotify_tracklist(url: str):
+    """Read an ordered artist/title list from a public Spotify playlist URL."""
+    from ..core.spotify import spotify_tracklist as read_tracklist
+    try:
+        return await asyncio.to_thread(read_tracklist, url)
+    except ValueError as error:
+        raise ValueError(str(error)) from None
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
+async def create_sockseek_list(name: str, tracks: list[dict[str, str]]):
+    """Create a Sockseek search list from ordered artist/title pairs."""
+    from ..core.sockseek import create_sockseek_list as write_sockseek_list
+    return await asyncio.to_thread(write_sockseek_list, name, tracks)
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
+async def export_playlist(
+    name: str, track_ids: list[str] | None = None,
+    file_paths: list[str] | None = None, update_existing: bool = False,
+    separators: list[dict] | None = None,
+):
+    """Export ordered collection tracks as a local M3U8/JSON playlist pair."""
+    from .rekordbox_playlists import call_tool
+    return await call_tool("export_playlist", {
+        "name": name, "track_ids": track_ids, "file_paths": file_paths,
+        "update_existing": update_existing, "separators": separators,
+    })
+
+app.mount("/mcp", mcp_app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
