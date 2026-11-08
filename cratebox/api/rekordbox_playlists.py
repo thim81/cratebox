@@ -13,6 +13,7 @@ from .artwork_data import embedded_artwork
 from .collection import collection_mcp
 from .config import DEFAULT_PLAYLIST_DIR, CRATE_DIRECTORY, PLAYLIST_DIR
 from .playlists import playlist_mutation_lock
+from core.collection import CollectionConnectionError
 from core.export import export_playlist as core_export_playlist
 from core.crates import (
     ApplicationError,
@@ -74,6 +75,8 @@ async def call_tool(name: str, arguments: dict | None = None):
         result = await collection_mcp.call_tool(name, arguments or {})
     except HTTPException:
         raise
+    except CollectionConnectionError as error:
+        raise HTTPException(error.status_code, error.detail) from None
     except Exception:
         logger.exception("Rekordbox MCP tool call failed (%s)", name)
         raise HTTPException(502, "Rekordbox playlist request failed.") from None
@@ -100,7 +103,10 @@ async def export_local_playlist(
     separators: list[dict] | None = None,
 ):
     async def resolve_tracks(**selector):
-        result = await collection_mcp.call_tool("get_collection_tracks", selector)
+        try:
+            result = await collection_mcp.call_tool("get_collection_tracks", selector)
+        except CollectionConnectionError as error:
+            raise HTTPException(error.status_code, error.detail) from None
         if result.is_error:
             raise HTTPException(409, "One or more tracks no longer resolve to the active collection snapshot.")
         value = result_value(result)

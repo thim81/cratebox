@@ -5,7 +5,7 @@ import sys
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CRATEBOX_ROOT = REPOSITORY_ROOT / "cratebox"
 sys.path.insert(0, str(CRATEBOX_ROOT))
-from api.collection import CollectionMcp
+from core.collection import CollectionClient
 
 
 def test_rekordbox_adapter_is_nested_under_cratebox():
@@ -14,4 +14,4 @@ def test_rekordbox_adapter_is_nested_under_cratebox():
     assert (adapter / "pyproject.toml").is_file()
     assert not (REPOSITORY_ROOT / "rekordbx-mcp" / "pyproject.toml").exists()
     assert (REPOSITORY_ROOT / "rekordbx-mcp" / ".cache").is_dir()
-    assert CollectionMcp().project == adapter
+    assert CollectionClient(adapter).project == adapter

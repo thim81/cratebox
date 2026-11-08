@@ -1,18 +1,15 @@
 """Rekordbox collection connection and lookup endpoints."""
 
-import asyncio
-from contextlib import suppress
 import json
 import logging
 from pathlib import Path
 
 import mutagen
 from fastapi import APIRouter, HTTPException
-from fastmcp import Client
-from fastmcp.client.transports import StdioTransport
 from pydantic import BaseModel
 
 from .config import REPO_ROOT
+from core.collection import CollectionClient, CollectionConnectionError
 from core.matching import lookup_matches
 
 router = APIRouter()
@@ -24,90 +21,7 @@ class CollectionLookup(BaseModel):
     track_id: str | None = None
     limit: int = 50
 
-class CollectionMcp:
-    def __init__(self):
-        self.state = "idle"
-        self.message = None
-        self.client = None
-        self.lock = asyncio.Lock()
-        self.call_lock = asyncio.Lock()
-        self.project = REPO_ROOT / "cratebox" / "rekordbx-mcp"
-        self.track_paths: dict[str, Path] = {}
-
-    async def status(self):
-        async with self.call_lock:
-            if self.client and not self.client.is_connected():
-                await self._invalidate(self.client)
-            return {"state": self.state, "message": self.message}
-
-    async def connect(self):
-        async with self.lock:
-            if self.client:
-                return self.client
-            self.state = "starting"
-            self.message = None
-            transport = StdioTransport(
-                command="uv",
-                args=["run", "--locked", "--offline", "rekordbx-mcp", "start"],
-                cwd=str(self.project),
-            )
-            client = Client(transport, timeout=120, init_timeout=120)
-            try:
-                await client.__aenter__()
-                tool_names = {tool.name for tool in await client.list_tools()}
-                required_tools = {
-                    "get_collection_tracks", "get_track_details",
-                    "get_playlists", "get_playlist_tracks",
-                }
-                if not required_tools <= tool_names:
-                    raise RuntimeError("A required Rekordbox collection tool is unavailable.")
-                self.client = client
-                self.state = "connected"
-                return client
-            except Exception:
-                logger.exception("Failed to start the Rekordbox collection MCP")
-                with suppress(Exception):
-                    await client.close()
-                self.state = "error"
-                self.message = "Could not connect to the Rekordbox collection. Close Rekordbox and its background agents, then try again."
-                raise HTTPException(503, self.message) from None
-
-    async def call_tool(self, name: str, arguments: dict | None = None):
-        async with self.call_lock:
-            attempts = 2 if name in {
-                "get_track_details", "get_collection_tracks", "get_playlists",
-                "get_playlist_tracks",
-            } else 1
-            for attempt in range(attempts):
-                client = await self.connect()
-                try:
-                    return await client.call_tool(name, arguments or {})
-                except Exception:
-                    logger.exception("Rekordbox MCP tool %s failed; dropping the worker session", name)
-                    await self._invalidate(client)
-                    if attempt == attempts - 1:
-                        raise
-
-    async def _invalidate(self, client):
-        with suppress(Exception):
-            await client.close()
-        if self.client is client:
-            self.client = None
-        self.state = "error"
-        self.message = "Collection connection was lost. Try Lookup again or restart the local API."
-
-    async def close(self):
-        async with self.call_lock:
-            async with self.lock:
-                if self.client:
-                    with suppress(Exception):
-                        await self.client.close()
-                    self.client = None
-                self.track_paths.clear()
-                self.state = "idle"
-                self.message = None
-
-collection_mcp = CollectionMcp()
+collection_mcp = CollectionClient(REPO_ROOT / "cratebox" / "rekordbx-mcp")
 
 @router.get("/api/collection/status")
 async def collection_status():
@@ -215,6 +129,8 @@ async def collection_lookup(request: CollectionLookup):
         return {"matches": public_matches}
     except HTTPException:
         raise
+    except CollectionConnectionError as error:
+        raise HTTPException(error.status_code, error.detail) from None
     except Exception:
         logger.exception("Rekordbox collection lookup failed")
         status = await collection_mcp.status()
