@@ -45,6 +45,7 @@ import {
   getCollectionStatus,
   createPlaylist,
   getPlaylist,
+  getPlaylistRevision,
   getPlaylists,
   getRekordboxPlaylists,
   getRekordboxPlaylistTracks,
@@ -148,6 +149,8 @@ function Index() {
   const appliedRekordboxDeepLink = useRef<string | null>(null);
   const activePlaylistContext = useRef({ id: activeId, source: playlistSource });
   const playlistTracksGeneration = useRef(0);
+  const revisionGeneration = useRef(0);
+  const lastPlaylistRevision = useRef<string | null>(null);
   useLayoutEffect(() => {
     activePlaylistContext.current = { id: activeId, source: playlistSource };
   }, [activeId, playlistSource]);
@@ -258,13 +261,68 @@ function Index() {
         data.some((p) => p.id === current) ? current : (data[0]?.id ?? ""),
       );
     } catch (e) {
-      setPlaylists([]);
-      setTracks([]);
       setApiError(`Can't reach ${apiUrl} (${e instanceof Error ? e.message : "request failed"})`);
     } finally {
       setRefreshing(false);
     }
   }, [apiUrl]);
+
+  const playlistMutationInProgress = Boolean(
+    creatingPlaylist || removingTracks || separatorInserting || reordering
+      || copyingRekordboxId || appendingTrackId || addingCollectionTrackId,
+  );
+
+  useEffect(() => {
+    let active = true;
+    const checkRevision = async () => {
+      if (!active || document.visibilityState !== "visible") return;
+      const generation = ++revisionGeneration.current;
+      try {
+        const revision = await getPlaylistRevision(apiUrl);
+        if (!active || generation !== revisionGeneration.current) return;
+        if (lastPlaylistRevision.current === null) {
+          lastPlaylistRevision.current = revision;
+          return;
+        }
+        if (revision === lastPlaylistRevision.current || playlistMutationInProgress) return;
+        const [updatedPlaylists, updatedActive] = await Promise.all([
+          getPlaylists(apiUrl),
+          playlistSource === "crate" && activeId
+            ? getPlaylist(apiUrl, activeId, true).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+        if (playlistSource === "crate" && activeId && !updatedActive) {
+          throw new Error("Could not refresh the active playlist.");
+        }
+        if (!active || generation !== revisionGeneration.current) return;
+        lastPlaylistRevision.current = revision;
+        setPlaylists(updatedPlaylists);
+        setActiveId((current) =>
+          updatedPlaylists.some((playlist) => playlist.id === current)
+            ? current
+            : (updatedPlaylists[0]?.id ?? ""),
+        );
+        if (updatedActive && activePlaylistContext.current.id === activeId
+          && activePlaylistContext.current.source === "crate") {
+          setTracks(updatedActive.tracks ?? []);
+        }
+        setApiError(null);
+      } catch {
+        // Retain the last displayed data and retry on the next poll or focus.
+      }
+    };
+    void checkRevision();
+    const timer = window.setInterval(() => void checkRevision(), 2000);
+    const onFocus = () => void checkRevision();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [activeId, apiUrl, playlistMutationInProgress, playlistSource]);
 
   const createCratePlaylist = useCallback(async (name: string) => {
     setCreatingPlaylist(true);

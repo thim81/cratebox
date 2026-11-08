@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastmcp import FastMCP
 
 from .collection import collection_mcp, router as collection_router
-from .playlists import router as playlists_router
+from .playlists import playlist_revision, router as playlists_router
 from .artwork import router as artwork_router
 from .streaming import router as streaming_router
 from .rekordbox_playlists import router as rekordbox_playlists_router
@@ -26,6 +26,24 @@ async def lifespan(_app):
 
 app = FastAPI(title="CrateBox playlist API", lifespan=lifespan)
 
+
+@app.middleware("http")
+async def bump_playlist_revision_after_rest_write(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    playlist_write = (
+        (path == "/api/playlists" and request.method == "POST")
+        or (path.startswith("/api/playlists/") and path.rsplit("/", 1)[-1] in {
+            "tracks", "swap", "reorder", "append", "append-many", "insert-after",
+            "separators",
+        } and request.method in {"POST", "DELETE"})
+        or (path.startswith("/api/playlists/") and path.endswith("/separators/replace") and request.method == "POST")
+        or (path.startswith("/api/rekordbox/playlists/") and path.endswith("/copy") and request.method == "POST")
+    )
+    if playlist_write and response.status_code < 400:
+        playlist_revision.mark_written()
+    return response
+
 @mcp.tool
 async def cratebox_list_playlists():
     """List locally editable CrateBox playlists."""
@@ -42,13 +60,17 @@ async def cratebox_get_playlist(playlist_id: str):
 async def cratebox_create_playlist(name: str):
     """Create an empty local playlist."""
     from .playlists import PlaylistCreate, create_playlist
-    return create_playlist(PlaylistCreate(name=name))
+    result = await create_playlist(PlaylistCreate(name=name))
+    playlist_revision.mark_written()
+    return result
 
 @mcp.tool
 async def cratebox_remove_tracks(playlist_id: str, track_ids: list[str]):
     """Remove selected rows from a local playlist."""
     from .playlists import delete_tracks
-    return await delete_tracks(playlist_id, track_ids)
+    result = await delete_tracks(playlist_id, track_ids)
+    playlist_revision.mark_written()
+    return result
 
 @mcp.tool
 async def cratebox_reorder_tracks(
@@ -56,9 +78,11 @@ async def cratebox_reorder_tracks(
 ):
     """Move ordered rows before or after a target row in a local playlist."""
     from .playlists import PlaylistReorder, reorder_track
-    return await reorder_track(playlist_id, PlaylistReorder(
+    result = await reorder_track(playlist_id, PlaylistReorder(
         source_track_ids=source_track_ids, target_track_id=target_track_id, before=before,
     ))
+    playlist_revision.mark_written()
+    return result
 
 @mcp.tool
 async def lookup_similar_tracks(artist: str = "", title: str = "", limit: int = 50):
@@ -107,33 +131,41 @@ async def get_library_stats():
 async def cratebox_copy_rekordbox_playlist(playlist_id: str, name: str, update_existing: bool = False):
     """Copy a Rekordbox playlist into CrateBox; confirm before replacing an existing export."""
     from .rekordbox_playlists import CopyPlaylistRequest, copy_rekordbox_playlist
-    return await copy_rekordbox_playlist(playlist_id, CopyPlaylistRequest(
+    result = await copy_rekordbox_playlist(playlist_id, CopyPlaylistRequest(
         name=name, update_existing=update_existing,
     ))
+    playlist_revision.mark_written()
+    return result
 
 @mcp.tool
 async def cratebox_append_tracks(playlist_id: str, track_ids: list[str], confirm_update: bool = False):
     """Append collection track IDs to a local playlist; confirm before modifying it."""
     from .rekordbox_playlists import AppendTracksRequest, append_rekordbox_tracks
-    return await append_rekordbox_tracks(playlist_id, AppendTracksRequest(
+    result = await append_rekordbox_tracks(playlist_id, AppendTracksRequest(
         track_ids=track_ids, confirm_update=confirm_update,
     ))
+    playlist_revision.mark_written()
+    return result
 
 @mcp.tool
 async def cratebox_insert_track(playlist_id: str, track_id: str, after_track_id: str, confirm_update: bool = False):
     """Insert a collection track after a playlist row; confirm before modifying it."""
     from .rekordbox_playlists import InsertTrackRequest, insert_rekordbox_track
-    return await insert_rekordbox_track(playlist_id, InsertTrackRequest(
+    result = await insert_rekordbox_track(playlist_id, InsertTrackRequest(
         track_id=track_id, after_track_id=after_track_id, confirm_update=confirm_update,
     ))
+    playlist_revision.mark_written()
+    return result
 
 @mcp.tool
 async def cratebox_insert_separator(playlist_id: str, separator_type: str, after_track_id: str, confirm_update: bool = False):
     """Insert a fixed separator track after a playlist row; confirm before modifying it."""
     from .rekordbox_playlists import InsertSeparatorRequest, insert_playlist_separator
-    return await insert_playlist_separator(playlist_id, InsertSeparatorRequest(
+    result = await insert_playlist_separator(playlist_id, InsertSeparatorRequest(
         type=separator_type, after_track_id=after_track_id, confirm_update=confirm_update,
     ))
+    playlist_revision.mark_written()
+    return result
 
 @mcp.tool
 async def spotify_tracklist(url: str):
@@ -158,10 +190,14 @@ async def export_playlist(
 ):
     """Export ordered collection tracks as a local M3U8/JSON playlist pair."""
     from .rekordbox_playlists import call_tool
-    return await call_tool("export_playlist", {
-        "name": name, "track_ids": track_ids, "file_paths": file_paths,
-        "update_existing": update_existing, "separators": separators,
-    })
+    from .playlists import playlist_mutation_lock
+    async with playlist_mutation_lock(name):
+        result = await call_tool("export_playlist", {
+            "name": name, "track_ids": track_ids, "file_paths": file_paths,
+            "update_existing": update_existing, "separators": separators,
+        })
+    playlist_revision.mark_written()
+    return result
 
 app.mount("/mcp", mcp_app)
 app.add_middleware(

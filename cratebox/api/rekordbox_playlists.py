@@ -256,10 +256,11 @@ async def copy_rekordbox_playlist(playlist_id: str, request: CopyPlaylistRequest
     if not track_ids or len(track_ids) != len(tracks) or any(not track_id for track_id in track_ids):
         raise HTTPException(400, "This Rekordbox playlist has no tracks to copy.")
 
-    exported = await call_tool(
-        "export_playlist",
-        {"name": name, "track_ids": track_ids, "update_existing": request.update_existing},
-    )
+    async with playlist_mutation_lock(name):
+        exported = await call_tool(
+            "export_playlist",
+            {"name": name, "track_ids": track_ids, "update_existing": request.update_existing},
+        )
     if not isinstance(exported, dict):
         raise HTTPException(502, "Unexpected playlist export response.")
     return {

@@ -102,6 +102,13 @@ export async function getPlaylists(apiUrl: string): Promise<Playlist[]> {
   return (await response.json()) as Playlist[];
 }
 
+export async function getPlaylistRevision(apiUrl: string): Promise<string> {
+  const result = await requestJson<{ revision: string }>(apiUrl, "/api/playlists/revision", {
+    cache: "no-store",
+  });
+  return result.revision;
+}
+
 export function createPlaylist(apiUrl: string, name: string): Promise<Playlist> {
   return requestJson(apiUrl, "/api/playlists", {
     method: "POST",

@@ -1,7 +1,6 @@
 """Playlist parsing, operations, and endpoints."""
 
 from datetime import date
-import asyncio
 import hashlib
 import json
 import math
@@ -18,13 +17,11 @@ from pydantic import BaseModel
 from .artwork_data import embedded_artwork, read_artwork_overrides
 from .collection import collection_mcp
 from .config import DEFAULT_PLAYLIST_DIR, PLAN_DIRECTORY, PLAYLIST_DIR
+from ..core.revision import PlaylistRevision
+from ..core.mutations import playlist_mutation_lock
 
 router = APIRouter()
-_playlist_mutation_locks: dict[str, asyncio.Lock] = {}
-
-
-def playlist_mutation_lock(playlist_id: str) -> asyncio.Lock:
-    return _playlist_mutation_locks.setdefault(playlist_id, asyncio.Lock())
+playlist_revision = PlaylistRevision(PLAYLIST_DIR, PLAN_DIRECTORY)
 
 class PlaylistSwap(BaseModel):
     source_track_id: str
@@ -286,8 +283,18 @@ def find_playlist(playlist_id: str):
 def list_playlists():
     return [playlist_summary(path, parse_playlist(path)) for path in playlist_files()]
 
+
+@router.get("/api/playlists/revision")
+def get_playlist_revision():
+    return {"revision": playlist_revision.value()}
+
 @router.post("/api/playlists")
-def create_playlist(request: PlaylistCreate):
+async def create_playlist(request: PlaylistCreate):
+    async with playlist_mutation_lock(request.name.strip()):
+        return _create_playlist(request)
+
+
+def _create_playlist(request: PlaylistCreate):
     name = request.name.strip()
     if (
         not name or name in (".", "..") or len(name.encode("utf-8")) > 200

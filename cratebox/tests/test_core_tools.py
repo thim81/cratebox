@@ -5,7 +5,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from core import matching, revision, sockseek, spotify
+from core import matching, mutations, revision, sockseek, spotify
 import asyncio
 
 
@@ -87,3 +87,7 @@ def test_playlist_revision_changes_after_writes_and_external_edits(tmp_path):
     tracker.mark_written()
     assert tracker.value() != externally_changed
     assert revision.PlaylistRevision(playlists, plans).value() != tracker.value()
+
+
+def test_playlist_mutation_locks_share_case_insensitive_playlist_identity():
+    assert mutations.playlist_mutation_lock("Late Set") is mutations.playlist_mutation_lock("late set")
