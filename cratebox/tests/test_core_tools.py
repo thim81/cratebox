@@ -5,7 +5,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from core import matching, sockseek, spotify
+from core import matching, revision, sockseek, spotify
 import asyncio
 
 
@@ -71,3 +71,19 @@ def test_lookup_matches_enumerates_collection_pages():
     result = asyncio.run(matching.lookup_matches(fetch_page, "Artist", "Track", limit=10))
     assert result[0][1]["id"] == "1"
     assert calls == [(0, 1000), (1000, 1000)]
+
+
+def test_playlist_revision_changes_after_writes_and_external_edits(tmp_path):
+    playlists = tmp_path / "playlists"
+    plans = tmp_path / "output"
+    playlists.mkdir()
+    plans.mkdir()
+    tracker = revision.PlaylistRevision(playlists, plans)
+    initial = tracker.value()
+    (playlists / "Mix.m3u8").write_text("#EXTM3U\n")
+    (plans / "Mix.json").write_text('{"tracks":[]}\n')
+    externally_changed = tracker.value()
+    assert externally_changed != initial
+    tracker.mark_written()
+    assert tracker.value() != externally_changed
+    assert revision.PlaylistRevision(playlists, plans).value() != tracker.value()
