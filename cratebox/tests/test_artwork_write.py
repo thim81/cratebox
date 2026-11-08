@@ -58,7 +58,7 @@ def playlist_fixture(tmp_path, monkeypatch, audio: Path, *, entry="42"):
     )
     monkeypatch.setattr(playlists, "PLAYLIST_DIR", playlists_dir)
     monkeypatch.setattr(playlists, "DEFAULT_PLAYLIST_DIR", playlists_dir)
-    monkeypatch.setattr(playlists, "PLAN_DIRECTORY", output_dir)
+    monkeypatch.setattr(playlists, "CRATE_DIRECTORY", output_dir)
     return output_dir, playlist
 
 
@@ -317,7 +317,6 @@ def test_embed_endpoint_writes_only_selected_mp3_and_clears_old_override(tmp_pat
     synthetic_mp3(source)
     original = source.read_bytes()
     output, _ = playlist_fixture(tmp_path, monkeypatch, source)
-    monkeypatch.setattr(artwork_data, "PLAN_DIRECTORY", output)
     monkeypatch.setattr(artwork_data, "ARTWORK_FILE", output / "cratebox-artwork.json")
     monkeypatch.setattr(artwork_write, "BACKUP_DIRECTORY", output / "audio-backups")
     (output / "cratebox-artwork.json").write_text(
@@ -407,7 +406,6 @@ def test_embed_endpoint_restores_old_override_when_mp3_write_fails(tmp_path, mon
     synthetic_mp3(source)
     original = source.read_bytes()
     output, _ = playlist_fixture(tmp_path, monkeypatch, source)
-    monkeypatch.setattr(artwork_data, "PLAN_DIRECTORY", output)
     monkeypatch.setattr(artwork_data, "ARTWORK_FILE", output / "cratebox-artwork.json")
     old_override = "https://old.example/cover.png"
     (output / "cratebox-artwork.json").write_text(

@@ -67,7 +67,7 @@ Ask Codex to export an ordered ID list:
 
 > Export the final selection with `export_playlist`, named "House warm-up", preserving the agreed order. Provide links to the M3U8 and JSON files.
 
-CrateBox Core resolves active snapshot records, checks the audio files, and writes the M3U8 to `playlists/` with its JSON plan in `output/`. The JSON records order, duplicates, IDs, paths, and collection metadata. The audio paths are kept out of the tool response and browser payloads. Passing `file_paths` sends those paths as tool inputs; prefer IDs when possible.
+CrateBox Core resolves active snapshot records, checks the audio files, and writes the M3U8 to `playlists/` with its CrateBox JSON metadata in `.cratebox/crates/`. The JSON records order, duplicates, IDs, paths, and collection metadata. Existing JSON files in `output/` are left untouched and are not read. The audio paths are kept out of the tool response and browser payloads. Passing `file_paths` sends those paths as tool inputs; prefer IDs when possible.
 
 If the requested name already exists, confirm whether to replace the existing pair or use a different name. CrateBox never imports a playlist into Rekordbox. Import the M3U8 yourself when ready.
 

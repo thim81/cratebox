@@ -34,7 +34,7 @@ def test_export_preserves_order_duplicates_and_keeps_audio_paths_out_of_result(t
 
     result = asyncio.run(export_playlist(
         "Warm up", track_ids=["2", "1", "2"], file_paths=None,
-        resolve_tracks=resolve_tracks, output_directory=tmp_path / "output",
+        resolve_tracks=resolve_tracks, crate_directory=tmp_path / "output",
         playlists_directory=tmp_path / "playlists",
     ))
     assert Path(result["playlist_path"]).read_text().splitlines() == [
@@ -53,7 +53,7 @@ def test_export_rejects_unknown_collection_tracks_without_writing(tmp_path):
     with pytest.raises(ValueError, match="active collection"):
         asyncio.run(export_playlist(
             "Warm up", track_ids=["gone"], file_paths=None,
-            resolve_tracks=resolve_tracks, output_directory=tmp_path / "output",
+            resolve_tracks=resolve_tracks, crate_directory=tmp_path / "output",
             playlists_directory=tmp_path / "playlists",
         ))
     assert not (tmp_path / "output").exists()
@@ -68,7 +68,7 @@ def test_export_resolves_exact_file_locations_and_preserves_duplicates(tmp_path)
     locations = [rows[1]["file_path"], rows[0]["file_path"], rows[1]["file_path"]]
     result = asyncio.run(export_playlist(
         "From files", track_ids=None, file_paths=locations,
-        resolve_tracks=resolver_for(rows), output_directory=tmp_path / "output",
+        resolve_tracks=resolver_for(rows), crate_directory=tmp_path / "output",
         playlists_directory=tmp_path / "playlists",
     ))
     plan = json.loads(Path(result["plan_path"]).read_text())
@@ -89,13 +89,13 @@ def test_export_requires_confirmation_and_updates_paired_files(tmp_path):
     with pytest.raises(FileExistsError):
         asyncio.run(export_playlist(
             "Mix", track_ids=["1"], file_paths=None, resolve_tracks=resolver_for(rows),
-            output_directory=output, playlists_directory=playlists,
+            crate_directory=output, playlists_directory=playlists,
         ))
     assert playlist.read_text() == "old playlist"
     assert plan.read_text() == "old plan"
     result = asyncio.run(export_playlist(
         "Mix", track_ids=["1"], file_paths=None, resolve_tracks=resolver_for(rows),
-        output_directory=output, playlists_directory=playlists, update_existing=True,
+        crate_directory=output, playlists_directory=playlists, update_existing=True,
     ))
     assert result["updated_existing"] is True
     assert playlist.read_text().splitlines() == ["#EXTM3U", str(audio)]
@@ -128,7 +128,7 @@ def test_export_rolls_back_pair_write_without_leaving_backup_files(tmp_path, mon
     with pytest.raises(OSError, match="synthetic pair failure"):
         asyncio.run(export_playlist(
             "Mix", track_ids=["1"], file_paths=None, resolve_tracks=resolver_for(rows),
-            output_directory=output, playlists_directory=playlists, update_existing=True,
+            crate_directory=output, playlists_directory=playlists, update_existing=True,
         ))
     assert playlist.read_text() == "old playlist"
     assert plan.read_text() == "old plan"
@@ -147,7 +147,7 @@ def test_export_rejects_symlink_destination(tmp_path):
     with pytest.raises(ValueError, match="symlinks"):
         asyncio.run(export_playlist(
             "Mix", track_ids=["1"], file_paths=None, resolve_tracks=resolver_for(rows),
-            output_directory=output_link, playlists_directory=tmp_path / "playlists",
+            crate_directory=output_link, playlists_directory=tmp_path / "playlists",
         ))
     assert list(real_output.iterdir()) == []
 
@@ -161,7 +161,7 @@ def test_export_errors_do_not_echo_audio_paths(tmp_path):
     with pytest.raises(ValueError) as error:
         asyncio.run(export_playlist(
             "Mix", track_ids=["gone"], file_paths=None, resolve_tracks=resolve_tracks,
-            output_directory=tmp_path / "output", playlists_directory=tmp_path / "playlists",
+            crate_directory=tmp_path / "output", playlists_directory=tmp_path / "playlists",
         ))
     assert secret_path not in str(error.value)
     assert not (tmp_path / "output").exists()
@@ -183,7 +183,7 @@ def test_export_resolves_only_configured_separator_files(tmp_path, monkeypatch):
     monkeypatch.setattr(exporter, "SEPARATOR_DIRECTORY", separator_directory)
     result = asyncio.run(export_playlist(
         "With separator", track_ids=["1"], file_paths=None, resolve_tracks=resolver_for(rows),
-        output_directory=tmp_path / "output", playlists_directory=tmp_path / "playlists",
+        crate_directory=tmp_path / "output", playlists_directory=tmp_path / "playlists",
         separators=[{"type": "90s", "before_track": 1}],
     ))
     tracks = json.loads(Path(result["plan_path"]).read_text())["tracks"]

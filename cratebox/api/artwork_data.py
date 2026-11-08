@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 import mutagen
 from fastapi import HTTPException
 
-from .config import ARTWORK_FILE, PLAN_DIRECTORY
+from .config import ARTWORK_FILE
 
 def is_http_url(value: str) -> bool:
     try:
@@ -59,7 +59,7 @@ def embedded_artwork(audio: Path):
     return None
 
 def read_artwork_overrides():
-    if PLAN_DIRECTORY.is_symlink() or ARTWORK_FILE.is_symlink():
+    if ARTWORK_FILE.parent.is_symlink() or ARTWORK_FILE.is_symlink():
         raise HTTPException(403, "Artwork settings cannot use symlinked paths")
     try:
         value = json.loads(ARTWORK_FILE.read_text(encoding="utf-8"))
@@ -71,13 +71,15 @@ def read_artwork_overrides():
 
 
 def write_artwork_overrides(value):
-    if PLAN_DIRECTORY.is_symlink() or ARTWORK_FILE.is_symlink():
+    if ARTWORK_FILE.parent.is_symlink() or ARTWORK_FILE.is_symlink():
         raise HTTPException(403, "Artwork settings cannot use symlinked paths")
     temporary = None
     try:
-        PLAN_DIRECTORY.mkdir(exist_ok=True)
+        ARTWORK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if ARTWORK_FILE.parent.is_symlink() or ARTWORK_FILE.is_symlink():
+            raise OSError("Artwork settings cannot use symlinked paths")
         with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=PLAN_DIRECTORY, prefix=".cratebox-artwork-", delete=False
+            "w", encoding="utf-8", dir=ARTWORK_FILE.parent, prefix=".cratebox-artwork-", delete=False
         ) as file:
             temporary = Path(file.name)
             file.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")

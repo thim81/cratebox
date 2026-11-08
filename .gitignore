@@ -9,6 +9,7 @@ __pycache__/
 /input/
 
 /.codex/config.toml
+/.cratebox/
 /output/
 /.idea/
 /playlists/

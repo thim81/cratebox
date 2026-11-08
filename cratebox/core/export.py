@@ -12,7 +12,8 @@ from uuid import uuid4
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_DIRECTORY = REPOSITORY_ROOT / "output"
+STATE_DIRECTORY = REPOSITORY_ROOT / ".cratebox"
+CRATE_DIRECTORY = STATE_DIRECTORY / "crates"
 PLAYLISTS_DIRECTORY = REPOSITORY_ROOT / "playlists"
 SEPARATOR_DIRECTORY = Path("/Users/thim/Library/CloudStorage/OneDrive-Personal/Music/iTunes 2022-03")
 SEPARATOR_FILES = {
@@ -86,26 +87,29 @@ def _plan_track(row: dict, separator_type: str | None = None) -> dict:
 
 
 def _write_pair(
-    name: str, playlist_items: list[dict], output_directory: Path,
+    name: str, playlist_items: list[dict], crate_directory: Path,
     playlists_directory: Path, *, update_existing: bool,
 ) -> str:
-    output_directory = Path(output_directory).absolute()
+    crate_directory = Path(crate_directory).absolute()
     playlists_directory = Path(playlists_directory).absolute()
-    if output_directory.is_symlink() or playlists_directory.is_symlink():
+    if (
+        crate_directory.is_symlink() or crate_directory.parent.is_symlink()
+        or playlists_directory.is_symlink()
+    ):
         raise ValueError("Export directories must not be symlinks.")
-    output_directory.mkdir(exist_ok=True)
+    crate_directory.mkdir(parents=True, exist_ok=True)
     playlists_directory.mkdir(exist_ok=True)
-    output_fd = os.open(output_directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    plan_fd = os.open(crate_directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         playlists_fd = os.open(playlists_directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except BaseException:
-        os.close(output_fd)
+        os.close(plan_fd)
         raise
     try:
         old_pattern = re.compile(rf"{re.escape(name)}-v(\d+)")
-        output_names, playlist_names = set(os.listdir(output_fd)), set(os.listdir(playlists_fd))
+        plan_names, playlist_names = set(os.listdir(plan_fd)), set(os.listdir(playlists_fd))
         existing_names = {
-            Path(filename).stem for filename in output_names | playlist_names
+            Path(filename).stem for filename in plan_names | playlist_names
             if Path(filename).suffix in (".m3u8", ".json")
             and (Path(filename).stem == name or old_pattern.fullmatch(Path(filename).stem))
         }
@@ -132,7 +136,7 @@ def _write_pair(
             (playlists_fd, f"{target_name}.m3u8", "#EXTM3U\n" + "\n".join(
                 item["file_path"] for item in playlist_items
             ) + "\n"),
-            (output_fd, f"{target_name}.json", json.dumps(plan, ensure_ascii=False, indent=2) + "\n"),
+            (plan_fd, f"{target_name}.json", json.dumps(plan, ensure_ascii=False, indent=2) + "\n"),
         ]
         if update_existing:
             backups, temporaries, installed = [], [], []
@@ -195,7 +199,7 @@ def _write_pair(
         return target_name
     finally:
         os.close(playlists_fd)
-        os.close(output_fd)
+        os.close(plan_fd)
 
 
 async def export_playlist(
@@ -204,7 +208,7 @@ async def export_playlist(
     track_ids: list[str] | None,
     file_paths: list[str] | None,
     resolve_tracks: Callable[..., Awaitable[list[dict]]],
-    output_directory: Path = OUTPUT_DIRECTORY,
+    crate_directory: Path = CRATE_DIRECTORY,
     playlists_directory: Path = PLAYLISTS_DIRECTORY,
     update_existing: bool = False,
     separators: list[dict] | None = None,
@@ -258,12 +262,12 @@ async def export_playlist(
         if position <= len(rows):
             playlist_items.append(_plan_track(rows[position - 1]))
     target_name = await asyncio.to_thread(
-        _write_pair, name, playlist_items, output_directory, playlists_directory,
+        _write_pair, name, playlist_items, crate_directory, playlists_directory,
         update_existing=update_existing,
     )
     return {
         "playlist_path": str(Path(playlists_directory) / f"{target_name}.m3u8"),
-        "plan_path": str(Path(output_directory) / f"{target_name}.json"),
+        "plan_path": str(Path(crate_directory) / f"{target_name}.json"),
         "name": target_name,
         "updated_existing": update_existing,
         "track_count": len(rows),

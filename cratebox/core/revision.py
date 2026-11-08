@@ -7,9 +7,9 @@ from pathlib import Path
 
 
 class PlaylistRevision:
-    def __init__(self, playlist_directory: Path, plan_directory: Path):
+    def __init__(self, playlist_directory: Path, crate_directory: Path):
         self.playlist_directory = Path(playlist_directory)
-        self.plan_directory = Path(plan_directory)
+        self.crate_directory = Path(crate_directory)
         self._process_nonce = secrets.token_bytes(32)
         self._successful_writes = 0
         self._lock = threading.Lock()
@@ -24,7 +24,7 @@ class PlaylistRevision:
             digest.update(str(self._successful_writes).encode())
         for directory, suffixes in (
             (self.playlist_directory, {".m3u", ".m3u8"}),
-            (self.plan_directory, {".json"}),
+            (self.crate_directory, {".json"}),
         ):
             try:
                 files = sorted(directory.iterdir(), key=lambda item: item.name.casefold())

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from .artwork_data import embedded_artwork
 from .collection import collection_mcp
-from .config import DEFAULT_PLAYLIST_DIR, PLAN_DIRECTORY, PLAYLIST_DIR
+from .config import DEFAULT_PLAYLIST_DIR, CRATE_DIRECTORY, PLAYLIST_DIR
 from .playlists import (
     atomic_write,
     playlist_entries,
@@ -396,7 +396,7 @@ async def replace_playlist_separator(playlist_id: str, request: ReplaceSeparator
         except (KeyError, OSError, RuntimeError, TypeError, ValueError):
             raise HTTPException(409, "The separator and its track-ID plan are out of sync") from None
 
-        plan_path = PLAN_DIRECTORY / f"{path.stem}.json"
+        plan_path = CRATE_DIRECTORY / f"{path.stem}.json"
         try:
             plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
             plan_items = plan_data["tracks"]

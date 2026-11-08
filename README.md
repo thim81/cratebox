@@ -46,7 +46,7 @@ The launcher writes service logs to `/tmp/cratebox-api.log` and `/tmp/cratebox-u
 
 The local CrateBox MCP exposes playlist operations, collection search and lookup, Rekordbox playlist browsing, `export_playlist`, `spotify_tracklist`, and `create_sockseek_list`. Tool discovery and direct calls use an explicit allowlist. Internal collection resolution and pagination are unavailable to conversational clients.
 
-For export, pass ordered `track_ids` or `file_paths`. IDs preserve duplicates and order. File locations must be absolute and resolve to exactly one active track. The exporter checks file existence and writes M3U8 files only to `playlists/` and matching JSON plans only to `output/`. Existing pairs require explicit confirmation before replacement. Import into Rekordbox manually; CrateBox never writes to the collection.
+For export, pass ordered `track_ids` or `file_paths`. IDs preserve duplicates and order. File locations must be absolute and resolve to exactly one active track. The exporter checks file existence and writes M3U8 files only to `playlists/` and CrateBox JSON metadata to `.cratebox/crates/`. Existing JSON files in `output/` are left untouched and are not read. Existing pairs require explicit confirmation before replacement. Import into Rekordbox manually; CrateBox never writes to the collection.
 
 ## Data protection
 

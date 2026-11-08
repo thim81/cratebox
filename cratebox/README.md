@@ -23,7 +23,7 @@ The protected Rekordbox MCP worker starts lazily when collection data is request
 - `server.py` preserves the `server:app` Uvicorn entry point.
 - `../rekordbx-mcp/` contains the generic snapshot-backed Rekordbox provider and its own tests.
 
-The Core exporter writes M3U8 playlists to the repository's `playlists/` folder and corresponding JSON plans to `output/`. Replacement requires explicit confirmation. No export imports into Rekordbox.
+The Core exporter writes M3U8 playlists to the repository's `playlists/` folder and CrateBox JSON metadata to `.cratebox/crates/`. Existing JSON files in `output/` are left untouched and are not read. Replacement requires explicit confirmation. No export imports into Rekordbox.
 
 CrateBox may embed artwork only into an MP3 selected from the repository's own `playlists/` folder after making and verifying an exact backup in `output/audio-backups/`. Original Rekordbox data remains read-only.
 

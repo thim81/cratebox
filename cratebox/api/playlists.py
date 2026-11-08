@@ -16,12 +16,16 @@ from pydantic import BaseModel
 
 from .artwork_data import embedded_artwork, read_artwork_overrides
 from .collection import collection_mcp
-from .config import DEFAULT_PLAYLIST_DIR, PLAN_DIRECTORY, PLAYLIST_DIR
+from .config import (
+    DEFAULT_PLAYLIST_DIR,
+    CRATE_DIRECTORY,
+    PLAYLIST_DIR,
+)
 from core.revision import PlaylistRevision
 from core.mutations import playlist_mutation_lock
 
 router = APIRouter()
-playlist_revision = PlaylistRevision(PLAYLIST_DIR, PLAN_DIRECTORY)
+playlist_revision = PlaylistRevision(PLAYLIST_DIR, CRATE_DIRECTORY)
 
 class PlaylistSwap(BaseModel):
     source_track_id: str
@@ -46,8 +50,8 @@ def playlist_entry_count(lines: list[str]):
     return sum(1 for line in lines if line.strip() and not line.lstrip().startswith("#"))
 
 def read_plan_ids(path: Path, lines: list[str]):
-    plan_path = PLAN_DIRECTORY / f"{path.stem}.json"
-    if PLAN_DIRECTORY.is_symlink() or plan_path.is_symlink():
+    plan_path = CRATE_DIRECTORY / f"{path.stem}.json"
+    if CRATE_DIRECTORY.is_symlink() or CRATE_DIRECTORY.parent.is_symlink() or plan_path.is_symlink():
         raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
     if not plan_path.exists():
         return plan_path, None
@@ -303,18 +307,23 @@ def _create_playlist(request: PlaylistCreate):
         raise HTTPException(400, "Use a playlist name of up to 200 UTF-8 bytes without path separators or control characters.")
     if (
         DEFAULT_PLAYLIST_DIR.is_symlink() or PLAYLIST_DIR != DEFAULT_PLAYLIST_DIR
-        or PLAN_DIRECTORY.is_symlink()
+        or CRATE_DIRECTORY.is_symlink() or CRATE_DIRECTORY.parent.is_symlink()
     ):
-        raise HTTPException(403, "Playlist creation is limited to the app's playlists and output folders")
+        raise HTTPException(403, "Playlist creation is limited to the app's playlist and CrateBox data folders")
 
     path = PLAYLIST_DIR / f"{name}.m3u8"
-    plan_path = PLAN_DIRECTORY / f"{name}.json"
+    plan_path = CRATE_DIRECTORY / f"{name}.json"
     if (
         any(item.stem.casefold() == name.casefold() for item in playlist_files())
         or plan_path.exists()
         or plan_path.is_symlink()
     ):
         raise HTTPException(409, "A playlist with this name already exists")
+
+    try:
+        CRATE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise HTTPException(500, "Could not create the CrateBox playlist plan directory") from None
 
     playlist_created = False
     plan_created = False
@@ -373,7 +382,7 @@ def _delete_tracks(playlist_id: str, track_ids: list[str]):
     plan_path, plan = read_plan_ids(path, lines)
     plan_data = None
     if plan_path.is_file():
-        if plan is None or plan_path.is_symlink() or PLAN_DIRECTORY.is_symlink():
+        if plan is None or plan_path.is_symlink() or CRATE_DIRECTORY.is_symlink() or CRATE_DIRECTORY.parent.is_symlink():
             raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
         plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
     entries = {
@@ -456,7 +465,7 @@ def _swap_track(playlist_id: str, request: PlaylistSwap):
 
     plan_data = None
     if plan_path.is_file():
-        if plan is None or plan_path.is_symlink() or PLAN_DIRECTORY.is_symlink():
+        if plan is None or plan_path.is_symlink() or CRATE_DIRECTORY.is_symlink() or CRATE_DIRECTORY.parent.is_symlink():
             raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
         try:
             plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -562,7 +571,7 @@ def _reorder_track(playlist_id: str, request: PlaylistReorder):
 
     plan_data = None
     if plan_path.is_file():
-        if plan is None or plan_path.is_symlink() or PLAN_DIRECTORY.is_symlink():
+        if plan is None or plan_path.is_symlink() or CRATE_DIRECTORY.is_symlink() or CRATE_DIRECTORY.parent.is_symlink():
             raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
         try:
             plan_data = json.loads(plan_path.read_text(encoding="utf-8"))

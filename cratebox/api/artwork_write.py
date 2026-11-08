@@ -20,10 +20,10 @@ from mutagen.id3 import APIC, ID3
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
 
-from .config import PLAN_DIRECTORY
+from .config import OUTPUT_DIRECTORY
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
-BACKUP_DIRECTORY = PLAN_DIRECTORY / "audio-backups"
+BACKUP_DIRECTORY = OUTPUT_DIRECTORY / "audio-backups"
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _JPEG_SOF = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
 
@@ -277,7 +277,7 @@ def _sha256(path: Path) -> str:
 
 
 def _write_backup(source: Path, backup_directory: Path, expected_digest: str) -> Path:
-    if PLAN_DIRECTORY.is_symlink() or _path_has_symlink(backup_directory):
+    if OUTPUT_DIRECTORY.is_symlink() or _path_has_symlink(backup_directory):
         raise ArtworkWriteError("The artwork backup directory is not safe")
     backup_directory.mkdir(parents=True, exist_ok=True)
     temporary = None
