@@ -114,7 +114,7 @@ class LookupTrack(BaseModel):
     playlists: list[PlaylistReference] = Field(default_factory=list)
 
 
-class CrateDeckLookupTrack(LookupTrack):
+class CrateBoxLookupTrack(LookupTrack):
     file_path: str
 
 
@@ -400,6 +400,80 @@ def build_server(
             name=name, annotations={"readOnlyHint": True, "destructiveHint": False},
         )(wrap(original, name))
 
+    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
+    async def get_collection_tracks(
+        track_ids: list[str] | None = None,
+        file_paths: list[str] | None = None,
+        offset: int = 0,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """Resolve ordered IDs or exact file locations, or page through active generic collection tracks. Internal consumer contract."""
+        if (
+            (track_ids is not None and file_paths is not None)
+            or ((track_ids is not None or file_paths is not None) and offset != 0)
+            or offset < 0 or not 1 <= limit <= 1000
+        ):
+            raise ToolError("Provide one selector or a valid page (offset >= 0, limit 1–1000).")
+        if track_ids is not None and (not track_ids or len(track_ids) > 1000 or any(not isinstance(x, str) or not x for x in track_ids)):
+            raise ToolError("Provide 1–1000 nonempty track IDs.")
+        if file_paths is not None and (not file_paths or len(file_paths) > 1000 or any(
+            not isinstance(x, str) or not Path(x).is_absolute() or any(c in x for c in "\r\n\x00\x85\u2028\u2029")
+            for x in file_paths
+        )):
+            raise ToolError("Provide 1–1000 absolute file locations.")
+        async with _upstream_lock:
+            upstream.db = database
+            upstream._db_initialized = True
+            upstream.ensure_database_connected = ensure_connected
+            await ensure_connected()
+
+            def resolve():
+                query = database.db.get_content()
+                model = query.column_descriptions[0]["entity"]
+                query = query.filter(model.rb_local_deleted == 0)
+                if track_ids is not None:
+                    by_id = content_by_ids(database.db, track_ids)
+                    if any(i not in by_id or by_id[i].rb_local_deleted for i in track_ids):
+                        raise ValueError
+                    rows = [by_id[i] for i in track_ids]
+                elif file_paths is not None:
+                    rows = []
+                    for location in file_paths:
+                        matches = query.filter(model.FolderPath == location).all()
+                        if len(matches) != 1:
+                            raise ValueError
+                        rows.append(matches[0])
+                else:
+                    rows = query.order_by(model.ID).offset(offset).limit(limit).all()
+                ids = list(dict.fromkeys(str(row.ID) for row in rows))
+                cues = dict(database.db.session.query(DjmdCue.ContentID, func.count(DjmdCue.ID)).filter(
+                    DjmdCue.ContentID.in_(ids), DjmdCue.rb_local_deleted == 0,
+                ).group_by(DjmdCue.ContentID).all()) if ids else {}
+                memberships = {}
+                if ids:
+                    for content_id, playlist_id, name in database.db.session.query(
+                        DjmdSongPlaylist.ContentID, DjmdPlaylist.ID, DjmdPlaylist.Name,
+                    ).join(DjmdPlaylist, DjmdPlaylist.ID == DjmdSongPlaylist.PlaylistID).filter(
+                        DjmdSongPlaylist.ContentID.in_(ids), DjmdSongPlaylist.rb_local_deleted == 0,
+                        DjmdPlaylist.rb_local_deleted == 0,
+                    ).distinct().order_by(DjmdPlaylist.Name).all():
+                        memberships.setdefault(str(content_id), []).append({"id": str(playlist_id), "name": str(name or "")})
+                output = []
+                for row in rows:
+                    item = database._content_to_track(row).model_dump()
+                    key = str(row.ID)
+                    item.update(file_path=str(row.FolderPath or ""), bit_depth=int(row.BitDepth or 0),
+                                sample_rate=int(row.SampleRate or 0), bitrate=int(row.BitRate or 0),
+                                cue_count=cues.get(key, 0), playlists=memberships.get(key, []),
+                                playlist_count=len(memberships.get(key, [])))
+                    output.append(item)
+                return output
+
+            try:
+                return await run_database_operation(resolve)
+            except ValueError:
+                raise ToolError("A selector must resolve to active collection tracks; each file location must match exactly one track.") from None
+
     async def rank_similar_tracks(artist: str, title: str, limit: int):
         artist = artist.strip()
         title = title.strip()
@@ -518,12 +592,12 @@ def build_server(
         ) for score, candidate in ranked]
 
     @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
-    async def lookup_similar_tracks_for_cratedeck(
+    async def lookup_similar_tracks_for_cratebox(
         artist: str, title: str, limit: int = 50,
-    ) -> list[CrateDeckLookupTrack]:
-        """App-only lookup that includes paths for CrateDeck's local API playback."""
+    ) -> list[CrateBoxLookupTrack]:
+        """App-only lookup that includes paths for CrateBox's local API playback."""
         ranked = await rank_similar_tracks(artist, title, limit)
-        return [CrateDeckLookupTrack(
+        return [CrateBoxLookupTrack(
             id=str(candidate.get("id") or ""),
             title=str(candidate.get("title") or ""),
             artist=str(candidate.get("artist") or ""),
