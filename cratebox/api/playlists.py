@@ -17,8 +17,8 @@ from pydantic import BaseModel
 from .artwork_data import embedded_artwork, read_artwork_overrides
 from .collection import collection_mcp
 from .config import DEFAULT_PLAYLIST_DIR, PLAN_DIRECTORY, PLAYLIST_DIR
-from ..core.revision import PlaylistRevision
-from ..core.mutations import playlist_mutation_lock
+from core.revision import PlaylistRevision
+from core.mutations import playlist_mutation_lock
 
 router = APIRouter()
 playlist_revision = PlaylistRevision(PLAYLIST_DIR, PLAN_DIRECTORY)

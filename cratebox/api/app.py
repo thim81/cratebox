@@ -170,7 +170,7 @@ async def cratebox_insert_separator(playlist_id: str, separator_type: str, after
 @mcp.tool
 async def spotify_tracklist(url: str):
     """Read an ordered artist/title list from a public Spotify playlist URL."""
-    from ..core.spotify import spotify_tracklist as read_tracklist
+    from core.spotify import spotify_tracklist as read_tracklist
     try:
         return await asyncio.to_thread(read_tracklist, url)
     except ValueError as error:
@@ -179,7 +179,7 @@ async def spotify_tracklist(url: str):
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
 async def create_sockseek_list(name: str, tracks: list[dict[str, str]]):
     """Create a Sockseek search list from ordered artist/title pairs."""
-    from ..core.sockseek import create_sockseek_list as write_sockseek_list
+    from core.sockseek import create_sockseek_list as write_sockseek_list
     return await asyncio.to_thread(write_sockseek_list, name, tracks)
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
@@ -189,13 +189,13 @@ async def export_playlist(
     separators: list[dict] | None = None,
 ):
     """Export ordered collection tracks as a local M3U8/JSON playlist pair."""
-    from .rekordbox_playlists import call_tool
+    from .rekordbox_playlists import export_local_playlist
     from .playlists import playlist_mutation_lock
     async with playlist_mutation_lock(name):
-        result = await call_tool("export_playlist", {
-            "name": name, "track_ids": track_ids, "file_paths": file_paths,
-            "update_existing": update_existing, "separators": separators,
-        })
+        result = await export_local_playlist(
+            name, track_ids=track_ids, file_paths=file_paths,
+            update_existing=update_existing, separators=separators,
+        )
     playlist_revision.mark_written()
     return result
 

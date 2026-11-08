@@ -1,0 +1,33 @@
+[mcp_servers.cratebox]
+command = "/opt/homebrew/bin/uv"
+args = [
+  "--directory", "/Users/thim/Sites/rekordbx/rekordbx-mcp",
+  "run", "--locked",
+  "--with", "fastapi",
+  "--with", "uvicorn",
+  "--with", "mutagen",
+  "--with", "ddgs",
+  "--with", "playwright",
+  "python", "/Users/thim/Sites/rekordbx/scripts/cratebox-mcp-launcher.py"
+]
+startup_timeout_sec = 180
+tool_timeout_sec = 120
+enabled_tools = [
+  "cratebox_list_playlists",
+  "cratebox_get_playlist",
+  "cratebox_create_playlist",
+  "cratebox_remove_tracks",
+  "cratebox_reorder_tracks",
+  "lookup_similar_tracks",
+  "search_tracks",
+  "get_track_details",
+  "get_rekordbox_playlists",
+  "get_library_stats",
+  "cratebox_copy_rekordbox_playlist",
+  "cratebox_append_tracks",
+  "cratebox_insert_track",
+  "cratebox_insert_separator",
+  "spotify_tracklist",
+  "create_sockseek_list",
+  "export_playlist"
+]

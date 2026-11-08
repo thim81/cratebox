@@ -19,6 +19,7 @@ from .playlists import (
     playlist_mutation_lock,
     read_plan_ids,
 )
+from core.export import export_playlist as core_export_playlist
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -100,8 +101,6 @@ async def call_tool(name: str, arguments: dict | None = None):
         logger.error("Rekordbox MCP tool returned an error (%s): %s", name, message)
         if "already exists" in message.lower():
             raise HTTPException(409, "A CrateBox playlist with this name already exists.")
-        if name == "export_playlist":
-            raise HTTPException(400, message or "Could not export the Rekordbox playlist.")
         if name == "get_collection_tracks":
             raise HTTPException(409, "One or more playlist tracks no longer match the Rekordbox collection.")
         raise HTTPException(502, "Rekordbox playlist request failed.")
@@ -109,6 +108,46 @@ async def call_tool(name: str, arguments: dict | None = None):
         return result_value(result)
     except (IndexError, TypeError, json.JSONDecodeError):
         raise HTTPException(502, "Unexpected response from Rekordbox.") from None
+
+
+async def export_local_playlist(
+    name: str,
+    *,
+    track_ids: list[str] | None = None,
+    file_paths: list[str] | None = None,
+    update_existing: bool = False,
+    separators: list[dict] | None = None,
+):
+    async def resolve_tracks(**selector):
+        result = await collection_mcp.call_tool("get_collection_tracks", selector)
+        if result.is_error:
+            raise HTTPException(409, "One or more tracks no longer resolve to the active collection snapshot.")
+        value = result_value(result)
+        if not isinstance(value, list):
+            raise HTTPException(502, "Unexpected collection track response.")
+        return value
+
+    try:
+        return await core_export_playlist(
+            name,
+            track_ids=track_ids,
+            file_paths=file_paths,
+            resolve_tracks=resolve_tracks,
+            update_existing=update_existing,
+            separators=separators,
+        )
+    except HTTPException:
+        raise
+    except FileExistsError as error:
+        raise HTTPException(409, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    except OSError:
+        logger.exception("CrateBox playlist export could not write the paired artifacts")
+        raise HTTPException(500, "Cannot write the playlist and plan files.") from None
+    except Exception:
+        logger.exception("CrateBox playlist export failed")
+        raise HTTPException(502, "Playlist export failed.") from None
 
 
 async def playlist_records():
@@ -257,9 +296,8 @@ async def copy_rekordbox_playlist(playlist_id: str, request: CopyPlaylistRequest
         raise HTTPException(400, "This Rekordbox playlist has no tracks to copy.")
 
     async with playlist_mutation_lock(name):
-        exported = await call_tool(
-            "export_playlist",
-            {"name": name, "track_ids": track_ids, "update_existing": request.update_existing},
+        exported = await export_local_playlist(
+            name, track_ids=track_ids, update_existing=request.update_existing,
         )
     if not isinstance(exported, dict):
         raise HTTPException(502, "Unexpected playlist export response.")
@@ -282,14 +320,11 @@ async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRe
         if target is None:
             raise HTTPException(404, "Selected track not found in playlist")
 
-        exported = await call_tool(
-            "export_playlist",
-            {
-                "name": path.stem,
-                "track_ids": plan[0],
-                "update_existing": True,
-                "separators": [{"type": request.type, "before_track": target[1] + 2}],
-            },
+        exported = await export_local_playlist(
+            path.stem,
+            track_ids=plan[0],
+            update_existing=True,
+            separators=[{"type": request.type, "before_track": target[1] + 2}],
         )
         if not isinstance(exported, dict):
             raise HTTPException(502, "Unexpected playlist export response.")
@@ -431,13 +466,8 @@ async def append_rekordbox_tracks(playlist_id: str, request: AppendTracksRequest
     async with playlist_mutation_lock(playlist_id):
         path, plan, _ = local_playlist_with_plan(playlist_id)
         await validate_plan_locations(plan)
-        exported = await call_tool(
-            "export_playlist",
-            {
-                "name": path.stem,
-                "track_ids": [*plan[0], *track_ids],
-                "update_existing": True,
-            },
+        exported = await export_local_playlist(
+            path.stem, track_ids=[*plan[0], *track_ids], update_existing=True,
         )
         if not isinstance(exported, dict):
             raise HTTPException(502, "Unexpected playlist export response.")
@@ -473,9 +503,8 @@ async def insert_rekordbox_track(playlist_id: str, request: InsertTrackRequest):
 
         insertion_index = target[1] + 1
         track_ids = [*plan[0][:insertion_index], track_id, *plan[0][insertion_index:]]
-        exported = await call_tool(
-            "export_playlist",
-            {"name": path.stem, "track_ids": track_ids, "update_existing": True},
+        exported = await export_local_playlist(
+            path.stem, track_ids=track_ids, update_existing=True,
         )
         if not isinstance(exported, dict):
             raise HTTPException(502, "Unexpected playlist export response.")

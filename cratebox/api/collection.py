@@ -13,7 +13,7 @@ from fastmcp.client.transports import StdioTransport
 from pydantic import BaseModel
 
 from .config import REPO_ROOT
-from ..core.matching import lookup_matches
+from core.matching import lookup_matches
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -58,7 +58,6 @@ class CollectionMcp:
                 required_tools = {
                     "get_collection_tracks", "get_track_details",
                     "get_playlists", "get_playlist_tracks",
-                    "export_playlist",
                 }
                 if not required_tools <= tool_names:
                     raise RuntimeError("A required Rekordbox collection tool is unavailable.")

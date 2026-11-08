@@ -1,390 +1,135 @@
-# Rekordbx user guide
+# CrateBox user guide
 
-[Product overview](../README.md) · [Adapter documentation](../rekordbx-mcp/README.md)
+[Product overview](../README.md) · [CrateBox app](../cratebox/README.md) · [Adapter details](../rekordbx-mcp/README.md)
 
-Use Codex to explore your existing Rekordbox collection and propose playlists
-using music you already own. The project connects Codex to a protected version
-of [rekordbox-mcp](https://github.com/davehenke/rekordbox-mcp).
+**CrateBox — A direct, playful nod to Rekordbox, hinting at crate management and track prep.**
 
-**The original Rekordbox data must never be changed by this application.**
-The adapter works against a separate, verified, read-only copy of `master.db`.
-It does not edit existing playlists, analysis files, audio files or their tags.
-It runs natively on macOS with uv; Docker is not used.
+CrateBox combines a local playlist UI, REST API, Core services, and MCP endpoint. A small Rekordbox adapter provides generic data from a verified snapshot. The app runs on macOS with Python 3.12, uv, Node.js, and Codex. Docker is not used.
 
-## What you can use today
+The original Rekordbox database, playlists, analysis files, and metadata are read-only. Audio is read-only except for the explicit artwork operation: it modifies only an MP3 selected from a playlist in the repository's own `playlists/` folder, after creating and verifying an exact backup under `output/audio-backups/`.
 
-- Search your collection by artist, title, genre, BPM and key.
-- Explore existing playlists, ratings, play counts and DJ history.
-- Ask Codex to select and order tracks, explaining its choices.
-- Validate proposed track IDs against the copied collection.
-- Export ordered selections as M3U8, with a JSON record of the track IDs.
-- Refresh the collection copy automatically whenever the MCP starts.
-- Update the upstream MCP with compatibility tests and rollback.
+## 1. Install
 
-Playlist proposals are made and refined in the Codex conversation. Ask the
-`export_playlist` tool to save the final selection outside Rekordbox.
-Duplicate-free import into Rekordbox remains unverified.
-
-## 1. Install the dependencies
-
-You need macOS, Git, uv, Python 3.12, and Codex
-with access to this local project. Network access is needed for installation
-and updates.
-
-These commands assume the repository is at `/Users/thim/Sites/rekordbx`.
-Change that path if you move it. All commands below run from the repository
-root unless stated otherwise.
+From the repository root:
 
 ```sh
-cd /Users/thim/Sites/rekordbx
 uv --directory rekordbx-mcp sync --locked --python 3.12
-uv --directory rekordbx-mcp run --locked rekordbx-mcp --help
+cd cratebox
+npm install
 ```
 
-The Python project requires Python 3.12, even if your default `python3` is
-newer. uv creates its environment under `rekordbx-mcp/.venv/`.
-
-The adapter does not require a separate OpenAI API key. Codex handles the AI
-conversation; this local MCP supplies collection metadata.
+The Python project uses Python 3.12. uv keeps that environment in `rekordbx-mcp/.venv/`.
 
 ## 2. Configure Codex
 
-Open this repository as a local project in Codex. Add the following configuration
-to `/Users/thim/Sites/rekordbx/.codex/config.toml`, creating that file if needed.
-If the file already exists, merge this server table into it and preserve its
-other settings. Keep only one `mcp_servers.rekordbox` table.
+Open this repository as a trusted local project in Codex. The repository contains `.codex/config.toml`, which starts `scripts/cratebox-mcp-launcher.py`. It checks the local CrateBox API/MCP on port 8000 and UI on port 4444, starts only missing services, waits for both to become ready, and proxies the API's Streamable HTTP MCP to Codex over stdio.
 
-```toml
-[mcp_servers.rekordbox]
-command = "/opt/homebrew/bin/uv"
-args = [
-  "--directory", "/Users/thim/Sites/rekordbx/rekordbx-mcp",
-  "run", "--locked", "--offline",
-  "rekordbx-mcp", "start"
-]
-startup_timeout_sec = 120
-tool_timeout_sec = 120
-enabled_tools = [
-  "search_tracks",
-  "get_track_details",
-  "get_playlists",
-  "get_playlist_tracks",
-  "get_library_stats",
-  "get_tracks_by_bpm_range",
-  "get_tracks_by_key",
-  "get_most_played_tracks",
-  "get_top_rated_tracks",
-  "get_unplayed_tracks",
-  "search_tracks_by_filename",
-  "analyze_library",
-  "validate_track_ids",
-  "get_history_sessions",
-  "get_session_tracks",
-  "get_recent_sessions",
-  "get_history_stats",
-  "search_history_sessions",
-  "export_playlist"
-]
-```
+The HTTP MCP is mounted in the same process as REST at `http://127.0.0.1:8000/mcp/`. The launcher does not create a separate MCP daemon. The API starts the protected Rekordbox worker only when a collection operation is first requested.
 
-This is also available in
-[`codex-mcp.example.toml`](../rekordbx-mcp/codex-mcp.example.toml). The template
-is not automatically installed. Use `command -v uv` to check the executable
-path on another machine.
-
-If you already installed the previous configuration, add `"export_playlist"`
-to its `enabled_tools` array. Restart the MCP with Rekordbox closed to load the
-new tool. Preserve the other settings in your configuration.
-
-Project-scoped MCP configuration requires a trusted project. Codex also supports
-user-level configuration in `~/.codex/config.toml`; use one scope for this
-server to avoid duplicate connections. After saving, restart the MCP connection
-or reopen Codex. See the official
-[MCP configuration guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
-
-The tool allowlist limits what Codex can call. Actual read-only access is
-enforced by the snapshot's read-only database connection and SQL authorizer.
-Always launch `rekordbx-mcp start` rather than the upstream
-`rekordbox-mcp` command.
+For another Codex client, use [`cratebox-mcp.example.toml`](../cratebox-mcp.example.toml) as a template and update its absolute paths. The example does not change another active MCP configuration.
 
 ## 3. Start a session safely
 
-Codex automatically launches the configured `rekordbx-mcp start` command when
-it initializes the MCP connection. No separate Terminal server is required.
+Restart Codex or its CrateBox MCP connection. If services are missing, the launcher starts them; if they're already healthy, it reuses them. The UI is at <http://localhost:4444/> and the API is at <http://localhost:8000/>.
 
-1. Open or restart the configured Rekordbox MCP connection in Codex.
-2. Wait for the connection to be ready.
-3. Ask Codex: **“Use the Rekordbox MCP to show my library statistics.”**
+When the Rekordbox worker first connects:
 
-When Rekordbox is closed, `start`:
+- If Rekordbox and its agents are closed, it creates and verifies a fresh copy of `master.db`.
+- If Rekordbox is running, it reuses only the newest verified snapshot already on disk. It never copies the live database and fails if no valid snapshot is available.
 
-1. Refuses to copy a database with WAL, SHM or journal sidecars present.
-2. Creates a new independent copy of the current `master.db`.
-3. Rechecks processes, source metadata and hashes after copying.
-4. Marks the copy read-only and starts the MCP against that verified snapshot.
+Snapshots are kept under `rekordbx-mcp/.cache/rekordbox-snapshots/`. The worker pins one verified snapshot for its lifetime. To refresh it, close Rekordbox and its agents, then restart the worker or API. A collection-startup failure does not interrupt local playlist browsing or playback.
 
-When Rekordbox is running, `start` skips copying and serves the newest verified
-snapshot already on disk. If no snapshot exists, startup fails and asks you to
-close Rekordbox and create one. It never closes Rekordbox or deletes source sidecars.
-
-The default source is:
-
-```text
-/Users/thim/Library/Pioneer/rekordbox/master.db
-```
-
-Fresh copies are stored under:
-
-```text
-rekordbx-mcp/.cache/rekordbox-snapshots/<snapshot-id>/
-  master.db
-  manifest.json
-```
-
-A running MCP keeps using its fixed snapshot. If you add or change tracks in
-Rekordbox, close Rekordbox and restart the MCP to obtain a new copy. You can
-reopen Rekordbox once copying finishes. Copies are retained locally; they are
-ignored by Git and consume disk space.
-
-For terminal troubleshooting only, you can start the same launcher yourself:
+For foreground diagnostics, run from `cratebox/`:
 
 ```sh
-uv --directory rekordbx-mcp run --locked rekordbx-mcp start
+npm run dev:all
 ```
 
-This starts an MCP stdio server and waits for a client, so it does not show an
-interactive playlist prompt. Startup diagnostics go to stderr. Press Ctrl+C to
-stop a manually started process. Codex normally launches its own instance using
-the configuration above.
+This starts the Vite UI and API/MCP together. Logs from the Codex launcher are written to `/tmp/cratebox-api.log` and `/tmp/cratebox-ui.log`.
 
-For a nonstandard library location, add `--source` followed by the absolute
-path to `master.db` after `"start"` in the MCP arguments.
+## 4. Explore and prepare playlists
 
-## 4. Ask for playlists
+Try:
 
-Start with a prompt that asks Codex to retrieve tracks before selecting them:
+> Search my collection for house tracks between 120 and 128 BPM. Propose an approximately 60-minute playlist using only returned track IDs. Show artist, title, BPM, key, and duration, explain your choices, and flag uncertainty about energy or mood.
 
-> Use the Rekordbox MCP to search my collection for house tracks between
-> 120 and 128 BPM. Propose an approximately 60-minute playlist. Use only
-> returned track IDs and validate the final IDs. Show artist, title, BPM,
-> key, duration, a selection reason, and estimated total duration.
+Other examples:
 
-Other requests to try:
+> Find 30 tracks suitable for a 90s dance set. Search the collection first and flag releases whose era is unclear.
 
-> Build a 90-minute après-ski proposal with Belgian classics, singalongs
-> and an energetic finale. Search my collection first. Explain any gaps
-> and flag uncertainty about energy or mood.
+> Browse my Rekordbox playlists and copy the selected playlist into CrateBox as "Friday warm-up".
 
-> Find 30 tracks from my collection suitable for a 90s dance set. Check
-> available details before claiming a release year; flag tracks whose era
-> cannot be verified.
-
-> Show my existing party playlists, then propose a new order for a
-> 20-track warm-up set using tracks from them. Do not change those playlists.
-
-You can refine a proposal in the same chat:
-
-> Remove tracks 4 and 8, replace them with other validated candidates,
-> and make the final 15 minutes more energetic.
-
-Track duration totals are estimates for full tracks, not a prediction of
-mixed-set length. Energy, mood, popularity and singalong suitability are not
-measured audio features here; ask Codex to distinguish musical judgment from
-stored metadata. The upstream tool models do not expose every database field.
-
-The copied catalog can contain references to missing audio files. Reading tools
-do not check your audio folders, so a valid track ID does not guarantee that
-the file is currently available. The exporter checks selected files and reports
-missing ones before writing a playlist.
+The conversational MCP exposes playlist operations, collection search and lookup, Rekordbox playlist browsing, `export_playlist`, `spotify_tracklist`, and `create_sockseek_list`. Internal collection resolution, pagination, and path-returning operations are excluded from its explicit allowlist.
 
 ## 5. Export and import playlists
 
-Once you have agreed on a selection in chat, ask:
+Ask Codex to export an ordered ID list:
 
-> Use `export_playlist` to export the final track IDs in the agreed order.
-> Name it "House warm-up" and give me links to both generated files.
+> Export the final selection with `export_playlist`, named "House warm-up", preserving the agreed order. Provide links to the M3U8 and JSON files.
 
-The tool accepts `name` and exactly one ordered array: `track_ids` or `file_paths`.
-It uses the running session's verified snapshot; it does not read the live
-database. With IDs, audio paths are resolved locally. With file locations, each
-path must match exactly one active track in that snapshot, and is resolved to
-its track ID. Files outside the collection, deleted-only matches, and ambiguous
-matches are refused. Paths must be absolute local filenames, not `file://` URLs,
-relative paths or folders, and must match the stored path exactly.
+CrateBox Core resolves active snapshot records, checks the audio files, and writes the M3U8 to `playlists/` with its JSON plan in `output/`. The JSON records order, duplicates, IDs, paths, and collection metadata. The audio paths are kept out of the tool response and browser payloads. Passing `file_paths` sends those paths as tool inputs; prefer IDs when possible.
 
-For example, these are alternative tool arguments:
+If the requested name already exists, confirm whether to replace the existing pair or use a different name. CrateBox never imports a playlist into Rekordbox. Import the M3U8 yourself when ready.
 
-```json
-{"name": "House warm-up", "track_ids": ["123", "456", "789"]}
-```
+## 6. Update the upstream adapter
 
-```json
-{"name": "House warm-up", "file_paths": ["/Volumes/Music/Artist/Opening.mp3", "/Volumes/Music/Artist/Finale.mp3"]}
-```
-
-Both inputs preserve the supplied order and intentional repeats exactly. No
-sorting or deduplication happens. The JSON record always saves the resolved
-track IDs. File locations you supply become part of the tool input and may be
-visible in your Codex conversation; prefer IDs to keep paths local. Neither
-success nor error responses return audio paths. Unmatched or ambiguous file
-locations are reported by their position in the supplied list.
-
-Optional `separators` entries insert a supplied separator before a 1-based
-`before_track` position; use one past the final track to append. Choose `generic`,
-`90s`, `R&B`, `Ambi`, `Salsa`, `Party`, or `Dance`. Each fixed WAV file must
-exist in the configured separator folder and match exactly one active snapshot
-track. The M3U8 and JSON include separators in the requested order, and the JSON
-records each separator type.
-
-Exports use the requested playlist name in two repository folders:
-
-- `playlists/House warm-up.m3u8`: UTF-8 playlist containing absolute local
-  audio paths.
-- `output/House warm-up.json`: playlist name, ordered track ID/path pairs,
-  Rekordbox metadata for each track, creation time and format version.
-
-If an export with the requested base name already exists, Codex asks whether
-you want to update it or create a separate playlist under a different name.
-After you confirm an update, Codex replaces the M3U8 and JSON files at the same
-paths. Existing `-vNNN` exports are updated in place under their current names.
-To revise a saved selection, ask Codex to read its JSON, adjust the IDs,
-validate them against the current snapshot, and export with the update choice.
-
-Track order and intentional repeated IDs are preserved. An export accepts
-1–1000 tracks via either input. Every ID must exist and not be marked deleted,
-and every referenced audio file must be present. Errors report affected IDs without revealing audio
-paths. Nothing is silently skipped and validation failures create no artifacts.
-
-Names must be a single filename stem without slashes or control characters,
-up to 200 UTF-8 bytes. Existing files are replaced only after you confirm an
-update, and symlink destinations are refused. The destinations are fixed by the
-adapter, not chosen by the model.
-Exports are ignored by Git. Treat M3U8 files as private because they contain
-local filesystem paths.
-
-Open Rekordbox and manually import the M3U8 when you choose. The adapter does
-not perform that import. Importing is your explicit action and changes the
-Rekordbox collection; generating the export changes no original data.
-
-Before relying on duplicate-free import, test it manually with
-three existing tracks: record the collection count and their metadata, import
-the generated playlist, then confirm that existing entries were reused, no
-duplicates appeared, and BPM, key, cue points and beat grids remain intact.
-The application must not perform that import automatically. Duplicate-free
-import remains unresolved.
-
-## 6. Update the upstream MCP
-
-Use a separate Terminal window in the repository root. The updater tracks the
-latest commit on upstream's default branch, pins that exact revision, and
-requires network access. Startup never upgrades dependencies automatically.
-
-**Step 1 — check without installing:**
+Upstream updates are explicit. Check for a new revision:
 
 ```sh
 uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream --check
 ```
 
-An available update is reported as `Update available: <current> -> <latest>`.
-If the installed pin already matches upstream, no changes are made.
-
-**Step 2 — stop the existing MCP connection or close Codex.** Leave the
-separate Terminal window open so the upgrade can finish.
-
-**Step 3 — install and test:**
+Stop active MCP sessions, then install and run compatibility/safety checks:
 
 ```sh
 uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream
 ```
 
-The updater changes the upstream commit pin in `rekordbx-mcp/pyproject.toml`,
-updates `uv.lock`, synchronizes dependencies, and runs the full test suite.
-Wait for `Updated to upstream commit <commit>; compatibility tests passed.`
-before reconnecting.
-
-**Step 4 — restart the MCP connection or reopen Codex.** When Rekordbox is
-closed, the updated MCP prepares a fresh verified copy; if it is open, the MCP
-uses the newest verified copy already on disk. Ask it to show your library
-statistics to confirm the connection.
-
-**Step 5 — keep the tested revision in Git.** After a successful upgrade,
-review and commit the changed `rekordbx-mcp/pyproject.toml` and
-`rekordbx-mcp/uv.lock` if you want to preserve that revision in the repository.
-
-If a step fails, the updater restores the previous dependency files and attempts to
-restore the previous environment. If environment recovery also fails, retry:
-
-```sh
-uv --directory rekordbx-mcp sync --locked
-```
-
-An incompatible upstream revision is rejected; newly added tools are not
-automatically exposed. The update command does not open the original Rekordbox
-database or alter your music files.
-
-Routine startup uses the locked dependencies and the existing configuration.
-You do not need to copy the configuration template again for a normal upgrade.
+The updater pins an exact commit and rolls back dependency files if checks fail. Review and commit the changed `rekordbx-mcp/pyproject.toml` and `rekordbx-mcp/uv.lock` after a successful update. New upstream tools are not exposed automatically.
 
 ## 7. Troubleshooting
 
 | Symptom | What to do |
 | --- | --- |
-| “Close Rekordbox and its background agents” | Quit Rekordbox and its agents cleanly, then retry the MCP connection. |
-| “Cannot verify Rekordbox is closed” | Process inspection was denied or incomplete. Run from a normal macOS terminal to diagnose permissions; do not bypass the check. |
-| “Database transaction sidecar exists” | Let Rekordbox finish and quit normally. Do not delete original WAL, SHM or journal files. If they remain, investigate before retrying. |
-| Database not found | Check the default source path or supply `--source` after `start`. |
-| Offline dependency or interpreter error | Run the setup command with network access before starting the offline MCP connection. |
-| Snapshot hash invalid | Close Rekordbox and use `start` to create a fresh verified copy. Do not edit the snapshot or its manifest. |
-| MCP tools do not appear | Check project trust, the uv and project paths, and the TOML configuration. Restart the connection after saving. |
-| Collection results look old | Quit Rekordbox and restart the MCP to refresh its snapshot. |
-| Server waits silently in Terminal | Expected for a stdio MCP server; use it through the configured Codex connection. |
+| CrateBox MCP startup fails | Check `/tmp/cratebox-api.log` and `/tmp/cratebox-ui.log`; confirm ports 8000 and 4444 are available. Run `npm run dev:all` from `cratebox/` to diagnose in the foreground. |
+| Collection worker says to close Rekordbox | Quit Rekordbox and its background agents. If Rekordbox must remain open, an existing verified snapshot is required. |
+| Snapshot hash invalid | Do not edit the snapshot or manifest. Close Rekordbox and restart the worker to create a new verified copy. |
+| Collection results look old | Close Rekordbox, then restart the API/worker to refresh its pinned snapshot. |
+| MCP tools do not appear | Check that the repository is trusted, confirm the configured paths, then restart the CrateBox MCP connection. |
+| Playlists changed outside CrateBox | Keep the UI visible or focus it; it checks for edits every two seconds and refreshes the active playlist without replacing the loaded Deck. |
 
-## 8. Tests and file locations
+## 8. Tests and code locations
+
+Adapter tests:
 
 ```sh
 uv --directory rekordbx-mcp run --locked pytest -q
 ```
 
-Tests use synthetic encrypted collections. They cover safe startup, copying,
-write restrictions, forbidden tools, updates and rollback, and an actual
-MCP conversation through the snapshot launcher.
+CrateBox API/Core tests:
+
+```sh
+uv --directory rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../cratebox/tests -q
+```
+
+Frontend tests and build, from `cratebox/`:
+
+```sh
+npm test
+npm run build
+```
 
 | Location | Purpose |
 | --- | --- |
-| `rekordbx-mcp/src/rekordbx_mcp/` | Custom adapter, startup, launcher and updater |
-| `rekordbx-mcp/tests/` | Automated tests |
-| `rekordbx-mcp/codex-mcp.example.toml` | Codex connection template |
-| `rekordbx-mcp/.cache/rekordbox-snapshots/` | Generated collection copies |
-| `output/` | Generated JSON export plans |
-| `playlists/` | Generated M3U8 playlists for manual import |
-| `AGENTS.md` | Repository rules, including original-data protection |
-
-More implementation details are in the
-[adapter README](../rekordbx-mcp/README.md).
+| `cratebox/src/` | UI |
+| `cratebox/api/` | REST and MCP adapters |
+| `cratebox/core/` | Shared playlist, export, lookup, Spotify, Sockseek, lock, and revision services |
+| `cratebox/tests/` | CrateBox API and Core tests |
+| `rekordbx-mcp/src/rekordbx_mcp/` | Generic protected collection adapter |
+| `rekordbx-mcp/tests/` | Adapter tests |
 
 ## Privacy and limits
 
-The adapter opens only verified snapshots through a read-only SQLCipher
-connection and exposes the approved reading tools plus the local exporter.
-The exporter writes new M3U8 files only in `playlists/` and matching JSON files
-only in `output/`. The worker runs with normal user filesystem and network
-permissions; there is no OS isolation.
-Dedicated `file_path` and `database_path` fields are omitted from ordinary responses.
-The upstream filepath-returning tools are not exposed. The export tool returns
-artifact paths and a track count, not the audio paths inside the M3U8.
+The adapter uses a verified snapshot, read-only SQLCipher connection, SQL authorizer, and fixed upstream reading allowlist. It runs with normal user permissions; it is not OS filesystem or network isolation. Returned collection metadata becomes part of the Codex conversation, so the conversation is not fully offline.
 
-Returned track metadata becomes part of the Codex conversation. Running the
-database reader locally does not make the AI conversation fully offline.
-No audio upload feature is implemented.
-
-CrateBox is a separate local application. Its explicit **Embed into MP3**
-action can write artwork to a playlist-selected MP3 after creating an exact
-backup under `output/audio-backups/`; this does not change the Rekordbox database
-or the MCP's read-only snapshot. CrateBox API tests are kept with the app in
-`cratebox/tests/`.
-
-The project does not provide a standalone playlist-generation CLI or automatic
-Rekordbox import. JSON records preserve selections for further work in chat.
-M3U8 duplicate-free import is still an unresolved manual check. The snapshot
-and connection controls are application-level protections, not an OS boundary
-against arbitrary filesystem access by dependencies.
+The adapter never edits Rekordbox's original database, playlists, XML, analysis files, or metadata. CrateBox artwork editing is limited to its documented backup-verified MP3 operation. M3U8 exports contain local audio paths; keep them private.

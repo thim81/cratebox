@@ -1,245 +1,74 @@
-# Rekordbx MCP
+# Rekordbox MCP adapter
 
-For setup, Codex configuration, everyday playlist requests and troubleshooting,
-start with the [complete user guide](../docs/user-guide.md).
-For a product overview and quick start, see [Rekordbx](../README.md).
+This project adapts the pinned upstream [`rekordbox-mcp`](https://github.com/davehenke/rekordbox-mcp) to use a verified local snapshot through a read-only SQLCipher connection. It is a consumer-neutral collection data provider; playlist editing, export, Spotify, Sockseek, playback, and artwork behavior belong to CrateBox Core and its API.
 
-A native macOS adapter for the upstream
-[rekordbox-mcp](https://github.com/davehenke/rekordbox-mcp), managed with uv.
-It exposes 19 read-only tools against a verified copy of the collection, plus a
-local playlist exporter.
-The original Rekordbox database, playlists, analysis files and audio remain
-read-only source data. Docker is not used.
+The original Rekordbox database, playlists, XML exports, analysis files, metadata, and audio are not modified by this adapter. It runs with normal user permissions; these application-level controls are not OS filesystem or network isolation. Docker is not used.
 
-CrateBox can also launch this MCP on the first track lookup through its local
-API. If Rekordbox is closed, the worker creates a fresh verified snapshot. If
-it is open, the worker serves the newest verified snapshot already on disk. The
-worker stops when CrateBox's API shuts down.
+## Install and run
 
-## Set up
-
-From the repository root, enter `rekordbx-mcp/` first:
+From the repository root:
 
 ```sh
-cd rekordbx-mcp
-uv sync --locked --python 3.12
-uv run --locked rekordbx-mcp --help
+uv --directory rekordbx-mcp sync --locked --python 3.12
+uv --directory rekordbx-mcp run --locked rekordbx-mcp --help
 ```
 
-The upstream source is pinned to a commit in `pyproject.toml`; `uv.lock` pins
-the dependency resolution. The adapter imports upstream reading functions
-without editing the installed upstream files. Run our `rekordbx-mcp` command.
+The upstream source is pinned in `pyproject.toml`, and the dependency resolution is pinned by `uv.lock`. The adapter imports upstream reading functions without changing the installed upstream files.
 
-## Update upstream
+For a standalone consumer, use [`codex-mcp.example.toml`](codex-mcp.example.toml) as a starting point. The CrateBox app uses a different configuration: [the repository example](../cratebox-mcp.example.toml) launches CrateBox's same-process REST/MCP service and proxies it over stdio.
 
-From `rekordbx-mcp/`, check for an update without changing the installation:
+To start the adapter manually for diagnostics, close Rekordbox and its background agents, then run:
 
 ```sh
-uv run --locked rekordbx-mcp update-upstream --check
+uv --directory rekordbx-mcp run --locked rekordbx-mcp start
 ```
 
-Stop the current MCP connection or close Codex. In a separate Terminal window,
-install the latest commit from the upstream repository's default branch:
+When Rekordbox is closed, `start` creates and verifies a fresh snapshot. When Rekordbox is running, it reuses only the newest verified snapshot already on disk; it fails if no valid snapshot is available. It never copies the live database. The worker uses one fixed snapshot path for its lifetime.
+
+Use `snapshot` to create a copy without starting an MCP session:
 
 ```sh
-uv run --locked rekordbx-mcp update-upstream
+uv --directory rekordbx-mcp run --locked rekordbx-mcp snapshot
 ```
 
-Run these from the project directory. The updater resolves upstream HEAD to an
-exact commit, changes the revision pin, updates the uv lockfile, synchronizes
-dependencies and runs the full test suite, including the read-only connection checks.
-If a step fails, it restores the previous dependency files and attempts to
-restore the previous environment. An environment recovery failure is reported
-explicitly with the command to retry.
+Snapshots live under `.cache/rekordbox-snapshots/`, are ignored by Git, and contain private library metadata. The source is checked before and after copying; transaction sidecars, hash mismatches, and invalid manifests prevent a snapshot from being served.
 
-Updates require network access. Restart the MCP connection after an accepted update.
-Quit Rekordbox and its agents before reconnecting so startup can create a fresh
-verified copy. Ask Codex to show your library statistics to verify the connection.
-After a successful upgrade, review and commit `pyproject.toml` and `uv.lock`
-to preserve the tested revision. The existing Codex configuration remains valid.
-An incompatible upstream release is rejected until the adapter is adjusted;
-new upstream tools are never automatically added to the read allowlist.
-Startup stays pinned and offline; it does not perform upgrades.
-See the [step-by-step upgrade guide](../docs/user-guide.md#6-update-the-upstream-mcp).
+## Generic collection contract
 
-## Start with a fresh safe copy
+The adapter registers a fixed set of reviewed upstream reading functions. Newly added upstream tools are excluded until reviewed. The custom `get_collection_tracks` operation supports ordered track IDs, exact absolute file locations, or deterministic pagination over active tracks. It returns generic metadata, technical audio details, cue counts, playlist membership, and local locations for trusted application clients.
 
-Once the Codex configuration is installed, quit Rekordbox and its background
-agents, then restart Codex or the MCP connection. Codex automatically runs the
-startup command; a separate Terminal process is not required.
+The CrateBox API uses locations only inside the local server for matching, playback, and export. Do not add `get_collection_tracks` or other path-returning operations to conversational MCP client allowlists. Public adapter responses redact file and database paths. CrateBox's browser API and conversational MCP tools also omit audio paths.
 
-For manual diagnostics, run this from `rekordbx-mcp/`:
-
-```sh
-uv run --locked rekordbx-mcp start
-```
-
-When Rekordbox is closed, `start` creates a fresh copy of the current
-`master.db`, checks again after copying, verifies the hashes, marks the copy
-read-only, and starts the MCP against it. When Rekordbox is running, `start`
-skips copying and serves the newest verified snapshot already on disk. If none
-exists, startup exits with instructions to close Rekordbox and run `snapshot`.
-It never closes Rekordbox or deletes source sidecars.
-
-This command runs an MCP stdio server, so it normally runs through Codex's MCP
-configuration. Startup diagnostics go to stderr; stdout is reserved for MCP.
-
-## Make a snapshot without starting MCP
-
-Quit Rekordbox and its background agents cleanly, then run:
-
-```sh
-uv run --locked rekordbx-mcp snapshot
-```
-
-This checks the process list, refuses transaction sidecars, copies source bytes,
-checks the source again and verifies matching hashes. It prints a new directory
-under `.cache/rekordbox-snapshots/`. Incomplete copies have no valid manifest
-and cannot be served. No links or source permission changes are used.
-Snapshots contain private library metadata, are ignored by Git, and remain
-local until you explicitly remove them.
-
-Rekordbox can be reopened after the copy completes. A running MCP uses its fixed
-snapshot; close Rekordbox and restart the MCP to refresh it. Generated copies
-are retained locally so a running session's snapshot is never overwritten.
-There is no synchronization back to the original library.
-
-## Connect Codex
-
-Use [codex-mcp.example.toml](codex-mcp.example.toml) as a template for
-`.codex/config.toml` in this trusted project, or merge its server table into
-your existing Codex configuration. No snapshot ID needs to be configured:
-the template runs `start`, which copies when Rekordbox is closed and serves the
-newest verified copy when it is running. It is not automatically
-installed. For project scope, place the configuration in the repository-root
-`.codex/config.toml`; the template's `--directory` points to `rekordbx-mcp/`.
-
-The command uses `uv run --locked --offline rekordbx-mcp start` to launch the MCP
-worker. Its startup timeout is 120 seconds for copying and verification when
-needed. For the freshest collection, close Rekordbox before starting or
-restarting this MCP. If Rekordbox is open, the current verified snapshot is used.
-
-For deliberate use of a specific verified snapshot, the lower-level
-`uv run --locked rekordbx-mcp serve --snapshot /absolute/snapshot/directory`
-command remains available. The configuration template always uses `start`.
-
-Codex documents project MCP configuration and tool allowlists in the
-[MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and
-[configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
-
-After restarting the configured MCP connection, try:
-
-> Search my collection for house tracks between 120 and 128 BPM. Propose an
-> ordered 60-minute playlist using only returned track IDs, and explain your
-> choices. Flag uncertainty about energy or mood.
-
-The MCP supplies search and metadata; Codex makes the conversational proposal.
-Once the selection is final, ask Codex to call `export_playlist` with a name
-and exactly one ordered list: `track_ids` or `file_paths`. File locations must
-be absolute local paths matching exactly one active snapshot track. To place a
-separator in the sequence, also pass `separators` entries with a `type` and a
-1-based `before_track` position (use one past the last track to append). The
-available types are `generic`, `90s`, `R&B`, `Ambi`, `Salsa`, `Party`, and
-`Dance`. The exporter resolves each fixed WAV reference from the supplied
-separator folder and requires it to match exactly one active snapshot track.
-M3U8 files
-go in `playlists/`, and matching JSON plans go in `output/`, using the requested
-name without an automatic version suffix. If that name already exists, Codex
-asks whether to update it or use a different name for a separate playlist. On
-confirmation, it calls the tool again with `update_existing=true` to replace the
-existing pair at the same paths. Existing numbered exports are updated in place
-under their current filename.
-
-It checks every ID and audio file, preserves order and repeats, and refuses
-symlink destination directories. Errors identify problematic IDs without
-returning audio paths. Unknown or ambiguous locations are identified by input
-position. JSON saves an ordered `tracks` array pairing each resolved ID with
-its absolute file path. Supplying file paths makes them visible in tool
-inputs; IDs keep paths local.
-
-The JSON saves the name, ordered IDs and ID/path pairs, format version and
-creation time. The M3U8 contains absolute audio paths for manual
-import, so treat it as private. Both destination directories are fixed relative
-to this repository's source layout; run the adapter using the documented uv
-project installation. No export path argument is exposed to the model. Add
-`export_playlist` to an existing client's tool allowlist and restart the MCP to
-make the new tool available.
-
-`create_sockseek_list` creates a folder under `downloads/<name>/` containing a
-Sockseek list from ordered artist/title entries. It uses Sockseek's
-`s:"Artist - Title"` list syntax so each entry is a song search. It never
-overwrites an existing list and never runs Sockseek; the response includes a
-command with repository-relative paths for the list, output, playlist, and log.
-The command runs the repository's `./sockseek/sockseek` binary, which uses its
-adjacent `sockseek/sockseek.conf`. Run the returned command from the repository
-root. Add
-`create_sockseek_list` to the client tool allowlist and restart the MCP to
-enable it.
-
-`spotify_tracklist` fetches the public Spotify embed metadata for a playlist
-URL and returns its ordered, numbered artist/title entries. Add
-`spotify_tracklist` to the client tool allowlist to enable it. It requires
-network access to Spotify and does not access the Rekordbox collection.
-
-`lookup_similar_tracks_for_cratebox` is reserved for the local CrateBox API.
-It returns file paths for immediate server-side playback and must stay out of
-conversational MCP client allowlists; the API removes paths before responding to
-the browser.
-
-`get_track_locations` is a generic read-only collection contract for trusted
-local application APIs that need to verify an existing ID/path pairing. It
-returns paths and must also stay out of conversational MCP client allowlists.
-The CrateBox API compares these values internally before updating a playlist;
-browser responses contain no audio paths.
+The adapter does not expose collection mutation, playlist export, Spotify, Sockseek, artwork, or CrateBox-specific matching tools. CrateBox Core owns those behaviors.
 
 ## Protection boundaries
 
-- **Source copier:** ordinary binary reads of the original, outside the worker.
-  Its only writes are newly created snapshot files outside the source folder.
-- **Database connection:** SQLCipher uses an explicit file URI with
-  `mode=ro&immutable=1`, query-only mode, and an authorizer blocking attachments
-  and PRAGMA changes. Immutable mode is only used after rejecting transaction
-  sidecars and verifying the snapshot.
-- **MCP registry:** a separate, fixed allowlist registers only the reviewed
-  upstream reading functions. New upstream tools are excluded automatically.
-  Collection creation, deletion, imports, cleanup and arbitrary reconnection
-  are absent, including when called by name. The separately reviewed local
-  `export_playlist` tool creates external artifacts and is annotated with
-  `readOnlyHint = false`; it cannot change collection data.
-- **Privacy:** ordinary tool responses omit file paths and database paths.
-  The upstream `get_track_file_path` and `get_genre_filepaths` tools are not
-  exposed. The local exporter resolves IDs or file locations through the
-  snapshot without returning audio paths to the model. Supplying file locations
-  does send those paths as tool input; prefer IDs for privacy. Only artifact
-  paths and a track count are returned.
+- Snapshot creation writes only new copies outside the source folder; it does not change source permissions or links.
+- The connection uses an explicit snapshot file URI with `mode=ro&immutable=1`, SQLCipher, query-only mode, and an authorizer that blocks database attachment and PRAGMA changes.
+- A process lock serializes use of the shared upstream ORM session and snapshot connection.
+- The adapter has a fixed registry of reviewed upstream reading tools. Upstream create, delete, import, cleanup, and arbitrary reconnect functions are unavailable, including when called directly by name.
+- `enabled_tools` in a client config is an additional discovery/invocation restriction, not a replacement for the adapter's snapshot and tool protections.
 
-`enabled_tools` is an additional client restriction; it does not open the
-database read-only or enforce filesystem permissions. Use the snapshot
-launcher even when a client allowlist is present.
+## Update upstream
 
-The worker uses normal user filesystem and network permissions. Snapshot
-validation, SQLCipher read-only mode, the SQL authorizer and the tool registry
-provide application-level protection; they are not OS isolation.
-Keep the configured `start` command so source checks and copying happen before
-the worker is launched.
+Check for a new upstream revision without changing the installation:
+
+```sh
+uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream --check
+```
+
+For an explicit update, stop active MCP sessions and run:
+
+```sh
+uv --directory rekordbx-mcp run --locked rekordbx-mcp update-upstream
+```
+
+The updater resolves the new revision to an exact commit, updates the pin and lockfile, runs compatibility and safety tests, and rolls back dependency files if an update fails. Review and commit `pyproject.toml` and `uv.lock` only after the update succeeds. New upstream tools are never enabled automatically.
 
 ## Tests
 
 ```sh
-uv run --locked pytest -q
+uv --directory rekordbx-mcp run --locked pytest -q
 ```
 
-Tests use an encrypted synthetic collection. They cover source preservation,
-sidecar rejection, tampered copies, database write restrictions, reconnects,
-direct calls to forbidden tools, and an actual MCP stdio conversation through
-the snapshot launcher. Direct SQL and ORM-write tests verify that the database
-connection refuses mutations independently of file permission bits.
-
-Upstream compatibility limitations are retained: smart playlist membership and
-the completeness of metadata follow the upstream implementation. This adapter
-does not infer energy, popularity or danceability. Reading tools do not verify
-audio availability; the export tool checks selected files before writing.
-
-M3U8 export is implemented; verification that manual Rekordbox import reuses
-existing entries is still pending. The adapter never imports automatically. See the
-[import verification requirements](../docs/user-guide.md#5-export-and-import-playlists).
+Tests use synthetic encrypted collections and cover snapshot creation/verification, source preservation, database write restrictions, reconnect restrictions, direct calls to forbidden tools, generic track resolution, and an MCP stdio session through the snapshot launcher.

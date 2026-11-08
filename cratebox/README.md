@@ -1,96 +1,43 @@
-# CrateBox local playlist API
+# CrateBox app
 
-The app reads `.m3u` and `.m3u8` playlists through a small local FastAPI server.
-In the repository's `playlists/` folder, tracks can be removed or replaced in a playlist;
-the audio file is never deleted. Other configured playlist folders remain read-only.
-The API implementation is organized by feature in `api/`; `server.py` preserves the
-`server:app` entry point used by the existing launcher.
+CrateBox is a local playlist and playback app. The UI talks only to the FastAPI API. The API uses the importable `core/` services for collection matching, playlist revisions, shared mutation locks, Spotify, Sockseek, and playlist export. REST and Streamable HTTP MCP are mounted in one process at port 8000; the MCP path is `/mcp/`.
 
-From this folder, run:
+## Start the app
+
+From this directory:
 
 ```sh
-uv --directory ../rekordbx-mcp run --locked --with fastapi --with uvicorn --with mutagen --with ddgs --with playwright \
-  uvicorn --app-dir ../cratebox --reload-dir ../cratebox --reload-dir src \
-  server:app --port 8000 --reload
+npm run dev:all
 ```
 
-By default, playlists are read from the repository root `playlists/` folder. To use another folder:
+The UI runs at <http://localhost:4444/> and the API at <http://localhost:8000/>. The API serves the MCP at <http://localhost:8000/mcp/>. Codex uses the repository launcher in `scripts/cratebox-mcp-launcher.py`; it checks these local endpoints and starts only missing services before proxying the HTTP MCP over stdio.
+
+The protected Rekordbox MCP worker starts lazily when collection data is requested. If it cannot start, local playlist browsing and playback remain available.
+
+## Architecture and paths
+
+- `src/` contains the UI.
+- `api/` defines REST and MCP adapters and keeps local audio paths on the server.
+- `core/` contains shared app behavior used by REST and MCP.
+- `tests/` contains Core and API tests.
+- `server.py` preserves the `server:app` Uvicorn entry point.
+- `../rekordbx-mcp/` contains the generic snapshot-backed Rekordbox provider and its own tests.
+
+The Core exporter writes M3U8 playlists to the repository's `playlists/` folder and corresponding JSON plans to `output/`. Replacement requires explicit confirmation. No export imports into Rekordbox.
+
+CrateBox may embed artwork only into an MP3 selected from the repository's own `playlists/` folder after making and verifying an exact backup in `output/audio-backups/`. Original Rekordbox data remains read-only.
+
+## Tests
+
+From the repository root:
 
 ```sh
-PLAYLIST_DIR="/absolute/path/to/playlists" uv --directory ../rekordbx-mcp run --locked \
-  --with fastapi --with uvicorn --with mutagen --with ddgs --with playwright \
-  uvicorn --app-dir ../cratebox --reload-dir ../cratebox --reload-dir src \
-  server:app --port 8000 --reload
+uv --directory rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen pytest ../cratebox/tests -q
 ```
 
-Then set the app's API URL to `http://localhost:8000`.
-The server provides `GET /api/playlists`, `GET /api/playlists/{playlist_id}`,
-`GET /api/stream?playlist_id=...&track_id=...`, `GET /api/collection/status`,
-`GET /api/collection/stream/{track_id}`, `POST /api/reveal`,
-`POST /api/collection/lookup`,
-`GET /api/rekordbox/playlists`, `GET /api/rekordbox/playlists/{playlist_id}/tracks`,
-`POST /api/rekordbox/playlists/{playlist_id}/copy`, `POST /api/images/search`,
-`PUT /api/artwork`, `PUT /api/artwork/embed`, and
-`POST /api/playlists/{playlist_id}/tracks/swap`.
-Export JSON contains an ordered `tracks`
-array with each Rekordbox track ID and its absolute file path together. The API
-validates those entries against the M3U8; older ID-only plans still pair with
-M3U8 entries by order.
-The active deck displays embedded audio cover art, with a music-note placeholder
-when no supported artwork is available. Its Finder button reveals the active
-audio file in Finder on macOS.
-Use Search Image beside a crate name or active track to search music catalogues
-first. iTunes helps identify track and album metadata; MusicBrainz/Cover Art
-Archive supplies matching cover images. CrateBox supplements catalogue results
-with Google Images results from a dedicated Chrome profile using a local CDP
-connection; its window is minimized while searches run. DuckDuckGo is used if
-Google is unavailable or returns too few results. Chrome must be installed for
-Google image search. Google results use
-Google-hosted preview images, which may be smaller than the originals. Each
-result is labeled with its source. Crate artwork
-stores the selected image URL in `output/cratebox-artwork.json`. Track artwork
-is downloaded only when the user
-chooses **Embed into MP3**; CrateBox accepts public HTTPS JPEG/PNG files up to
-8 MiB, makes a byte-for-byte backup in `output/audio-backups/`, stages and checks
-the ID3 update, then atomically replaces the selected MP3. This operation works
-only for tracks in the repository's own `playlists/` folder, rejects symlinked
-or hard-linked targets, and supports ID3v2.3/v2.4 tags. To undo a change, stop
-CrateBox and restore that track's matching backup file. Search providers may
-rate-limit requests and image hosts may block previews or downloads; a failed
-track image falls back to existing embedded artwork.
-Rows with an ID use an exact collection lookup; playlists without a matching
-plan fall back to artist/title lookup. Playlist streaming is restricted to
-files referenced by playlists in the configured folder; collection streaming
-resolves only active snapshot track IDs. Track removal uses
-`DELETE /api/playlists/{playlist_id}/tracks` with a JSON `track_ids` list and
-updates both playlist and plan files; it only works with the repository's
-`playlists/` folder. Swapping a track also requires confirmation and updates its
-M3U8 entry and matching JSON plan when one exists.
-The sidebar's Rekordbox tab browses snapshot playlists as read-only. Copying a
-playlist uses the exporter to create an editable CrateBox M3U8/JSON pair;
-updating an existing local copy requires confirmation. Rekordbox items start at
-level 0, follow Rekordbox's sibling sequence, and folders open to their children.
-
-Each track row has a Lookup action that expands inline results: it returns the
-exact Rekordbox record when a plan ID is available, including its rating and
-play count, or searches by artist and title for standalone playlists. A result's
-Play loads the collection track into the main deck. Swap replaces the source
-track in the selected playlist after confirmation. The local API uses collection
-file locations internally for playback and playlist updates without sending
-paths to the browser.
-The MCP worker starts on the first lookup or Rekordbox playlist browse, so
-CrateBox can browse local playlists without it. Close Rekordbox and its
-background agents before the first collection action; the worker creates a fresh verified
-snapshot, stays connected while the API runs, and stops with the API. The header
-shows whether the MCP worker is idle, connecting, connected, or in an error
-state. A lookup startup failure does not interrupt playlist browsing or playback.
-
-## CrateBox tests
-
-CrateBox API tests live in `cratebox/tests/`. Run them from the repository
-root with the MCP project's locked Python environment:
+From this directory, run frontend checks:
 
 ```sh
-uv --directory rekordbx-mcp run --locked --with ddgs --with fastapi --with mutagen \
-  pytest ../cratebox/tests -q
+npm test
+npm run build
 ```

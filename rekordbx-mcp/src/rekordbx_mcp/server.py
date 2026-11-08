@@ -8,20 +8,16 @@ from functools import wraps
 from pathlib import Path
 from threading import Lock
 from types import SimpleNamespace
-from typing import Literal
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server.middleware import Middleware
 from loguru import logger
-from pydantic import BaseModel, ValidationError
 from rekordbox_mcp import database as upstream_database
 from rekordbox_mcp import server as upstream
 from pyrekordbox.masterdb.models import DjmdCue, DjmdPlaylist, DjmdSongPlaylist
 from sqlalchemy import func
 
 from .database import SnapshotDatabase, content_by_ids
-from .export import OUTPUT_DIRECTORY, PLAYLISTS_DIRECTORY, export_playlist as write_playlist
 from .snapshot import verify_snapshot
 
 
@@ -48,24 +44,6 @@ async def _serialized_database_to_thread(function, /, *args, **kwargs):
 # Upstream database methods use asyncio.to_thread internally, including close().
 # Serialize those calls because SnapshotMasterDatabase uses one StaticPool connection.
 upstream_database.asyncio = SimpleNamespace(to_thread=_serialized_database_to_thread)
-class PlaylistSeparator(BaseModel):
-    type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
-    before_track: int
-
-
-class ExportInputPrivacy(Middleware):
-    async def on_call_tool(self, context, call_next):
-        try:
-            return await call_next(context)
-        except ValidationError:
-            if context.message.name != "export_playlist":
-                raise
-            # Framework validation errors otherwise echo supplied file locations.
-            raise ToolError(
-                "Invalid export arguments; provide a name and exactly one list: track_ids or file_paths."
-            ) from None
-
-
 def redact_paths(value):
     if isinstance(value, dict):
         return {
@@ -77,15 +55,7 @@ def redact_paths(value):
     return value
 
 
-def build_server(
-    snapshot: Path, *, output_directory: Path = OUTPUT_DIRECTORY,
-    playlists_directory: Path | None = None,
-) -> FastMCP:
-    if playlists_directory is None:
-        playlists_directory = (
-            PLAYLISTS_DIRECTORY if Path(output_directory) == OUTPUT_DIRECTORY
-            else Path(output_directory).parent / "playlists"
-        )
+def build_server(snapshot: Path) -> FastMCP:
     verify_snapshot(snapshot)
     database = SnapshotDatabase(snapshot)
 
@@ -114,7 +84,6 @@ def build_server(
                 await database.disconnect()
 
     server = FastMCP("Rekordbox snapshot (read-only)", lifespan=lifespan)
-    server.add_middleware(ExportInputPrivacy())
 
     def wrap(original, tool_name: str):
         @wraps(original)
@@ -263,50 +232,6 @@ def build_server(
                 return await run_database_operation(resolve)
             except ValueError:
                 raise ToolError("A selector must resolve to active collection tracks; each file location must match exactly one track.") from None
-
-    @server.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
-    async def export_playlist(
-        name: str, track_ids: list[str] | None = None,
-        file_paths: list[str] | None = None,
-        update_existing: bool = False,
-        separators: list[PlaylistSeparator] | None = None,
-    ) -> dict:
-        """Export tracks as an M3U8 in playlists/ and matching JSON in output/.
-
-        Use a filename-safe name without an extension. If an export with that
-        name already exists, ask whether to update it or create a separate
-        playlist with a different name. To update the confirmed existing export,
-        call again with update_existing=true. Never update without confirmation.
-        Supply exactly one of track_ids or file_paths, with 1–1000 entries.
-        File paths must be absolute and match exactly one active snapshot track.
-        Rejects unknown/deleted IDs and missing audio. New names never replace files.
-        Returns artifact paths only; the JSON plan pairs each ID with its audio path.
-        Audio paths are not returned in this tool response.
-        Optionally add separators before 1-based track positions; use
-        before_track=len(track_ids)+1 to append. Separator types are generic,
-        90s, R&B, Ambi, Salsa, Party, and Dance. Each resolves to its fixed
-        supplied WAV file and must match exactly one active snapshot track.
-        Prefer track_ids to avoid sending audio paths in tool arguments.
-        Creates external files only; never imports or edits Rekordbox data.
-        """
-        async with _upstream_lock:
-            try:
-                await ensure_connected()
-                return write_playlist(
-                    database.db, name, track_ids, output_directory,
-                    file_paths=file_paths, playlists_directory=playlists_directory,
-                    update_existing=update_existing,
-                    separators=[item.model_dump() for item in separators] if separators else None,
-                )
-            except ValueError as error:
-                raise ToolError(str(error)) from None
-            except FileExistsError as error:
-                raise ToolError(str(error)) from None
-            except OSError:
-                raise ToolError("Cannot write export files; check the local playlists/ and output/ directories and permissions.") from None
-            except Exception:
-                logger.exception("Playlist export failed")
-                raise ToolError("Playlist export failed; check the local server logs.") from None
 
     @server.resource("snapshot://status")
     def status() -> str:
