@@ -1364,7 +1364,7 @@ function Index() {
       <header className="flex items-center gap-3 border-b border-border bg-sidebar px-4 py-2">
         <Disc3 className="text-primary" size={22} />
         <span className="font-mono text-sm font-bold tracking-widest">
-          CRATE<span className="text-accent">DECK</span>
+          CRATE<span className="text-accent">BOX</span>
         </span>
         <div className="ml-auto flex items-center gap-3 text-xs">
           <div
