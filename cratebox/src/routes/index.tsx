@@ -1558,7 +1558,7 @@ function Index() {
           }}
         />
 
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border px-3 py-2">
             <div className="flex min-w-0 items-center gap-3">
               <h1 className="truncate text-sm font-semibold">

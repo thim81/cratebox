@@ -132,7 +132,7 @@ export function TrackTable({
   );
 
   return (
-    <div className="flex-1 overflow-auto">
+    <div className="flex min-h-0 flex-1 overflow-auto">
       <table className="w-full border-collapse text-xs">
         <thead className="text-[10px] text-muted-foreground">
           <tr>
