@@ -55,6 +55,17 @@ def playlist_files(directory: Path) -> list[Path]:
     )
 
 
+def crate_files(playlist_directory: Path, crate_directory: Path) -> list[Path]:
+    crate_directory = Path(crate_directory)
+    if crate_directory.is_symlink() or crate_directory.parent.is_symlink():
+        raise ApplicationConflict("The playlist and its track-ID plan are out of sync")
+    return [
+        path for path in playlist_files(playlist_directory)
+        if path.suffix.lower() == ".m3u8"
+        and (crate_directory / f"{path.stem}.json").is_file()
+    ]
+
+
 def playlist_entry_count(lines: list[str]) -> int:
     return sum(1 for line in lines if line.strip() and not line.lstrip().startswith("#"))
 
@@ -257,10 +268,12 @@ def _ensure_app_directories(playlist_directory: Path, crate_directory: Path, def
         raise ApplicationForbidden("Playlist edits are limited to the app's playlist and CrateBox data folders")
 
 
-def find_crate(playlist_id: str, playlist_directory: Path) -> Path:
-    matches = [path for path in playlist_files(playlist_directory) if path.stem == playlist_id]
+def find_crate(playlist_id: str, playlist_directory: Path, crate_directory: Path) -> Path:
+    matches = [path for path in crate_files(playlist_directory, crate_directory) if path.stem == playlist_id]
     if not matches:
         raise ApplicationNotFound("Playlist not found")
+    if len(matches) > 1:
+        raise ApplicationConflict("Playlist name is ambiguous")
     return matches[0]
 
 
@@ -361,7 +374,7 @@ def remove_crate_tracks(
     ):
         raise ApplicationValidationError("Select between 1 and 1000 unique tracks")
 
-    path = find_crate(playlist_id, playlist_directory)
+    path = find_crate(playlist_id, playlist_directory, crate_directory)
     lines, plan_path, plan, plan_data = _read_crate(path, crate_directory)
     entries = {
         track_id: (line_number, plan_index)
@@ -405,7 +418,7 @@ def replace_crate_track(
         raise ApplicationNotFound("Replacement track is unavailable; run lookup again")
     replacement_audio = Path(replacement_audio)
 
-    path = find_crate(playlist_id, playlist_directory)
+    path = find_crate(playlist_id, playlist_directory, crate_directory)
     lines, plan_path, plan, plan_data = _read_crate(path, crate_directory)
     entries = list(playlist_entries(path, lines, plan))
     source = next((entry for entry in entries if entry[3] == source_track_id), None)
@@ -459,7 +472,7 @@ def reorder_crate_tracks(
     ):
         raise ApplicationValidationError("Valid source and target playlist track IDs are required")
 
-    path = find_crate(playlist_id, playlist_directory)
+    path = find_crate(playlist_id, playlist_directory, crate_directory)
     lines, plan_path, plan, plan_data = _read_crate(path, crate_directory)
     original_entries = list(playlist_entries(path, lines, plan, include_missing=True))
     source_ids = set(source_track_ids)
@@ -506,10 +519,12 @@ def _editable_crate(
 ):
     if Path(default_playlist_directory).is_symlink() or Path(playlist_directory) != Path(default_playlist_directory):
         raise ApplicationForbidden("Playlist edits are limited to the app's playlists folder")
-    matches = [path for path in playlist_files(playlist_directory) if path.stem == playlist_id]
-    if len(matches) != 1 or matches[0].suffix.lower() != ".m3u8":
+    try:
+        path = find_crate(playlist_id, playlist_directory, crate_directory)
+    except ApplicationNotFound:
+        raise ApplicationConflict("Playlist edits require a CrateBox crate") from None
+    if path.suffix.lower() != ".m3u8":
         raise ApplicationConflict("Playlist edits require one unambiguous .m3u8 playlist")
-    path = matches[0]
     lines, _, plan, _ = _read_crate(path, crate_directory)
     if plan is None or plan[1] is None:
         raise ApplicationConflict("A valid track-ID and file-path plan is required to edit this playlist")
@@ -518,6 +533,10 @@ def _editable_crate(
 
 async def _validate_active_plan(plan, resolve_tracks) -> None:
     track_ids, file_paths = plan
+    if not track_ids:
+        if file_paths:
+            raise ApplicationConflict("The playlist and its track-ID plan are out of sync")
+        return
     locations = await resolve_tracks(track_ids=track_ids)
     if not isinstance(locations, list) or len(locations) != len(track_ids):
         raise ApplicationConflict("The playlist and its track-ID plan are out of sync")

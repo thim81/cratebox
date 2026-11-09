@@ -20,10 +20,10 @@ from core.mutations import playlist_mutation_lock
 from core.crates import (
     ApplicationError,
     atomic_write as core_atomic_write,
+    crate_files as core_crate_files,
     create_crate as core_create_crate,
     find_crate as core_find_crate,
     playlist_entries as core_playlist_entries,
-    playlist_files as core_playlist_files,
     parse_crate_tracks as core_parse_crate_tracks,
     read_plan_ids as core_read_plan_ids,
     remove_crate_tracks as core_remove_crate_tracks,
@@ -48,7 +48,7 @@ class PlaylistCreate(BaseModel):
     name: str
 
 def playlist_files():
-    return core_playlist_files(PLAYLIST_DIR)
+    return core_crate_files(PLAYLIST_DIR, CRATE_DIRECTORY)
 
 
 def playlist_entries(path: Path, lines: list[str], plan, *, include_missing: bool = False):
@@ -97,7 +97,7 @@ def playlist_summary(path: Path, tracks):
     }
 
 def find_playlist(playlist_id: str):
-    return _call_core(core_find_crate, playlist_id, PLAYLIST_DIR)
+    return _call_core(core_find_crate, playlist_id, PLAYLIST_DIR, CRATE_DIRECTORY)
 
 @router.get("/api/playlists")
 def list_playlists():

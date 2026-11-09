@@ -1,6 +1,8 @@
 # CrateBox
 
-**CrateBox — A direct, playful nod to Rekordbox, hinting at crate management and track prep.**
+<img src="./cratebox/public/logo/cratebox-logo.png" width="200"/>
+
+**CrateBox — Crate management and track prep for Rekordbox.**
 
 CrateBox is a local playlist workspace for preparing and playing DJ sets. Its UI, REST API, and MCP interface share one Core in the `cratebox/` app. A small protected Rekordbox adapter supplies generic snapshot-backed collection data.
 

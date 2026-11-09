@@ -232,6 +232,29 @@ def test_append_crate_tracks_validates_existing_snapshot_then_appends_in_order(t
     ]
 
 
+def test_append_to_empty_crate_does_not_resolve_an_empty_existing_id_list(tmp_path):
+    playlists, crates = tmp_path / "playlists", tmp_path / ".cratebox" / "crates"
+    playlists.mkdir()
+    create_crate("Empty", playlists, crates, playlists)
+    audio = tmp_path / "new-track.mp3"
+    audio.write_bytes(b"audio")
+    calls = []
+
+    async def resolve_tracks(**selector):
+        calls.append(selector)
+        track_ids = selector["track_ids"]
+        if not track_ids:
+            raise ValueError("Provide 1–1000 nonempty track IDs.")
+        return [{"id": track_ids[0], "file_path": str(audio), "title": "New track"}]
+
+    result = asyncio.run(append_crate_tracks(
+        "Empty", ["99"], resolve_tracks, playlists, crates, playlists,
+    ))
+
+    assert result["track_count"] == 1
+    assert calls == [{"track_ids": ["99"]}]
+
+
 def test_insert_crate_track_after_duplicate_row_uses_row_occurrence(tmp_path):
     playlists, crates, audio_paths = _write_crate(tmp_path, ["42", "42"])
     extra = tmp_path / "extra.mp3"

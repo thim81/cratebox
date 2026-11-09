@@ -85,3 +85,21 @@ def test_playlist_api_rejects_a_plan_path_that_does_not_match_m3u(tmp_path, monk
         playlists.parse_playlist(playlist)
 
     assert error.value.status_code == 409
+
+
+def test_playlist_list_ignores_export_m3u_without_crate_record(tmp_path, monkeypatch):
+    playlists_dir = tmp_path / "playlists"
+    crate_dir = tmp_path / ".cratebox" / "crates"
+    playlists_dir.mkdir()
+    crate_dir.mkdir(parents=True)
+    (playlists_dir / "Existing export.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    (playlists_dir / "Local crate.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    (crate_dir / "Local crate.json").write_text(json.dumps({
+        "format": 1, "name": "Local crate", "tracks": [],
+    }), encoding="utf-8")
+    monkeypatch.setattr(playlists, "PLAYLIST_DIR", playlists_dir)
+    monkeypatch.setattr(playlists, "CRATE_DIRECTORY", crate_dir)
+
+    listed = playlists.list_playlists()
+
+    assert [playlist["id"] for playlist in listed] == ["Local crate"]

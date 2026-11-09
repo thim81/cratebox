@@ -72,6 +72,7 @@ import {
   type Track,
 } from "@/lib/crate-data";
 import type { SeparatorType } from "@/lib/cratebox-api";
+import { confirmOnEnter } from "@/lib/dialog-actions";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -1618,7 +1619,7 @@ function Index() {
                   </Button>
                 )}
               <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {view.length} tracks
+                {view.length} tracks · {fmtTime(view.reduce((total, track) => total + track.duration, 0))}
               </span>
             </div>
             {playlistSource === "crate" ? (
@@ -1737,8 +1738,8 @@ function Index() {
               </div>
               <Button
                 size="icon"
-                variant={missingArtworkOnly ? "secondary" : "ghost"}
-                className="size-8 shrink-0"
+                variant="ghost"
+                className={`size-8 shrink-0 ${missingArtworkOnly ? "bg-primary/15 text-primary ring-1 ring-primary/50 hover:bg-primary/25" : ""}`}
                 aria-label={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
                 aria-pressed={missingArtworkOnly}
                 title={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
@@ -1870,6 +1871,9 @@ function Index() {
         }}
       >
         <DialogContent
+          onKeyDown={(event) =>
+            confirmOnEnter(event, () => void confirmRemoveTracks(), removingTracks)
+          }
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             removeConfirmRef.current?.focus();
@@ -1913,7 +1917,11 @@ function Index() {
           if (!open && !separatorInserting) setPendingSeparatorInsert(null);
         }}
       >
-        <DialogContent>
+        <DialogContent
+          onKeyDown={(event) =>
+            confirmOnEnter(event, () => void confirmAddSeparator(), separatorInserting)
+          }
+        >
           <DialogHeader>
             <DialogTitle>Insert separator?</DialogTitle>
             <DialogDescription>

@@ -183,7 +183,7 @@ export function CrateSidebar({
           crates.map((playlist) => (
             <div
               key={playlist.id}
-              className={`flex w-full items-center border-l-2 transition-colors ${playlist.id === activeId ? "border-primary bg-primary/15" : "border-transparent hover:bg-sidebar-accent/60"}`}
+              className={`flex w-full items-center border-b border-l-2 transition-colors ${playlist.id === activeId ? "border-primary bg-primary/15" : "border-b-sidebar-border border-l-transparent hover:bg-sidebar-accent/60"}`}
             >
               <button
                 onClick={() => onSelectPlaylist(playlist.id)}
@@ -224,7 +224,7 @@ export function CrateSidebar({
           </div>
         )}
         {source === "rekordbox" &&
-          rekordboxEntries.map((playlist, index) => (
+          rekordboxEntries.map((playlist) => (
             <button
               key={playlist.id}
               ref={playlist.id === activeRekordboxId ? activeRekordboxPlaylistRef : undefined}
@@ -233,7 +233,7 @@ export function CrateSidebar({
                   ? onOpenRekordboxFolder(playlist.id)
                   : onSelectRekordboxPlaylist(playlist.id)
               }
-              className={`flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left transition-colors ${playlist.id === activeRekordboxId ? "border-primary bg-primary/15" : "border-transparent hover:bg-sidebar-accent/60"}`}
+              className={`flex w-full items-center gap-2 border-b border-l-2 border-b-sidebar-border px-3 py-2 text-left transition-colors ${playlist.id === activeRekordboxId ? "border-l-primary bg-primary/15" : "border-l-transparent hover:bg-sidebar-accent/60"}`}
             >
               {playlist.is_folder ? (
                 <Folder
@@ -256,9 +256,6 @@ export function CrateSidebar({
                   {playlist.is_folder ? "Folder" : `${playlist.track_count} trk`}
                   {playlist.is_smart_playlist ? " · Smart" : ""}
                 </span>
-              </span>
-              <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-                {index + 1}
               </span>
             </button>
           ))}

@@ -174,6 +174,26 @@ def test_set_audio_rating_updates_mp3_and_preserves_audio_and_tags(tmp_path):
     assert not (tmp_path / "audio-backups").exists()
 
 
+def test_set_audio_rating_preserves_existing_id3v1_tag(tmp_path):
+    source = tmp_path / "track.mp3"
+    synthetic_mp3(source)
+    legacy_tag = (
+        b"TAG"
+        + b"Legacy title".ljust(30, b"\x00")
+        + b"Legacy artist".ljust(30, b"\x00")
+        + b"Legacy album".ljust(30, b"\x00")
+        + b"1999"
+        + b"Legacy comment".ljust(30, b"\x00")
+        + b"\x0f"
+    )
+    with source.open("ab") as audio_file:
+        audio_file.write(legacy_tag)
+
+    artwork_write.set_audio_rating(source, 4)
+
+    assert source.read_bytes()[-128:] == legacy_tag
+
+
 def test_set_audio_rating_updates_m4a_and_preserves_other_tags(tmp_path):
     source = tmp_path / "track.m4a"
     synthetic_m4a(source)
