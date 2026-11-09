@@ -145,7 +145,7 @@ export function TrackTable({
   );
 
   return (
-    <div ref={scrollportRef} className="flex min-h-0 flex-1 overflow-auto">
+    <div ref={scrollportRef} className="min-h-0 flex-1 overflow-auto">
       <table className="w-full border-collapse text-xs">
         <thead className="text-[10px] text-muted-foreground">
           <tr>

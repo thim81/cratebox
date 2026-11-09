@@ -70,7 +70,7 @@ describe("TrackTable", () => {
       root.render(<TrackTable {...makeProps([], 0, new Set())} />),
     );
 
-    expect(container.querySelector(".flex.min-h-0.flex-1.overflow-auto")).not.toBeNull();
+    expect(container.querySelector(".min-h-0.flex-1.overflow-auto")).not.toBeNull();
   });
 
   it("scrolls the selected row inside the tracklist viewport", () => {

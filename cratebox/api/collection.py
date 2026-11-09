@@ -100,6 +100,10 @@ async def collection_lookup(request: CollectionLookup):
             public_match = dict(match)
             raw_path = public_match.pop("file_path", None)
             match_id = str(public_match.get("id") or "")
+            public_match["duration"] = int(
+                public_match.get("duration") or public_match.get("length") or 0
+            )
+            public_match.pop("length", None)
             public_match["cue_count"] = int(public_match.get("cue_count") or 0)
             public_match["playlist_count"] = int(public_match.get("playlist_count") or 0)
             public_match["playlists"] = [
