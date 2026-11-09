@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlsplit
 import zlib
 
 from mutagen import MutagenError
-from mutagen.id3 import APIC, ID3, POPM
+from mutagen.id3 import APIC, ID3, POPM, ParseID3v1
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 
@@ -34,12 +34,69 @@ def _mp3_audio_hash(path: Path) -> str:
         header = stream.read(10)
         if header[:3] == b"ID3" and len(header) == 10:
             tag_size = sum((header[6 + offset] & 0x7F) << (7 * (3 - offset)) for offset in range(4))
-            stream.seek(10 + tag_size)
+            start = 10 + tag_size
         else:
-            stream.seek(0)
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            start = 0
+        stream.seek(0, os.SEEK_END)
+        end = stream.tell()
+        if end >= 128:
+            stream.seek(-128, os.SEEK_END)
+            legacy_tag = stream.read(128)
+            if legacy_tag[:3] == b"TAG" and ParseID3v1(legacy_tag, v2_version=4) is not None:
+                end -= 128
+        stream.seek(start)
+        while stream.tell() < end:
+            block = stream.read(min(1024 * 1024, end - stream.tell()))
+            if not block:
+                break
             digest.update(block)
     return digest.hexdigest()
+
+
+def _mp3_id3v2_end(path: Path) -> int:
+    with path.open("rb") as stream:
+        header = stream.read(10)
+    if header[:3] != b"ID3" or len(header) != 10:
+        return 0
+    tag_size = sum((header[6 + offset] & 0x7F) << (7 * (3 - offset)) for offset in range(4))
+    return 10 + tag_size
+
+
+def _mp3_bytes_after_id3v2(path: Path) -> bytes:
+    with path.open("rb") as stream:
+        stream.seek(_mp3_id3v2_end(path))
+        return stream.read()
+
+
+def _restore_mp3_bytes_after_id3v2(path: Path, tail: bytes) -> None:
+    with path.open("r+b") as stream:
+        stream.seek(_mp3_id3v2_end(path))
+        stream.write(tail)
+        stream.truncate()
+
+
+def _mp3_id3v1_tag(path: Path) -> bytes | None:
+    with path.open("rb") as stream:
+        stream.seek(0, os.SEEK_END)
+        if stream.tell() < 128:
+            return None
+        stream.seek(-128, os.SEEK_END)
+        tag = stream.read(128)
+    return tag if tag[:3] == b"TAG" and ParseID3v1(tag, v2_version=4) is not None else None
+
+
+def _mp3_id3v1_conflicts_with_id3v2(path: Path, version: int) -> bool:
+    legacy_tag = _mp3_id3v1_tag(path)
+    if legacy_tag is None:
+        return False
+
+    legacy_frames = ParseID3v1(legacy_tag, v2_version=version) or {}
+    v2_tags = ID3(path, load_v1=False, v2_version=version)
+    for legacy in legacy_frames.values():
+        matches = [frame for frame in v2_tags.getall(legacy.FrameID) if frame.HashKey == legacy.HashKey]
+        if matches and not any(str(frame) == str(legacy) for frame in matches):
+            return True
+    return False
 
 
 def _mp3_non_cratebox_tags(tags: ID3):
@@ -67,11 +124,13 @@ def set_audio_rating(source: Path, rating: int) -> None:
             if original.info is None:
                 raise ArtworkWriteError("The selected MP3 is not readable")
             duration = original.info.length
+            had_legacy_tag = _mp3_id3v1_tag(source) is not None
             version = original.tags.version[1] if original.tags else 3
             if version not in (3, 4):
                 raise ArtworkWriteError("Only MP3 files with ID3v2.3 or ID3v2.4 tags are supported")
             audio_hash = _mp3_audio_hash(source)
             tag_snapshot = _mp3_non_cratebox_tags(original.tags or ID3())
+            preserve_legacy_tag = _mp3_id3v1_conflicts_with_id3v2(source, version)
             fingerprint = _fingerprint(source)
         else:
             original = MP4(source)
@@ -98,13 +157,19 @@ def set_audio_rating(source: Path, rating: int) -> None:
                     del staged.tags[key]
             raw_rating = (0, 51, 102, 153, 204, 255)[rating]
             staged.tags.add(POPM(email="cratebox", rating=raw_rating, count=0))
-            staged.save(v2_version=version)
+            original_tail = _mp3_bytes_after_id3v2(temporary) if preserve_legacy_tag else None
+            staged.tags.save(temporary, v2_version=version, v1=1 if preserve_legacy_tag else 0)
+            if original_tail is not None:
+                _restore_mp3_bytes_after_id3v2(temporary, original_tail)
             verified = MP3(temporary)
             from core.audio_metadata import read_embedded_rating
 
             if (
                 verified.info is None
-                or abs(verified.info.length - duration) > 1e-6
+                or (
+                    abs(verified.info.length - duration) > 1e-6
+                    and not (had_legacy_tag and not preserve_legacy_tag)
+                )
                 or _mp3_audio_hash(temporary) != audio_hash
                 or _mp3_non_cratebox_tags(verified.tags or ID3()) != tag_snapshot
                 or read_embedded_rating(temporary) != rating

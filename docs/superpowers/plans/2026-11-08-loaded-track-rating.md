@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - “Resolve the audio file on the server from the active CrateBox crate or verified Rekordbox playlist membership. Keep file paths out of browser responses.”
-- “Stage, verify, then atomically replace the file; preserve audio data and other tags, and retain no backup. Reject unsupported formats or unsafe files without changing them.”
+- “Stage, verify, then atomically replace the file; preserve audio data and other metadata values, and retain no backup. Migrate ID3v1 fields into ID3v2 and remove ID3v1 only when all values are preserved without conflicts; otherwise retain the ID3v1 tag unchanged. Reject unsupported formats or unsafe files without changing them.”
 - “Rekordbox's database rating remains unchanged.”
 - “Update `AGENTS.md` to allow only this narrowly scoped rating write in addition to embedded artwork edits.”
 

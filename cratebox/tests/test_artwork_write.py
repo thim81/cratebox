@@ -6,7 +6,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-from mutagen.id3 import APIC, POPM, TALB, TIT2, TXXX
+from mutagen.id3 import APIC, ID3, POPM, TALB, TIT2, TXXX
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
 
@@ -192,6 +192,40 @@ def test_set_audio_rating_preserves_existing_id3v1_tag(tmp_path):
     artwork_write.set_audio_rating(source, 4)
 
     assert source.read_bytes()[-128:] == legacy_tag
+    migrated = ID3(source, load_v1=False)
+    assert str(migrated["TIT2"]) == "Test track"
+    assert str(migrated["TPE1"]) == "Legacy artist"
+    assert str(migrated["TALB"]) == "Legacy album"
+    assert any(frame.email == "cratebox" and frame.rating == 204 for frame in migrated.getall("POPM"))
+
+
+def test_set_audio_rating_migrates_nonconflicting_id3v1_data_to_id3v2(tmp_path):
+    source = tmp_path / "track.mp3"
+    synthetic_mp3(source)
+    legacy_tag = (
+        b"TAG"
+        + b"Test track".ljust(30, b"\x00")
+        + b"Legacy artist".ljust(30, b"\x00")
+        + b"Legacy album".ljust(30, b"\x00")
+        + b"1999"
+        + b"Legacy comment".ljust(28, b"\x00")
+        + b"\x00\x07"
+        + b"\x11"
+    )
+    with source.open("ab") as audio_file:
+        audio_file.write(legacy_tag)
+
+    artwork_write.set_audio_rating(source, 4)
+
+    tags = ID3(source, load_v1=False, v2_version=3)
+    assert source.read_bytes()[-128:-125] != b"TAG"
+    assert str(tags["TIT2"]) == "Test track"
+    assert str(tags["TPE1"]) == "Legacy artist"
+    assert str(tags["TALB"]) == "Legacy album"
+    assert str(tags["TYER"]) == "1999"
+    assert str(tags["TRCK"]) == "7"
+    assert str(tags["TCON"]) == "Rock"
+    assert any(frame.desc == "ID3v1 Comment" and str(frame) == "Legacy comment" for frame in tags.getall("COMM"))
 
 
 def test_set_audio_rating_updates_m4a_and_preserves_other_tags(tmp_path):
