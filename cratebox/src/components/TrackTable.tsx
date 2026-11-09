@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -102,11 +102,24 @@ export function TrackTable({
   onReorder,
 }: TrackTableProps) {
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const scrollportRef = useRef<HTMLDivElement>(null);
   const draggedTrackIds = useRef<string[]>([]);
   const [dropTarget, setDropTarget] = useState<{ trackId: string; before: boolean } | null>(null);
 
-  useEffect(() => {
-    rowRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
+  useLayoutEffect(() => {
+    const row = rowRefs.current[selectedIndex];
+    const scrollport = scrollportRef.current;
+    if (!row || !scrollport) return;
+
+    const scrollportBounds = scrollport.getBoundingClientRect();
+    const stickyHeaderHeight = scrollport.querySelector("thead")?.getBoundingClientRect().height ?? 0;
+    const rowBounds = row.getBoundingClientRect();
+    const visibleTop = scrollportBounds.top + stickyHeaderHeight;
+    if (rowBounds.top < visibleTop) {
+      scrollport.scrollTop += rowBounds.top - visibleTop;
+    } else if (rowBounds.bottom > scrollportBounds.bottom) {
+      scrollport.scrollTop += rowBounds.bottom - scrollportBounds.bottom;
+    }
   }, [selectedIndex]);
 
   const Th = ({
@@ -132,7 +145,7 @@ export function TrackTable({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-auto">
+    <div ref={scrollportRef} className="flex min-h-0 flex-1 overflow-auto">
       <table className="w-full border-collapse text-xs">
         <thead className="text-[10px] text-muted-foreground">
           <tr>
