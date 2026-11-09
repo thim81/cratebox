@@ -226,7 +226,9 @@ def parse_crate_tracks(
             audio_bpm = 0
         bitrate = getattr(info, "bitrate", 0) or 0
         plan_rating = plan_number("rating", -1, integer=True)
-        embedded_rating = read_embedded_rating(audio)
+        embedded_rating = read_embedded_rating(
+            audio, fallback=plan_rating if 0 < plan_rating <= 5 else None,
+        )
         plan_playlists = plan_metadata.get("playlists")
         playlists = [
             {"id": item["id"], "name": item["name"]}

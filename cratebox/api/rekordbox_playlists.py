@@ -223,7 +223,11 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
         bitrate = getattr(getattr(media, "info", None), "bitrate", 0) or 0
         audio_format = audio_path.suffix[1:].upper()
         quality = f"{audio_format} {bitrate // 1000}kbps" if bitrate else audio_format
-        file_rating = read_embedded_rating(audio_path)
+        rekordbox_rating = int(record.get("rating") or 0)
+        file_rating = read_embedded_rating(
+            audio_path,
+            fallback=rekordbox_rating if 0 < rekordbox_rating <= 5 else None,
+        )
         tracks.append({
             "id": f"{rekordbox_id}-{occurrence + 1}",
             "rekordbox_id": rekordbox_id,
@@ -231,7 +235,7 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
             "artist": str(record.get("artist") or ""),
             "album": str(record.get("album") or ""),
             "duration": int(record.get("length") or 0),
-            "rating": file_rating if file_rating is not None else int(record.get("rating") or 0),
+            "rating": file_rating if file_rating is not None else rekordbox_rating,
             "play_count": int(record.get("play_count") or 0),
             "cue_count": int(record.get("cue_count") or 0),
             "playlist_count": int(record.get("playlist_count") or 0),

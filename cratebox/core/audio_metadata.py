@@ -15,8 +15,8 @@ def _rating_value(value: object) -> int | None:
     return rating if 0 <= rating <= 5 else None
 
 
-def read_embedded_rating(path: Path) -> int | None:
-    """Return the CrateBox rating tag, or None when the file has no valid rating."""
+def read_embedded_rating(path: Path, *, fallback: int | None = None) -> int | None:
+    """Return the embedded rating, using metadata when a foreign tag says zero."""
     path = Path(path)
     try:
         if path.suffix.lower() == ".mp3":
@@ -25,7 +25,10 @@ def read_embedded_rating(path: Path) -> int | None:
             frames = cratebox or tags.getall("POPM")
             if frames:
                 value = max(int(frame.rating) for frame in frames)
-                return 0 if value == 0 else min(5, (value * 5 + 127) // 255)
+                rating = 0 if value == 0 else min(5, (value * 5 + 127) // 255)
+                if rating == 0 and not cratebox and fallback is not None:
+                    return fallback
+                return rating
             for frame in tags.getall("TXXX"):
                 if frame.desc.strip().casefold() != "rating" or not frame.text:
                     continue
@@ -34,11 +37,14 @@ def read_embedded_rating(path: Path) -> int | None:
                 except (TypeError, ValueError):
                     continue
                 if 0 <= value <= 5:
-                    return round(value)
+                    rating = round(value)
+                    return fallback if rating == 0 and fallback is not None else rating
                 if 5 < value <= 100:
-                    return min(5, round(value / 20))
+                    rating = min(5, round(value / 20))
+                    return fallback if rating == 0 and fallback is not None else rating
                 if 100 < value <= 255:
-                    return min(5, round(value * 5 / 255))
+                    rating = min(5, round(value * 5 / 255))
+                    return fallback if rating == 0 and fallback is not None else rating
             return None
 
         if path.suffix.lower() == ".m4a":
