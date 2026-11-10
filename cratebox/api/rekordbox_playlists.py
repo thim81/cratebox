@@ -211,6 +211,7 @@ async def get_rekordbox_playlists():
             "is_folder": bool(record.get("is_folder")),
             "is_smart_playlist": bool(record.get("is_smart_playlist")),
             "track_count": int(record.get("track_count") or 0),
+            "duration": int(record.get("duration") or 0),
             "created_date": record.get("created_date"),
             "sequence": int(record.get("sequence") or 0),
         }

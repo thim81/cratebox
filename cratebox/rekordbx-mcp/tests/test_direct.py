@@ -212,3 +212,13 @@ def test_soft_deleted_entries_do_not_count_toward_active_positions(library, tmp_
     assert [e['position'] for e in state['entries']] == [1,2,3,4]
     with encrypted_connection(library) as conn:
         assert conn.execute("SELECT TrackNo, rb_local_deleted FROM djmdSongPlaylist WHERE ID='old'").fetchone() == (4,1)
+
+
+async def test_playlist_summary_duration_counts_repeated_active_tracks(library, tmp_path):
+    import json
+    from fastmcp import Client
+    from rekordbx_mcp.server import build_server
+    async with Client(build_server(library, tmp_path / 'backups')) as client:
+        result = await client.call_tool('get_playlists')
+        playlists = json.loads(result.content[0].text)
+        assert playlists[0]['duration'] == 640  # 320-second track appears twice; missing lengths count as zero

@@ -37,6 +37,7 @@ export interface RekordboxPlaylist {
   is_folder: boolean;
   is_smart_playlist: boolean;
   track_count: number;
+  duration: number;
   created_date: string | null;
   sequence: number;
 }

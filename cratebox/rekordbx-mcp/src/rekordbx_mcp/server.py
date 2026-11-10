@@ -116,15 +116,23 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
                 await ensure_connected()
                 result = await complete_before_cancellation(original(*args, **kwargs))
                 if tool_name == "get_playlists":
-                    def playlist_sequences():
+                    def playlist_summaries():
+                        durations = dict(database.db.session.query(
+                            DjmdSongPlaylist.PlaylistID, func.sum(DjmdContent.Length),
+                        ).join(DjmdContent, DjmdContent.ID == DjmdSongPlaylist.ContentID).filter(
+                            DjmdSongPlaylist.rb_local_deleted == 0, DjmdContent.rb_local_deleted == 0,
+                        ).group_by(DjmdSongPlaylist.PlaylistID).all())
                         return {
-                            str(playlist.ID): int(getattr(playlist, "Seq", 0) or 0)
+                            str(playlist.ID): {
+                                'sequence': int(getattr(playlist, 'Seq', 0) or 0),
+                                'duration': int(durations.get(str(playlist.ID)) or 0),
+                            }
                             for playlist in database.db.get_playlist()
                         }
 
-                    sequences = await run_database_operation(playlist_sequences)
+                    summaries = await run_database_operation(playlist_summaries)
                     result = [
-                        {**playlist, "sequence": sequences.get(str(playlist.get("id") or ""), 0)}
+                        {**playlist, **summaries.get(str(playlist.get('id') or ''), {})}
                         for playlist in result
                     ]
                 elif tool_name == "get_playlist_tracks" and isinstance(result, list):

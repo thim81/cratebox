@@ -310,29 +310,29 @@ export function CrateSidebar({
                   ? onOpenRekordboxFolder(playlist.id)
                   : onSelectRekordboxPlaylist(playlist.id)
               }
-              className={`flex w-full items-center gap-2 border-b border-l-2 border-b-sidebar-border px-3 py-2 pr-10 text-left transition-colors ${playlist.id === activeRekordboxId ? "border-l-primary bg-primary/15" : "border-l-transparent hover:bg-sidebar-accent/60"}`}
+              className={`w-full min-w-0 border-b border-l-2 border-b-sidebar-border px-3 py-2 pr-10 text-left transition-colors ${playlist.id === activeRekordboxId ? "border-l-primary bg-primary/15" : "border-l-transparent hover:bg-sidebar-accent/60"}`}
             >
-              {playlist.is_folder ? (
-                <Folder
-                  size={14}
-                  className={`shrink-0 ${playlist.id === activeRekordboxId ? "text-primary" : "text-muted-foreground"}`}
-                />
-              ) : (
-                <ListMusic
-                  size={14}
-                  className={`shrink-0 ${playlist.id === activeRekordboxId ? "text-primary" : "text-muted-foreground"}`}
-                />
-              )}
-              <span className="min-w-0 flex-1">
-                <span
-                  className={`block truncate text-sm font-medium ${playlist.id === activeRekordboxId ? "text-primary" : ""}`}
-                >
+              <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                <span className="relative flex size-5 shrink-0 items-center justify-center">
+                  {playlist.is_folder ? (
+                    <Folder size={14} className={playlist.id === activeRekordboxId ? 'text-primary' : 'text-muted-foreground'} />
+                  ) : (
+                    <ListMusic size={14} className={playlist.id === activeRekordboxId ? 'text-primary' : 'text-muted-foreground'} />
+                  )}
+                </span>
+                <span className={`truncate ${playlist.id === activeRekordboxId ? 'text-primary' : ''}`}>
                   {playlist.name}
                 </span>
-                <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">
-                  {playlist.is_folder ? "Folder" : `${playlist.track_count} trk`}
-                  {playlist.is_smart_playlist ? " · Smart" : ""}
-                </span>
+              </span>
+              <span className="mt-0.5 flex gap-3 pl-6 font-mono text-[10px] text-muted-foreground">
+                {playlist.is_folder ? <span>Folder</span> : (
+                  <>
+                    <span>{playlist.track_count} trk</span>
+                    <span>{fmtTime(playlist.duration)}</span>
+                    {playlist.created_date && <span>{playlist.created_date.slice(0, 10)}</span>}
+                  </>
+                )}
+                {playlist.is_smart_playlist && <span>Smart</span>}
               </span>
             </button>
             {playlist.id === activeRekordboxId && rekordboxEditable && !playlist.is_folder && !playlist.is_smart_playlist && (
@@ -340,7 +340,7 @@ export function CrateSidebar({
                 aria-label={`Rename ${playlist.name}`} title="Rename playlist"
                 onClick={() => {
                   setRenameName(playlist.name);
-                  setRenamePlaylist({ id: playlist.id, name: playlist.name, created: '', trackCount: playlist.track_count, duration: 0 });
+                  setRenamePlaylist({ id: playlist.id, name: playlist.name, created: playlist.created_date ?? '', trackCount: playlist.track_count, duration: playlist.duration });
                 }}><Pencil size={14} /></Button>
             )}
             </div>

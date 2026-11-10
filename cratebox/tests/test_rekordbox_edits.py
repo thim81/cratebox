@@ -40,3 +40,11 @@ def test_database_mutations_reject_remote_browser_origins():
     with pytest.raises(api.HTTPException) as caught:
         api.require_local_playlist_origin(request)
     assert caught.value.status_code == 403
+
+
+def test_playlist_summary_keeps_total_duration(monkeypatch):
+    async def records():
+        return [{'id':'100', 'name':'Set', 'track_count':3, 'duration':640}]
+    monkeypatch.setattr(api, 'playlist_records', records)
+    summaries = asyncio.run(api.get_rekordbox_playlists())
+    assert summaries[0]['duration'] == 640
