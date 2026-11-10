@@ -1,4 +1,4 @@
-"""Read-only Rekordbox playlist browsing and local playlist operations."""
+"""Direct Rekordbox playlist browsing/editing and local playlist operations."""
 
 import json
 import logging
@@ -7,7 +7,7 @@ from typing import Literal
 
 import mutagen
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .artwork_data import embedded_artwork
 from .collection import collection_mcp
@@ -26,6 +26,21 @@ from core.crates import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class PlaylistEdit(BaseModel):
+    action: Literal['rename', 'add', 'remove', 'swap', 'move']
+    expected_revision: str = Field(min_length=1)
+    name: str | None = None
+    entry_ids: list[str] | None = None
+    track_ids: list[str] | None = None
+    position: int | None = None
+    target_entry_id: str | None = None
+    before: bool = True
+
+
+class RekordboxPlaylistCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
 
 
 class CopyPlaylistRequest(BaseModel):
@@ -84,6 +99,21 @@ async def call_tool(name: str, arguments: dict | None = None):
     if result.is_error:
         message = next((item.text for item in result.content if hasattr(item, "text")), "")
         logger.error("Rekordbox MCP tool returned an error (%s): %s", name, message)
+        if name in {'edit_playlist', 'get_playlist_state', 'get_playlist_tracks', 'get_playlists'}:
+            safe_errors = [
+                ('close rekordbox', 409, 'Close Rekordbox and its background agents to access the collection.'),
+                ('process inspection', 503, 'Cannot verify Rekordbox is closed. Try again after closing it and its agents.'),
+                ('playlist changed', 409, 'Playlist changed; reload it before editing.'),
+                ('busy', 409, 'Rekordbox database is busy. Try the action again.'),
+                ('backup', 503, 'A verified database backup is unavailable. The edit was blocked.'),
+                ('recovery required', 503, 'Database recovery required. Inspect and restore a verified backup before editing.'),
+                ('smart playlist', 400, 'Folders and smart playlists cannot be edited.'),
+                ('playlist not found', 404, 'Rekordbox playlist not found.'),
+                ('track is not active', 409, 'Track is no longer active in the collection.'),
+            ]
+            for needle, code, detail in safe_errors:
+                if needle in message.lower():
+                    raise HTTPException(code, detail)
         if "already exists" in message.lower():
             raise HTTPException(409, "A CrateBox playlist with this name already exists.")
         if name == "get_collection_tracks":
@@ -229,7 +259,7 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
             fallback=rekordbox_rating if 0 < rekordbox_rating <= 5 else None,
         )
         tracks.append({
-            "id": f"{rekordbox_id}-{occurrence + 1}",
+            "id": str(record.get("playlist_entry_id") or f"{rekordbox_id}-{occurrence + 1}"),
             "rekordbox_id": rekordbox_id,
             "title": str(record.get("title") or ""),
             "artist": str(record.get("artist") or ""),
@@ -251,6 +281,29 @@ async def get_rekordbox_playlist_tracks(playlist_id: str):
             "has_artwork": embedded_artwork(audio_path) is not None,
         })
     return tracks
+
+
+@router.get('/api/rekordbox/playlists/{playlist_id}/detail')
+async def get_rekordbox_playlist_detail(playlist_id: str):
+    state = await call_tool('get_playlist_state', {'playlist_id': playlist_id})
+    tracks = await get_rekordbox_playlist_tracks(playlist_id)
+    after = await call_tool('get_playlist_state', {'playlist_id': playlist_id})
+    if state.get('revision') != after.get('revision') or [
+        (track['id'], track['rekordbox_id']) for track in tracks
+    ] != [(entry['entry_id'], entry['track_id']) for entry in state['entries']]:
+        raise HTTPException(409, 'Playlist changed; reload it before editing.')
+    return {'id': state['id'], 'name': state.get('name', ''),
+            'revision': state['revision'], 'editable': state.get('editable', False), 'tracks': tracks}
+
+
+@router.post('/api/rekordbox/playlists')
+async def create_rekordbox_playlist(request: RekordboxPlaylistCreate):
+    return await call_tool('edit_playlist', {'action': 'create', 'name': request.name})
+
+
+@router.post('/api/rekordbox/playlists/{playlist_id}/edit')
+async def edit_rekordbox_playlist(playlist_id: str, request: PlaylistEdit):
+    return await call_tool('edit_playlist', {'playlist_id': playlist_id, **request.model_dump()})
 
 
 @router.post("/api/rekordbox/playlists/{playlist_id}/copy")

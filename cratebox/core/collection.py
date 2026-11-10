@@ -1,8 +1,9 @@
-"""Serialized client for the protected, generic Rekordbox collection MCP."""
+"""Serialized client for the generic direct-access Rekordbox collection MCP."""
 
 import asyncio
 from contextlib import suppress
 import logging
+import os
 from pathlib import Path
 
 from fastmcp import Client
@@ -20,7 +21,7 @@ class CollectionConnectionError(Exception):
 
 
 class CollectionClient:
-    """Own connection lifecycle and serialize calls to the read-only provider."""
+    """Own connection lifecycle and serialize calls to the collection provider."""
 
     def __init__(self, project: Path):
         self.state = "idle"
@@ -43,9 +44,14 @@ class CollectionClient:
                 return self.client
             self.state = "starting"
             self.message = None
+            args = ['run', '--locked', '--offline', 'rekordbx-mcp', 'start']
+            if os.environ.get('REKORDBOX_DATABASE'):
+                args += ['--source', os.environ['REKORDBOX_DATABASE']]
+            if os.environ.get('REKORDBOX_BACKUP_DIRECTORY'):
+                args += ['--backup-directory', os.environ['REKORDBOX_BACKUP_DIRECTORY']]
             transport = StdioTransport(
                 command="uv",
-                args=["run", "--locked", "--offline", "rekordbx-mcp", "start"],
+                args=args,
                 cwd=str(self.project),
             )
             client = Client(transport, timeout=120, init_timeout=120)
