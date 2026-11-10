@@ -41,12 +41,14 @@ import {
   appendRekordboxTracks,
   insertRekordboxTrackAfter,
   copyRekordboxPlaylist,
+  deleteCratePlaylist,
   deletePlaylistTracks,
   getCollectionStatus,
   createPlaylist,
   getPlaylist,
   getPlaylistRevision,
   getPlaylists,
+  renameCratePlaylist,
   getRekordboxPlaylists,
   getRekordboxPlaylistTracks,
   insertPlaylistSeparator,
@@ -137,6 +139,19 @@ function Index() {
       replace: true,
     });
   }, [navigate]);
+  const clearCrateUrl = useCallback(() => {
+    void navigate({
+      search: (previous) => {
+        const next = { ...previous };
+        delete next.crate_playlist_id;
+        delete next.crate_track_id;
+        delete next.rekordbox_playlist_id;
+        delete next.rekordbox_track_id;
+        return next;
+      },
+      replace: true,
+    });
+  }, [navigate]);
   const [apiUrl, setApiUrl] = useState("http://localhost:8000");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [lightMode, setLightMode] = useState(false);
@@ -170,6 +185,7 @@ function Index() {
   const [copyName, setCopyName] = useState("");
   const [copyConflict, setCopyConflict] = useState(false);
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
+  const [renamingCratePlaylist, setRenamingCratePlaylist] = useState(false);
   const [collectionStatus, setCollectionStatus] = useState<CollectionStatus>({
     state: "idle",
     message: null,
@@ -205,6 +221,11 @@ function Index() {
     playlistName: string;
   } | null>(null);
   const [removingTracks, setRemovingTracks] = useState(false);
+  const [pendingPlaylistDeletion, setPendingPlaylistDeletion] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [deletingPlaylist, setDeletingPlaylist] = useState(false);
   const [ratingSaving, setRatingSaving] = useState(false);
   const [separatorType, setSeparatorType] = useState<SeparatorType>("generic");
   const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
@@ -244,6 +265,7 @@ function Index() {
   const deck = useRef<DeckHandle>(null);
   const tracklistSearchRef = useRef<HTMLInputElement>(null);
   const removeConfirmRef = useRef<HTMLButtonElement>(null);
+  const deletePlaylistCancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (localStorage.getItem("crate-box-theme") === "light") {
@@ -276,7 +298,7 @@ function Index() {
   }, [apiUrl]);
 
   const playlistMutationInProgress = Boolean(
-    creatingPlaylist || removingTracks || separatorInserting || reordering
+    creatingPlaylist || renamingCratePlaylist || deletingPlaylist || removingTracks || separatorInserting || reordering
       || copyingRekordboxId || appendingTrackId || addingCollectionTrackId,
   );
 
@@ -351,6 +373,73 @@ function Index() {
       setCreatingPlaylist(false);
     }
   }, [apiUrl, updateCrateUrl]);
+
+  const renamePlaylist = useCallback(async (playlist: Playlist, name: string) => {
+    setRenamingCratePlaylist(true);
+    try {
+      const renamed = await renameCratePlaylist(apiUrl, playlist.id, name);
+      setPlaylists((current) => current.map((item) =>
+        item.id === playlist.id ? { ...item, id: renamed.id, name: renamed.name } : item,
+      ));
+      const oldSelectionKey = `crate:${playlist.id}`;
+      const selectedId = selectedTrackByPlaylist.current.get(oldSelectionKey);
+      selectedTrackByPlaylist.current.delete(oldSelectionKey);
+      if (selectedId) selectedTrackByPlaylist.current.set(`crate:${renamed.id}`, selectedId);
+      if (activeId === playlist.id && playlistSource === "crate") {
+        setTracks([]);
+        setActiveId(renamed.id);
+        setSelectedTrackIds(selectedId ? new Set([selectedId]) : new Set());
+        updateCrateUrl(renamed.id, selectedId);
+      }
+      setLoaded((current) => current?.playlist === playlist.name
+        ? {
+            ...current,
+            playlist: renamed.name,
+            track: {
+              ...current.track,
+              url: `/api/stream?playlist_id=${encodeURIComponent(renamed.id)}&track_id=${encodeURIComponent(current.track.id)}`,
+              artwork_url: `/api/playlists/${encodeURIComponent(renamed.id)}/tracks/${encodeURIComponent(current.track.id)}/artwork`,
+            },
+          }
+        : current);
+      toast.success(`Renamed “${playlist.name}” to “${renamed.name}”.`);
+      return true;
+    } catch (error) {
+      toast.error(`Couldn't rename playlist (${error instanceof Error ? error.message : "request failed"})`);
+      return false;
+    } finally {
+      setRenamingCratePlaylist(false);
+    }
+  }, [activeId, apiUrl, playlistSource, updateCrateUrl]);
+
+  const confirmDeletePlaylist = useCallback(async () => {
+    const pending = pendingPlaylistDeletion;
+    if (!pending) return;
+    setDeletingPlaylist(true);
+    try {
+      await deleteCratePlaylist(apiUrl, pending.id);
+      const nextPlaylists = playlists.filter((playlist) => playlist.id !== pending.id);
+      setPlaylists(nextPlaylists);
+      if (activeId === pending.id && playlistSource === "crate") {
+        const deletedIndex = playlists.findIndex((playlist) => playlist.id === pending.id);
+        const next = nextPlaylists[Math.min(deletedIndex, nextPlaylists.length - 1)];
+        selectedTrackByPlaylist.current.delete(`crate:${pending.id}`);
+        setTracks([]);
+        setSel(0);
+        setSelectedTrackIds(new Set());
+        setRangeAnchor(null);
+        setActiveId(next?.id ?? "");
+        if (next) updateCrateUrl(next.id);
+        else clearCrateUrl();
+      }
+      setPendingPlaylistDeletion(null);
+      toast.success(`Deleted “${pending.name}”.`);
+    } catch (error) {
+      toast.error(`Couldn't delete playlist (${error instanceof Error ? error.message : "request failed"})`);
+    } finally {
+      setDeletingPlaylist(false);
+    }
+  }, [activeId, apiUrl, clearCrateUrl, pendingPlaylistDeletion, playlistSource, playlists, updateCrateUrl]);
 
   const refreshCollectionStatus = useCallback(async () => {
     try {
@@ -1529,6 +1618,7 @@ function Index() {
 
       <div className="flex min-h-0 flex-1">
         <CrateSidebar
+          apiUrl={apiUrl}
           lightMode={lightMode}
           playlists={playlists}
           rekordboxPlaylists={rekordboxPlaylists}
@@ -1547,7 +1637,11 @@ function Index() {
           onRefresh={() => void refreshPlaylists()}
           onRefreshRekordbox={() => void refreshRekordboxPlaylists()}
           onCreatePlaylist={createCratePlaylist}
+          onRenamePlaylist={renamePlaylist}
           onSelectPlaylist={selectCratePlaylist}
+          onDeletePlaylist={(playlist) =>
+            setPendingPlaylistDeletion({ id: playlist.id, name: playlist.name })
+          }
           onSelectRekordboxPlaylist={setActiveRekordboxId}
           onOpenRekordboxFolder={(folderId) => {
             setRekordboxFolderId(folderId);
@@ -1906,6 +2000,48 @@ function Index() {
             >
               {removingTracks ? <LoaderCircle size={14} className="animate-spin" /> : null}
               Remove
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingPlaylistDeletion !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingPlaylist) setPendingPlaylistDeletion(null);
+        }}
+      >
+        <DialogContent
+          onKeyDown={(event) =>
+            confirmOnEnter(event, () => void confirmDeletePlaylist(), deletingPlaylist)
+          }
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            deletePlaylistCancelRef.current?.focus();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Delete CrateBox playlist?</DialogTitle>
+            <DialogDescription>
+              Delete “{pendingPlaylistDeletion?.name}” and its CrateBox JSON metadata? The audio files will stay on disk.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              ref={deletePlaylistCancelRef}
+              variant="ghost"
+              disabled={deletingPlaylist}
+              onClick={() => setPendingPlaylistDeletion(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deletingPlaylist}
+              onClick={() => void confirmDeletePlaylist()}
+            >
+              {deletingPlaylist ? <LoaderCircle size={14} className="animate-spin" /> : null}
+              Delete playlist
             </Button>
           </div>
         </DialogContent>

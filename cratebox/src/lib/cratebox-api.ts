@@ -143,6 +143,31 @@ export function createPlaylist(apiUrl: string, name: string): Promise<Playlist> 
   });
 }
 
+export function deleteCratePlaylist(apiUrl: string, playlistId: string): Promise<{ deleted: string }> {
+  return requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function renameCratePlaylist(
+  apiUrl: string,
+  playlistId: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  return requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function cratePlaylistDownloadUrl(apiUrl: string, playlistId: string): string {
+  return new URL(
+    `/api/playlists/${encodeURIComponent(playlistId)}/download`,
+    `${apiUrl}/`,
+  ).toString();
+}
+
 export async function getPlaylist(
   apiUrl: string,
   playlistId: string,

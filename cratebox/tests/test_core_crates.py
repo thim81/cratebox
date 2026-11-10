@@ -14,6 +14,7 @@ from core.crates import (
     append_crate_tracks,
     create_crate,
     parse_crate_tracks,
+    rename_crate,
     insert_crate_separator,
     insert_crate_track,
     playlist_entries,
@@ -125,6 +126,57 @@ def test_create_crate_writes_empty_m3u_and_json_pair(tmp_path):
     assert json.loads((crates / "Warm Up.json").read_text()) == {
         "format": 1, "name": "Warm Up", "tracks": [],
     }
+
+
+def test_rename_crate_renames_both_files_and_preserves_track_references(tmp_path):
+    playlists, crates, audio_paths = _write_crate(tmp_path, ["42", "43"])
+    original_playlist = (playlists / "Set.m3u8").read_bytes()
+    original_tracks = json.loads((crates / "Set.json").read_text())["tracks"]
+
+    result = rename_crate("Set", "Warm Up", playlists, crates, playlists)
+
+    assert result == {"id": "Warm Up", "name": "Warm Up"}
+    assert not (playlists / "Set.m3u8").exists()
+    assert not (crates / "Set.json").exists()
+    assert (playlists / "Warm Up.m3u8").read_bytes() == original_playlist
+    renamed_plan = json.loads((crates / "Warm Up.json").read_text())
+    assert renamed_plan["name"] == "Warm Up"
+    assert renamed_plan["tracks"] == original_tracks
+    assert [entry["file_path"] for entry in renamed_plan["tracks"]] == [
+        str(audio_paths[0]), str(audio_paths[1]),
+    ]
+
+
+def test_rename_crate_rejects_existing_name_without_changing_files(tmp_path):
+    playlists, crates, _ = _write_crate(tmp_path, ["42"])
+    create_crate("Existing", playlists, crates, playlists)
+    before_playlist = (playlists / "Set.m3u8").read_bytes()
+    before_plan = (crates / "Set.json").read_bytes()
+
+    with pytest.raises(ApplicationConflict, match="already exists"):
+        rename_crate("Set", "Existing", playlists, crates, playlists)
+
+    assert (playlists / "Set.m3u8").read_bytes() == before_playlist
+    assert (crates / "Set.json").read_bytes() == before_plan
+    assert (playlists / "Existing.m3u8").exists()
+
+
+def test_rename_crate_restores_original_pair_if_plan_update_fails(tmp_path, monkeypatch):
+    playlists, crates, _ = _write_crate(tmp_path, ["42"])
+    original_playlist = (playlists / "Set.m3u8").read_bytes()
+    original_plan = (crates / "Set.json").read_bytes()
+
+    def fail_plan_write(_path, _content):
+        raise OSError("simulated plan update failure")
+
+    monkeypatch.setattr(crate_core, "atomic_write", fail_plan_write)
+    with pytest.raises(ApplicationError, match="Could not rename"):
+        rename_crate("Set", "Renamed", playlists, crates, playlists)
+
+    assert (playlists / "Set.m3u8").read_bytes() == original_playlist
+    assert (crates / "Set.json").read_bytes() == original_plan
+    assert not (playlists / "Renamed.m3u8").exists()
+    assert not (crates / "Renamed.json").exists()
 
 
 def test_remove_tracks_keeps_m3u_and_crate_records_in_sync(tmp_path):

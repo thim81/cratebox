@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, Folder, ListMusic, LoaderCircle, Package, Plus, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, Download, Folder, ListMusic, LoaderCircle, MoreHorizontal, Package, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { cratePlaylistDownloadUrl } from "@/lib/cratebox-api";
 import { fmtTime, type Playlist, type RekordboxPlaylist } from "@/lib/crate-data";
 
 interface CrateSidebarProps {
+  apiUrl: string;
   lightMode: boolean;
   playlists: Playlist[];
   rekordboxPlaylists: RekordboxPlaylist[];
@@ -24,13 +26,16 @@ interface CrateSidebarProps {
   onRefresh: () => void;
   onRefreshRekordbox: () => void;
   onCreatePlaylist: (name: string) => Promise<boolean>;
+  onRenamePlaylist: (playlist: Playlist, name: string) => Promise<boolean>;
   onSelectPlaylist: (playlistId: string) => void;
+  onDeletePlaylist: (playlist: Playlist) => void;
   onSelectRekordboxPlaylist: (playlistId: string) => void;
   onOpenRekordboxFolder: (folderId: string) => void;
   onGoUpRekordboxFolder: () => void;
 }
 
 export function CrateSidebar({
+  apiUrl,
   lightMode,
   playlists,
   rekordboxPlaylists,
@@ -49,13 +54,18 @@ export function CrateSidebar({
   onRefresh,
   onRefreshRekordbox,
   onCreatePlaylist,
+  onRenamePlaylist,
   onSelectPlaylist,
+  onDeletePlaylist,
   onSelectRekordboxPlaylist,
   onOpenRekordboxFolder,
   onGoUpRekordboxFolder,
 }: CrateSidebarProps) {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [renamePlaylist, setRenamePlaylist] = useState<Playlist | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [renamingPlaylist, setRenamingPlaylist] = useState(false);
   const activeRekordboxPlaylistRef = useRef<HTMLButtonElement>(null);
   const crates = playlists.filter((playlist) =>
     playlist.name.toLowerCase().includes(filter.toLowerCase()),
@@ -183,7 +193,7 @@ export function CrateSidebar({
           crates.map((playlist) => (
             <div
               key={playlist.id}
-              className={`flex w-full items-center border-b border-l-2 transition-colors ${playlist.id === activeId ? "border-primary bg-primary/15" : "border-b-sidebar-border border-l-transparent hover:bg-sidebar-accent/60"}`}
+              className={`group flex w-full items-center border-b border-l-2 transition-colors ${playlist.id === activeId ? "border-primary bg-primary/15" : "border-b-sidebar-border border-l-transparent hover:bg-sidebar-accent/60"}`}
             >
               <button
                 onClick={() => onSelectPlaylist(playlist.id)}
@@ -216,6 +226,70 @@ export function CrateSidebar({
                   <span>{playlist.created}</span>
                 </div>
               </button>
+              <div className="shrink-0 pr-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <details
+                  className="group/menu relative"
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) {
+                      event.currentTarget.removeAttribute("open");
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.currentTarget.removeAttribute("open");
+                      event.currentTarget.querySelector("summary")?.focus();
+                    }
+                  }}
+                >
+                  <summary
+                    className="flex size-7 cursor-pointer list-none items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"
+                    aria-label={`Actions for ${playlist.name}`}
+                    title="Playlist actions"
+                  >
+                    <MoreHorizontal size={16} />
+                  </summary>
+                  <div className="absolute right-0 top-full z-50 mt-1 min-w-40 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+                    <Button
+                      asChild
+                      variant="ghost"
+                      className="h-8 w-full justify-start gap-2 px-2 text-xs"
+                    >
+                      <a
+                        href={cratePlaylistDownloadUrl(apiUrl, playlist.id)}
+                        aria-label={`Download ${playlist.name} M3U8`}
+                        title="Download M3U8"
+                      >
+                        <Download size={14} />
+                        Download M3U8
+                      </a>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="h-8 w-full justify-start gap-2 px-2 text-xs"
+                      onClick={(event) => {
+                        event.currentTarget.closest("details")?.removeAttribute("open");
+                        setRenameName(playlist.name);
+                        setRenamePlaylist(playlist);
+                      }}
+                    >
+                      <Pencil size={14} />
+                      Rename playlist
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="h-8 w-full justify-start gap-2 px-2 text-xs text-destructive hover:text-destructive"
+                      aria-label={`Delete ${playlist.name}`}
+                      onClick={(event) => {
+                        event.currentTarget.closest("details")?.removeAttribute("open");
+                        onDeletePlaylist(playlist);
+                      }}
+                    >
+                      <Trash2 size={14} />
+                      Delete playlist
+                    </Button>
+                  </div>
+                </details>
+              </div>
             </div>
           ))}
         {source === "rekordbox" && rekordboxError && (
@@ -305,6 +379,50 @@ export function CrateSidebar({
             <Button type="submit" disabled={!newPlaylistName.trim() || creatingPlaylist}>
               {creatingPlaylist ? <LoaderCircle className="animate-spin" /> : <Plus />}
               Create
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={renamePlaylist !== null}
+        onOpenChange={(open) => {
+          if (!open && !renamingPlaylist) setRenamePlaylist(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename CrateBox playlist</DialogTitle>
+            <DialogDescription>
+              The playlist and its CrateBox metadata will be renamed together.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="flex gap-2"
+            onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+              event.preventDefault();
+              if (!renamePlaylist || !renameName.trim() || renamingPlaylist) return;
+              setRenamingPlaylist(true);
+              try {
+                if (await onRenamePlaylist(renamePlaylist, renameName.trim())) {
+                  setRenamePlaylist(null);
+                  setRenameName("");
+                }
+              } finally {
+                setRenamingPlaylist(false);
+              }
+            }}
+          >
+            <Input
+              autoFocus
+              value={renameName}
+              onChange={(event) => setRenameName(event.target.value)}
+              placeholder="Playlist name"
+              aria-label="New playlist name"
+              maxLength={200}
+            />
+            <Button type="submit" disabled={!renameName.trim() || renamingPlaylist}>
+              {renamingPlaylist ? <LoaderCircle className="animate-spin" /> : <Pencil />}
+              Rename
             </Button>
           </form>
         </DialogContent>

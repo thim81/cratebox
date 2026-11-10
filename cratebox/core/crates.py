@@ -279,6 +279,114 @@ def find_crate(playlist_id: str, playlist_directory: Path, crate_directory: Path
     return matches[0]
 
 
+def rename_crate(
+    playlist_id: str,
+    name: str,
+    playlist_directory: Path,
+    crate_directory: Path,
+    default_playlist_directory: Path,
+) -> dict:
+    name = name.strip()
+    if (
+        not name or name in (".", "..") or len(name.encode("utf-8")) > 200
+        or any(character in name for character in "/\\") or not name.isprintable()
+    ):
+        raise ApplicationValidationError(
+            "Use a playlist name of up to 200 UTF-8 bytes without path separators or control characters."
+        )
+    _ensure_app_directories(playlist_directory, crate_directory, default_playlist_directory)
+    path = find_crate(playlist_id, playlist_directory, crate_directory)
+    plan_path = Path(crate_directory) / f"{path.stem}.json"
+    target_path = Path(playlist_directory) / f"{name}.m3u8"
+    target_plan_path = Path(crate_directory) / f"{name}.json"
+    same_plan = target_plan_path == plan_path
+    if target_plan_path.exists():
+        try:
+            same_plan = target_plan_path.samefile(plan_path)
+        except OSError:
+            same_plan = False
+    if path.is_symlink() or plan_path.is_symlink():
+        raise ApplicationConflict("The playlist and its track-ID plan are out of sync")
+    if any(
+        existing != path and existing.stem.casefold() == name.casefold()
+        for existing in playlist_files(playlist_directory)
+    ) or (target_plan_path.exists() and not same_plan) or target_plan_path.is_symlink():
+        raise ApplicationConflict("A playlist with this name already exists")
+    if name == path.stem:
+        return {"id": path.stem, "name": path.stem}
+
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+        read_plan_ids(path, lines, crate_directory)
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        if not isinstance(plan, dict):
+            raise ValueError
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        raise ApplicationConflict("The playlist and its track-ID plan are out of sync") from None
+    plan["name"] = name
+
+    playlist_moved = False
+    plan_moved = False
+    try:
+        os.replace(path, target_path)
+        playlist_moved = True
+        os.replace(plan_path, target_plan_path)
+        plan_moved = True
+        atomic_write(
+            target_plan_path,
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+        )
+    except OSError:
+        if plan_moved:
+            try:
+                os.replace(target_plan_path, plan_path)
+            except OSError:
+                pass
+        if playlist_moved:
+            try:
+                os.replace(target_path, path)
+            except OSError:
+                pass
+        raise ApplicationError("Could not rename the CrateBox playlist") from None
+    return {"id": name, "name": name}
+
+
+def delete_crate(
+    playlist_id: str,
+    playlist_directory: Path,
+    crate_directory: Path,
+    default_playlist_directory: Path,
+) -> dict:
+    _ensure_app_directories(playlist_directory, crate_directory, default_playlist_directory)
+    path = find_crate(playlist_id, playlist_directory, crate_directory)
+    plan_path = Path(crate_directory) / f"{path.stem}.json"
+    if path.is_symlink() or plan_path.is_symlink():
+        raise ApplicationConflict("The playlist and its track-ID plan are out of sync")
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeError):
+        raise ApplicationError("Could not read the CrateBox playlist") from None
+    read_plan_ids(path, lines, crate_directory)
+
+    moved: list[tuple[Path, Path]] = []
+    try:
+        with tempfile.TemporaryDirectory(prefix=".delete-crate-", dir=crate_directory) as temporary:
+            staging = Path(temporary)
+            for source in (path, plan_path):
+                staged = staging / source.name
+                os.replace(source, staged)
+                moved.append((staged, source))
+    except OSError:
+        for staged, original in reversed(moved):
+            if staged.exists() and not original.exists():
+                try:
+                    os.replace(staged, original)
+                except OSError:
+                    pass
+        raise ApplicationError("Could not delete the CrateBox playlist") from None
+    return {"deleted": path.stem}
+
+
 def create_crate(
     name: str,
     playlist_directory: Path,

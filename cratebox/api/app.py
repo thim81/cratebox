@@ -34,6 +34,8 @@ async def bump_playlist_revision_after_rest_write(request, call_next):
     path = request.url.path
     playlist_write = (
         (path == "/api/playlists" and request.method == "POST")
+        or (path.startswith("/api/playlists/") and path.count("/") == 3 and request.method == "DELETE")
+        or (path.startswith("/api/playlists/") and path.count("/") == 3 and request.method == "PATCH")
         or (path.startswith("/api/playlists/") and path.rsplit("/", 1)[-1] in {
             "tracks", "swap", "reorder", "append", "append-many", "insert-after",
             "separators",

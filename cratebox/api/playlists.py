@@ -1,14 +1,16 @@
 """Playlist parsing, operations, and endpoints."""
 
+from contextlib import AsyncExitStack
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote
 
 import mutagen
 from fastapi import APIRouter, Body, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .artwork_data import embedded_artwork, read_artwork_overrides
+from .artwork_data import embedded_artwork, read_artwork_overrides, write_artwork_overrides
 from .collection import collection_mcp
 from .config import (
     DEFAULT_PLAYLIST_DIR,
@@ -22,7 +24,9 @@ from core.crates import (
     atomic_write as core_atomic_write,
     crate_files as core_crate_files,
     create_crate as core_create_crate,
+    delete_crate as core_delete_crate,
     find_crate as core_find_crate,
+    rename_crate as core_rename_crate,
     playlist_entries as core_playlist_entries,
     parse_crate_tracks as core_parse_crate_tracks,
     read_plan_ids as core_read_plan_ids,
@@ -45,6 +49,9 @@ class PlaylistReorder(BaseModel):
     before: bool
 
 class PlaylistCreate(BaseModel):
+    name: str
+
+class PlaylistRename(BaseModel):
     name: str
 
 def playlist_files():
@@ -120,6 +127,43 @@ def _create_playlist(request: PlaylistCreate):
     )
     return playlist_summary(path, [])
 
+
+@router.patch("/api/playlists/{playlist_id}")
+async def rename_playlist(playlist_id: str, request: PlaylistRename):
+    new_id = request.name.strip()
+    async with AsyncExitStack() as stack:
+        for lock_id in sorted({playlist_id, new_id}, key=str.casefold):
+            await stack.enter_async_context(playlist_mutation_lock(lock_id))
+
+        overrides = read_artwork_overrides()
+        updated_overrides = {
+            **overrides,
+            "playlists": dict(overrides.get("playlists", {})),
+            "tracks": dict(overrides.get("tracks", {})),
+        }
+        for key in ("playlists", "tracks"):
+            if playlist_id in updated_overrides[key]:
+                updated_overrides[key][new_id] = updated_overrides[key].pop(playlist_id)
+        artwork_changed = updated_overrides != overrides
+        if artwork_changed:
+            write_artwork_overrides(updated_overrides)
+        try:
+            return _call_core(
+                core_rename_crate,
+                playlist_id,
+                new_id,
+                PLAYLIST_DIR,
+                CRATE_DIRECTORY,
+                DEFAULT_PLAYLIST_DIR,
+            )
+        except HTTPException:
+            if artwork_changed:
+                try:
+                    write_artwork_overrides(overrides)
+                except HTTPException:
+                    pass
+            raise
+
 @router.get("/api/playlists/{playlist_id}")
 def get_playlist(playlist_id: str):
     path = find_playlist(playlist_id)
@@ -131,6 +175,31 @@ def get_playlist(playlist_id: str):
             track["artwork_url"] = overrides[track["id"]]
             track["has_artwork"] = True
     return {**playlist_summary(path, tracks), "tracks": tracks}
+
+
+@router.get("/api/playlists/{playlist_id}/download")
+def download_playlist(playlist_id: str):
+    path = find_playlist(playlist_id)
+    if path.is_symlink():
+        raise HTTPException(409, "The playlist and its track-ID plan are out of sync")
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeError):
+        raise HTTPException(500, "Could not read the CrateBox playlist") from None
+    read_plan_ids(path, lines)
+    return FileResponse(path, media_type="audio/x-mpegurl", filename=path.name)
+
+
+@router.delete("/api/playlists/{playlist_id}")
+async def delete_playlist(playlist_id: str):
+    async with playlist_mutation_lock(playlist_id):
+        return _call_core(
+            core_delete_crate,
+            playlist_id,
+            PLAYLIST_DIR,
+            CRATE_DIRECTORY,
+            DEFAULT_PLAYLIST_DIR,
+        )
 
 @router.delete("/api/playlists/{playlist_id}/tracks")
 async def delete_tracks(playlist_id: str, track_ids: list[str] = Body(..., embed=True)):
