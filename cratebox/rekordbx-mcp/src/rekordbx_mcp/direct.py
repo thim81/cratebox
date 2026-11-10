@@ -15,8 +15,8 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 from sqlcipher3 import dbapi2 as sqlite
 
-from .backup import BackupManager, DEFAULT_BACKUP_DIRECTORY
-from .snapshot import require_rekordbox_closed, reject_sidecars
+from .backup import BackupManager, DEFAULT_BACKUP_DIRECTORY, verify_journal_mode
+from .snapshot import require_rekordbox_closed, reject_rollback_journal
 
 
 class DirectMasterDatabase(MasterDatabase):
@@ -24,14 +24,15 @@ class DirectMasterDatabase(MasterDatabase):
         require_rekordbox_closed()
         if path.is_symlink() or not path.is_file():
             raise ValueError('Select an existing database file, not a symlink.')
-        reject_sidecars(path)
+        reject_rollback_journal(path)
         def connect():
             require_rekordbox_closed()
-            reject_sidecars(path)
+            reject_rollback_journal(path)
             conn = sqlite.connect(path.as_uri() + '?mode=rw', uri=True, check_same_thread=False, timeout=2)
             try:
                 conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
                 conn.execute('SELECT count(*) FROM sqlite_master').fetchone()
+                verify_journal_mode(conn, path)
                 return conn
             except BaseException:
                 conn.close()
@@ -101,6 +102,17 @@ def playlist_state(db, playlist_id):
     return state
 
 
+def database_stamp(source: Path):
+    stamps = []
+    for path in (source, source.with_name(source.name + '-wal'), source.with_name('masterPlaylists6.xml')):
+        try:
+            stat = path.stat()
+            stamps.append((stat.st_ino, stat.st_size, stat.st_mtime_ns))
+        except FileNotFoundError:
+            stamps.append(None)
+    return tuple(stamps)
+
+
 class PlaylistEditor:
     def __init__(self, source: Path, backups: Path = DEFAULT_BACKUP_DIRECTORY):
         self.backups = BackupManager(source, backups)
@@ -126,7 +138,7 @@ class PlaylistEditor:
         if len(entry_ids) != len(set(entry_ids)) or len(entry_ids) > 1000 or len(track_ids) > 1000:
             raise ValueError('Invalid playlist selection.')
         with self.backups.lock():
-            stamp = (self.source.stat().st_ino, self.source.stat().st_mtime_ns)
+            stamp = database_stamp(self.source)
             if self.source_stamp is not None and stamp != self.source_stamp:
                 self.backups.last = None  # A different writer invalidates our recovery interval.
             self.backups.ensure()
@@ -219,4 +231,4 @@ class PlaylistEditor:
             finally:
                 db.close()
                 self.database = None
-                self.source_stamp = (self.source.stat().st_ino, self.source.stat().st_mtime_ns)
+                self.source_stamp = database_stamp(self.source)

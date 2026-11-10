@@ -13,7 +13,7 @@ uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp start
 
 The default source is `~/Library/Pioneer/rekordbox/master.db`. Override it with `--source /absolute/path/master.db`; use `--backup-directory /absolute/path/backups` to choose backup storage outside the original database directory. CrateBox's API passes `REKORDBOX_DATABASE` and `REKORDBOX_BACKUP_DIRECTORY` through to those options when set.
 
-Startup and every collection operation require Rekordbox and its agents to be closed. Unreadable process inventories and transaction sidecars reject access. Connections close after each request and reconnect on the next request. There is no runtime snapshot creation or fallback; legacy offline inspection helpers and existing snapshot files are untouched.
+Startup and every collection operation require Rekordbox and its agents to be closed. Unreadable process inventories, pending rollback journals, and unrecognized transaction sidecars reject access. Normal WAL/SHM files are supported; SQLite handles their committed state. Connections close after each request and reconnect on the next request. There is no runtime snapshot creation or fallback; legacy offline inspection helpers and existing snapshot files are untouched.
 
 ## Tools
 
@@ -27,7 +27,7 @@ Only the transaction owner commits: library-internal removal commits flush inste
 
 ## Backups and restoration
 
-The adapter follows upstream's 300-second cooldown policy but replaces its warning-only copy behavior. Before the first edit in a session, it creates a recovery point outside the original database directory. It copies only with its writable connections closed, no transaction sidecars, and a SQLCipher read lock, then verifies hashes and encrypted integrity. Required companion XML is included. Backup failure blocks writing. A verified recovery point can be reused within the cooldown while unchanged; external database changes invalidate the interval. No timer runs while idle, and backups are not automatically deleted.
+The adapter follows upstream's 300-second cooldown policy but replaces its warning-only copy behavior. Before the first edit in a session, it creates a recovery point outside the original database directory. It uses SQLCipher's consistent SQLite backup API, including committed data still in the WAL, then verifies hashes and encrypted integrity. Backup verification opens the completed backup immutably, so it does not create new journal sidecars. Rollback journals still block access. Required companion XML is included. Backup failure blocks writing. A verified recovery point can be reused within the cooldown while unchanged; external database changes invalidate the interval. No timer runs while idle, and backups are not automatically deleted.
 
 Default storage: repository `.cratebox/rekordbox-backups/`. Recovery points include a manifest, `master.db`, and `masterPlaylists6.xml` when present. Normal user permissions apply; this is not OS isolation.
 
@@ -36,7 +36,7 @@ uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp backup-list
 uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp restore --backup-id BACKUP_ID
 ```
 
-Use matching `--source` and `--backup-directory` options for non-default installations. Restore validates the recovery point, preserves current files first (even damaged/missing files), then replaces and validates the database and companion. Do not restore while any collection client is active. An interrupted or uncertain commit/restore leaves a recovery-required marker and blocks further mutations. SQLite and XML cannot commit atomically together; explicit recovery may undo edits made since the selected backup. No automatic restore or retry occurs.
+Use matching `--source` and `--backup-directory` options for non-default installations. Restore validates the recovery point, requires a successful SQLite WAL checkpoint and closed clients when WAL files are present, preserves current files first (even damaged/missing files), then replaces and validates the database and companion. Do not restore while any collection client is active. An interrupted or uncertain commit/restore leaves a recovery-required marker and blocks further mutations. SQLite and XML cannot commit atomically together; explicit recovery may undo edits made since the selected backup. No automatic restore or retry occurs.
 
 ## Verification
 

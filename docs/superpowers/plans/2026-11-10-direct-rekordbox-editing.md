@@ -19,3 +19,9 @@ Rulings: cold file copies are allowed only with source connections closed and no
 - Embedded browser: verified create, rename, remove, add to an empty playlist, drag reorder, and replace with duplicate track occurrences against the synthetic API on port 8017.
 - All database development writes, backup creation and restores used synthetic encrypted databases in temporary folders. No mutations or recovery tests were run against the user's original Rekordbox collection.
 - Explicit offline inspection helpers remain for compatibility; normal startup does not create or reuse snapshots.
+
+## WAL backup correction
+
+The original cold-copy backup opened a read-only WAL connection, which itself created empty WAL/SHM files that the subsequent guard rejected. Normal WAL/SHM files now use SQLite's consistent encrypted backup API; rollback journals and malformed WAL files still block access. Restore checkpoints WAL through SQLite before replacing any files and requires closed clients. Backup validation uses an immutable connection to avoid creating sidecars in the completed recovery point. Tool rejections retain the MCP session and preserve the safe API error instead of hiding it behind a generic 502. Regression verification uses only synthetic encrypted databases.
+
+Verification after the WAL correction: 61 MCP tests and 105 API/Core tests passed. No original-collection mutation or restore was performed.

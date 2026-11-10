@@ -36,7 +36,7 @@ def test_backup_cooldown_and_real_encrypted_restore(encrypted_database, tmp_path
         clock[0] += 300
         second = m.ensure()
         assert second != first
-    before = encrypted_database.read_bytes()
+    before = (first / 'master.db').read_bytes()
     encrypted_database.write_bytes(b'damaged')
     xml.write_text('<changed/>')
     # Recovery must not require the damaged current database to pass integrity checks.
@@ -81,8 +81,46 @@ def test_process_check_and_database_lock_block_access(encrypted_database, tmp_pa
 def test_restore_recovers_a_deleted_database(encrypted_database, tmp_path):
     m = manager(encrypted_database, tmp_path / 'backups')
     point = m.ensure()
-    original = encrypted_database.read_bytes()
+    original = (point / 'master.db').read_bytes()
     encrypted_database.unlink()
     recovered = manager(encrypted_database, tmp_path / 'backups')
     recovered.restore(point.name)
     assert encrypted_database.read_bytes() == original
+
+
+def test_cleanly_closed_wal_database_can_be_backed_up(encrypted_database, tmp_path):
+    from sqlcipher3 import dbapi2 as sqlite
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    conn = sqlite.connect(encrypted_database)
+    conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+    assert conn.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
+    conn.close()
+    assert not encrypted_database.with_name('master.db-wal').exists()
+    m = manager(encrypted_database, tmp_path / 'backups')
+    point = m.ensure()
+    assert (point / 'master.db').is_file()
+
+
+def test_online_backup_includes_committed_wal_content(encrypted_database, tmp_path):
+    from sqlcipher3 import dbapi2 as sqlite
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    from rekordbx_mcp.backup import encrypted_connection
+    conn = sqlite.connect(encrypted_database)
+    conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA wal_autocheckpoint=0')
+    conn.execute("UPDATE djmdContent SET Title='Committed in WAL' WHERE ID='1'")
+    conn.commit()
+    assert encrypted_database.with_name('master.db-wal').stat().st_size > 0
+    try:
+        m = manager(encrypted_database, tmp_path / 'backups')
+        point = m.ensure()
+        backup_conn = encrypted_connection(point / 'master.db')
+        try:
+            assert backup_conn.execute("SELECT Title FROM djmdContent WHERE ID='1'").fetchone()[0] == 'Committed in WAL'
+        finally:
+            backup_conn.close()
+    finally:
+        conn.close()

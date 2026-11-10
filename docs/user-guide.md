@@ -38,7 +38,7 @@ For another Codex client, use [`cratebox-mcp.example.toml`](../cratebox-mcp.exam
 
 Restart Codex or its CrateBox MCP connection. If services are missing, the launcher starts them; if they're already healthy, it reuses them. The UI is at <http://localhost:4444/> and the API is at <http://localhost:8000/>.
 
-The collection worker opens the original database directly. Close Rekordbox and its background agents before browsing or editing. If process checks fail or a transaction journal is present, access is rejected. Close Rekordbox cleanly and try the request again. Local playlist browsing and playback remain independent.
+The collection worker opens the original database directly. Close Rekordbox and its background agents before browsing or editing. Normal WAL/SHM files are supported. If process checks fail or an unresolved rollback journal is present, access is rejected. Close Rekordbox cleanly and try the request again. Local playlist browsing and playback remain independent.
 
 In the Rekordbox tab, select an ordinary playlist to edit it. Drop tracks to reorder; use Add track, Replace track, or the row removal button; use the pencil beside the active playlist to rename it. Create playlist creates an empty Rekordbox playlist at the root. Smart playlists and folders remain browse-only. Names commit when confirmed, and each other editing action persists once. Errors are displayed without automatically retrying the write. Click Refresh after a conflicting or failed edit.
 
@@ -46,7 +46,7 @@ For another collection location, set `REKORDBOX_DATABASE` to its absolute `maste
 
 ### Backup and recovery
 
-The first edit creates and verifies a backup. Edits within the next 300 seconds reuse that recovery point; a subsequent edit after expiry creates another. No backups run while idle and none are automatically pruned. Restoring a recovery point can undo successful edits made since it was taken.
+The first edit creates and verifies a consistent encrypted SQLite backup, including committed data still in the WAL. Edits within the next 300 seconds reuse that recovery point; a subsequent edit after expiry creates another. No backups run while idle and none are automatically pruned. Restoring a recovery point can undo successful edits made since it was taken.
 
 List backups and explicitly restore one with Rekordbox and its agents closed:
 

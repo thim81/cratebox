@@ -62,6 +62,20 @@ def reject_sidecars(path: Path) -> None:
             raise ValueError("Database transaction sidecar exists; close Rekordbox cleanly.")
 
 
+def reject_rollback_journal(path: Path) -> None:
+    """Normal WAL files are handled by SQLite; never open a pending rollback journal."""
+    for suffix in ('-wal', '-shm', '-journal'):
+        sidecar = path.with_name(path.name + suffix)
+        if sidecar.is_symlink() or (suffix == '-journal' and sidecar.exists()):
+            raise ValueError('Database transaction sidecar exists; close Rekordbox cleanly.')
+    wal = path.with_name(path.name + '-wal')
+    if wal.exists() and wal.stat().st_size:
+        with wal.open('rb') as stream:
+            magic = stream.read(4)
+        if magic not in (b'\x37\x7f\x06\x82', b'\x37\x7f\x06\x83'):
+            raise ValueError('Unrecognized database WAL sidecar; close Rekordbox cleanly.')
+
+
 def create_snapshot(source: Path, destination: Path) -> Path:
     source = Path(source).absolute()
     if source.is_symlink():

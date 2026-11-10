@@ -222,3 +222,20 @@ async def test_playlist_summary_duration_counts_repeated_active_tracks(library, 
         result = await client.call_tool('get_playlists')
         playlists = json.loads(result.content[0].text)
         assert playlists[0]['duration'] == 640  # 320-second track appears twice; missing lengths count as zero
+
+
+def test_wal_playlist_edit_and_recovery(library, tmp_path):
+    from sqlcipher3 import dbapi2 as sqlite
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    conn = sqlite.connect(library)
+    conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.close()
+    editor = service(library, tmp_path)
+    before = editor.read('100')
+    after = editor.edit('move', '100', before['revision'], entry_ids=['503'], position=1)
+    assert [e['entry_id'] for e in after['entries']] == ['503', '501', '502']
+    assert len(editor.backups.list()) == 1
+    editor.backups.restore(editor.backups.list()[0]['id'])
+    assert editor.read('100') == before
