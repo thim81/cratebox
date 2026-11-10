@@ -4,10 +4,8 @@ import pytest
 from rekordbx_mcp.launcher import serve
 
 
-def test_invalid_snapshot_never_launches_worker(tmp_path, monkeypatch):
-    def unexpected_launch(*args, **kwargs):
-        raise AssertionError("Worker must not launch with an invalid snapshot")
-
-    monkeypatch.setattr(subprocess, "run", unexpected_launch)
-    with pytest.raises(FileNotFoundError):
-        serve(tmp_path)
+def test_missing_database_never_launches_worker(tmp_path, monkeypatch):
+    monkeypatch.setattr('rekordbx_mcp.launcher.require_rekordbox_closed', lambda: None)
+    monkeypatch.setattr(subprocess, 'run', lambda *_a, **_kw: pytest.fail('must not launch'))
+    with pytest.raises(ValueError, match='existing database'):
+        serve(tmp_path / 'missing.db')

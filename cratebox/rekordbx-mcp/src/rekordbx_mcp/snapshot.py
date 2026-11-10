@@ -24,14 +24,14 @@ def rekordbox_is_running() -> bool:
                 raise RuntimeError("Cannot verify Rekordbox is closed: unreadable process name.")
             if "rekordbox" in name.lower():
                 return True
-    except psutil.Error as error:
+    except (psutil.Error, OSError) as error:
         raise RuntimeError("Cannot verify Rekordbox is closed: process inspection failed.") from error
     return False
 
 
 def require_rekordbox_closed() -> None:
     if rekordbox_is_running():
-        raise RuntimeError("Close Rekordbox and its background agents before copying.")
+        raise RuntimeError("Close Rekordbox and its background agents to access the collection.")
 
 
 def latest_snapshot(destination: Path) -> Path:

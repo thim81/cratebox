@@ -1,69 +1,42 @@
+"""Direct collection access and explicit backup recovery commands."""
 import argparse
+import json
 import sys
 from pathlib import Path
 
-from .snapshot import create_snapshot, latest_snapshot, rekordbox_is_running
-
-DEFAULT_SNAPSHOT_DIRECTORY = (
-    Path(__file__).resolve().parents[4]
-    / "rekordbx-mcp" / ".cache" / "rekordbox-snapshots"
-)
+from .backup import BackupManager, DEFAULT_BACKUP_DIRECTORY
+from .snapshot import require_rekordbox_closed
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Read-only Rekordbox MCP using verified collection snapshots."
-    )
-    commands = parser.add_subparsers(dest="command", required=True)
-    copy_options = argparse.ArgumentParser(add_help=False)
-    copy_options.add_argument(
-        "--source", type=Path,
-        default=Path.home() / "Library/Pioneer/rekordbox/master.db",
-    )
-    copy_options.add_argument(
-        "--destination", type=Path, default=DEFAULT_SNAPSHOT_DIRECTORY,
-    )
-    commands.add_parser(
-        "snapshot", parents=[copy_options], help="Copy bytes with Rekordbox closed",
-    )
-    commands.add_parser(
-        "start", parents=[copy_options],
-        help="Make a fresh copy if Rekordbox is closed; otherwise serve the newest verified copy",
-    )
-    server = commands.add_parser("serve", help="Serve a verified read-only snapshot")
-    server.add_argument("--snapshot", type=Path, required=True)
-    update = commands.add_parser(
-        "update-upstream", help="Update upstream MCP and verify compatibility",
-    )
-    update.add_argument("--check", action="store_true", help="Check without changing files")
+    parser = argparse.ArgumentParser(description='Direct Rekordbox access while Rekordbox and its agents are closed.')
+    commands = parser.add_subparsers(dest='command', required=True)
+    options = argparse.ArgumentParser(add_help=False)
+    options.add_argument('--source', type=Path, default=Path.home() / 'Library/Pioneer/rekordbox/master.db')
+    options.add_argument('--backup-directory', type=Path, default=DEFAULT_BACKUP_DIRECTORY)
+    commands.add_parser('start', parents=[options], help='Serve the original database; Rekordbox must be closed')
+    commands.add_parser('backup-list', parents=[options], help='List recovery points for this database')
+    restore = commands.add_parser('restore', parents=[options], help='Restore a verified backup, preserving current files first')
+    restore.add_argument('--backup-id', required=True)
+    update = commands.add_parser('update-upstream', help='Update pinned upstream with compatibility checks')
+    update.add_argument('--check', action='store_true')
     args = parser.parse_args()
     try:
-        if args.command == "update-upstream":
+        if args.command == 'update-upstream':
             from .update import update_upstream
             print(update_upstream(Path.cwd(), check_only=args.check))
-            return
-        if args.command in ("snapshot", "start"):
-            if args.command == "snapshot":
-                snapshot = create_snapshot(args.source, args.destination)
-                print(snapshot)
-                return
-            if rekordbox_is_running():
-                snapshot = latest_snapshot(args.destination)
-                print(
-                    "Rekordbox is running; serving the newest verified snapshot without copying.",
-                    file=sys.stderr,
-                )
-            else:
-                snapshot = create_snapshot(args.source, args.destination)
-                print("Fresh read-only snapshot verified; starting MCP.", file=sys.stderr)
+        elif args.command == 'backup-list':
+            print(json.dumps(BackupManager(args.source, args.backup_directory).list(), indent=2))
+        elif args.command == 'restore':
+            print(json.dumps(BackupManager(args.source, args.backup_directory).restore(args.backup_id)))
         else:
-            snapshot = args.snapshot
-        from .launcher import serve
-        raise SystemExit(serve(snapshot))
+            require_rekordbox_closed()
+            from .launcher import serve
+            raise SystemExit(serve(args.source, args.backup_directory))
     except (OSError, ValueError, RuntimeError) as error:
-        print(f"rekordbx-mcp: {error}", file=sys.stderr)
+        print(f'rekordbx-mcp: {error}', file=sys.stderr)
         raise SystemExit(1)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

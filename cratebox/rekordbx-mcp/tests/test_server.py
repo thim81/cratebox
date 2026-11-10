@@ -60,32 +60,13 @@ async def test_reconnect_never_accepts_another_database(snapshot, tmp_path):
     await database.disconnect()
 
 
-async def test_real_mcp_stdio_through_snapshot_launcher(snapshot, monkeypatch):
+async def test_real_mcp_stdio_direct_worker(encrypted_database, tmp_path):
     from fastmcp.client.transports import StdioTransport
-    # Test worker startup independently of host process-list permissions.
-    # The startup tests separately exercise the closed-Rekordbox guard.
-    monkeypatch.setattr("rekordbx_mcp.snapshot.require_rekordbox_closed", lambda: None)
-    from rekordbx_mcp.snapshot import create_snapshot
-    source = snapshot / "original" / "master.db"
-    source.parent.mkdir()
-    shutil.copyfile(snapshot / "master.db", source)
-    destination = snapshot / "startup-copies"
-    before = sha256(source)
-    copied = create_snapshot(source, destination)
-    transport = StdioTransport(
-        command=sys.executable,
-        args=[
-            "-m", "rekordbx_mcp.cli", "serve", "--snapshot", str(copied),
-        ],
-    )
+    # Substitute only host process discovery; this worker accesses a synthetic DB.
+    code = "from pathlib import Path; import sys; import rekordbx_mcp.snapshot as s; s.psutil.process_iter=lambda *_: []; from rekordbx_mcp.server import build_server; build_server(Path(sys.argv[1]), Path(sys.argv[2])).run(transport='stdio', show_banner=False)"
+    transport = StdioTransport(command=sys.executable, args=['-c', code, str(encrypted_database), str(tmp_path.parent / (tmp_path.name + '-backups'))])
     async with Client(transport, timeout=30) as client:
-        tools = {tool.name for tool in await client.list_tools()}
-        assert "search_tracks" in tools
-        assert "create_playlist" not in tools
-        result = await client.call_tool("search_tracks", {"artist": "Daft Punk"})
-        assert json.loads(result.content[0].text)[0]["id"] == "1"
-    assert sha256(source) == before
-    copies = list(destination.glob("*/master.db"))
-    assert len(copies) == 1
-    assert sha256(copies[0]) == before
-    assert copies[0].stat().st_mode & 0o222 == 0
+        names = {t.name for t in await client.list_tools()}
+        assert 'move_playlist_track' in names
+        result = await client.call_tool('search_tracks', {'artist':'Daft Punk'})
+        assert json.loads(result.content[0].text)[0]['id'] == '1'

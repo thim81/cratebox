@@ -1,0 +1,105 @@
+import pytest
+
+from rekordbx_mcp.backup import encrypted_connection
+
+
+@pytest.fixture
+def library(encrypted_database, tmp_path, monkeypatch):
+    monkeypatch.setattr('rekordbx_mcp.snapshot.psutil.process_iter', lambda *_: [])
+    source = tmp_path / 'original' / 'master.db'
+    source.parent.mkdir()
+    encrypted_database.rename(source)
+    from sqlcipher3 import dbapi2 as sqlite
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    with sqlite.connect(source) as conn:
+        conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+        conn.execute("INSERT INTO agentRegistry (registry_id, int_1) VALUES ('localUpdateCount', 0)")
+        conn.execute("INSERT INTO djmdContent (ID, Title, rb_local_deleted) VALUES ('2', 'Second', 0)")
+        conn.execute("INSERT INTO djmdPlaylist (ID, Name, Attribute, ParentID, Seq, rb_local_deleted) VALUES ('100', 'Set', 0, 'root', 1, 0)")
+        conn.executemany("INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo, rb_local_deleted) VALUES (?, '100', ?, ?, 0)", [('501','1',1),('502','2',2),('503','1',3)])
+    return source
+
+
+def service(library, tmp_path):
+    from rekordbx_mcp import direct
+    assert hasattr(direct, 'PlaylistEditor')
+    return direct.PlaylistEditor(library, tmp_path / 'backups')
+
+
+def test_move_uses_entry_id_preserves_duplicates_and_revision(library, tmp_path):
+    editor = service(library, tmp_path)
+    state = editor.read('100')
+    result = editor.edit('move', '100', state['revision'], entry_ids=['503'], position=1)
+    assert [e['entry_id'] for e in result['entries']] == ['503', '501', '502']
+    assert [e['track_id'] for e in result['entries']] == ['1', '1', '2']
+    assert result['revision'] != state['revision']
+    with pytest.raises(ValueError, match='changed'):
+        editor.edit('remove', '100', state['revision'], entry_ids=['501'])
+    assert len(editor.backups.list()) == 1
+
+
+def test_swap_is_atomic_even_after_library_internal_commit(library, tmp_path, monkeypatch):
+    from pyrekordbox import MasterDatabase
+    editor = service(library, tmp_path)
+    state = editor.read('100')
+    original = MasterDatabase.add_to_playlist
+    def fail(*args, **kwargs):
+        raise RuntimeError('insertion failed')
+    monkeypatch.setattr(MasterDatabase, 'add_to_playlist', fail)
+    with pytest.raises(RuntimeError, match='insertion failed'):
+        editor.edit('swap', '100', state['revision'], entry_ids=['503'], track_ids=['2'])
+    assert editor.read('100') == state
+    monkeypatch.setattr(MasterDatabase, 'add_to_playlist', original)
+    result = editor.edit('swap', '100', state['revision'], entry_ids=['503'], track_ids=['2'])
+    assert [e['track_id'] for e in result['entries']] == ['1', '2', '2']
+    assert [e['entry_id'] for e in result['entries'][:2]] == ['501', '502']
+
+
+def test_create_rename_add_remove_and_preserve_track_metadata(library, tmp_path):
+    editor = service(library, tmp_path)
+    new = editor.edit('create', name='New set')
+    pid = new['id']
+    state = editor.edit('rename', pid, new['revision'], name='Renamed')
+    state = editor.edit('add', pid, state['revision'], track_ids=['2', '1', '2'])
+    assert [e['track_id'] for e in state['entries']] == ['2','1','2']
+    kept = state['entries'][1]['entry_id']
+    state = editor.edit('remove', pid, state['revision'], entry_ids=[state['entries'][0]['entry_id'], state['entries'][2]['entry_id']])
+    assert state['entries'] == [{'entry_id': kept, 'track_id': '1', 'position': 1}]
+    assert state['id'] == pid and state['name'] == 'Renamed'
+    with encrypted_connection(library) as conn:
+        assert conn.execute("SELECT Title, Rating FROM djmdContent WHERE ID='1'").fetchone() == ('One More Time', 4)
+
+
+def test_rekordbox_starting_before_commit_rolls_back(library, tmp_path, monkeypatch):
+    editor = service(library, tmp_path)
+    state = editor.read('100')
+    from rekordbx_mcp import direct
+    checks = [0]
+    def closed():
+        if editor.database is not None:
+            checks[0] += 1
+            if checks[0] == 2:
+                raise RuntimeError('Close Rekordbox')
+    monkeypatch.setattr(direct, 'require_rekordbox_closed', closed)
+    with pytest.raises(RuntimeError, match='Close Rekordbox'):
+        editor.edit('move', '100', state['revision'], entry_ids=['503'], position=1)
+    assert editor.read('100') == state
+
+
+async def test_mcp_reads_entry_ids_and_moves_without_exposing_paths(library, tmp_path):
+    import json
+    from fastmcp import Client
+    from rekordbx_mcp.server import build_server
+    async with Client(build_server(library, tmp_path / 'backups')) as client:
+        state = (await client.call_tool('get_playlist_state', {'playlist_id':'100'})).data
+        if 'result' in state:
+            state = state['result']
+        tracks = await client.call_tool('get_playlist_tracks', {'playlist_id':'100'})
+        tracks = json.loads(tracks.content[0].text)
+        assert [t['playlist_entry_id'] for t in tracks] == ['501','502','503']
+        assert all('file_path' not in t for t in tracks)
+        moved = await client.call_tool('move_playlist_track', dict(playlist_id='100', playlist_song_id='503', position=1, expected_revision=state['revision']))
+        assert not moved.is_error
+        names = {t.name for t in await client.list_tools()}
+        assert not names & {'delete_playlist','import_track','remove_broken_tracks','connect_database'}
