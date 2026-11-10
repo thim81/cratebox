@@ -76,3 +76,13 @@ def test_process_check_and_database_lock_block_access(encrypted_database, tmp_pa
     monkeypatch.setattr(backup, 'require_rekordbox_closed', lambda: (_ for _ in ()).throw(RuntimeError('Close Rekordbox')))
     with pytest.raises(RuntimeError, match='Close Rekordbox'):
         a.ensure()
+
+
+def test_restore_recovers_a_deleted_database(encrypted_database, tmp_path):
+    m = manager(encrypted_database, tmp_path / 'backups')
+    point = m.ensure()
+    original = encrypted_database.read_bytes()
+    encrypted_database.unlink()
+    recovered = manager(encrypted_database, tmp_path / 'backups')
+    recovered.restore(point.name)
+    assert encrypted_database.read_bytes() == original

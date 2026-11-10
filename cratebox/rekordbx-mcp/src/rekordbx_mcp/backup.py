@@ -6,7 +6,8 @@ import json
 import os
 import shutil
 import time
-from contextlib import contextmanager
+import tempfile
+from contextlib import contextmanager, closing
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -33,7 +34,7 @@ def encrypted_connection(path: Path):
 
 
 def integrity(path: Path):
-    with encrypted_connection(path) as conn:
+    with closing(encrypted_connection(path)) as conn:
         if conn.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
             raise RuntimeError('Backup database integrity check failed.')
 
@@ -52,7 +53,7 @@ class BackupManager:
         source = Path(source).absolute()
         if source.is_symlink():
             raise ValueError('Database must not be a symlink.')
-        self.source = source.resolve(strict=True)
+        self.source = source.resolve()
         directory = Path(directory).absolute()
         if directory.is_symlink():
             raise ValueError('Backup directory must not be a symlink.')
@@ -61,15 +62,19 @@ class BackupManager:
             raise ValueError('Backups must be outside the original database directory.')
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.key = hashlib.sha256(str(self.source).encode()).hexdigest()[:20]
+        self.lock_directory = Path(tempfile.gettempdir()) / f'rekordbx-mcp-{os.getuid()}'
+        self.lock_directory.mkdir(mode=0o700, exist_ok=True)
+        if self.lock_directory.is_symlink() or self.lock_directory.stat().st_uid != os.getuid():
+            raise ValueError('Invalid database lock directory.')
         self.last = None
         self.last_time = None
         self.stamps = None
-        self.blocked = self.directory / (self.key + '.recovery-required')
+        self.blocked = self.lock_directory / (self.key + '.recovery-required')
 
     @contextmanager
     def lock(self):
         require_rekordbox_closed()
-        path = self.directory / (self.key + '.lock')
+        path = self.lock_directory / (self.key + '.lock')
         fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
             try:
@@ -87,7 +92,7 @@ class BackupManager:
         if manifest_path.is_symlink():
             raise ValueError('Invalid backup manifest.')
         data = json.loads(manifest_path.read_text())
-        if data['source'] != str(self.source) or set(data['files']) - {'master.db', COMPANION} or 'master.db' not in data['files']:
+        if data['source'] != str(self.source) or set(data['files']) - {'master.db', COMPANION} or (data['recoverable'] and 'master.db' not in data['files']):
             raise ValueError('Backup does not match the selected database.')
         for name, digest in data['files'].items():
             path = point / name
@@ -143,7 +148,7 @@ class BackupManager:
             try:
                 stamps = {p.name: (p.stat().st_ino, p.stat().st_size, p.stat().st_mtime_ns, p.stat().st_ctime_ns)
                           for p in self.last.iterdir() if not p.is_symlink()}
-                if stamps != self.stamps:
+                if self.last.is_symlink() or stamps != self.stamps:
                     raise RuntimeError('Backup changed during cooldown; editing is blocked.')
             except OSError as error:
                 raise RuntimeError('Backup is unavailable; editing is blocked.') from error

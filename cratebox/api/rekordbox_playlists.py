@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 import mutagen
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .artwork_data import embedded_artwork
@@ -139,7 +139,7 @@ async def export_local_playlist(
         except CollectionConnectionError as error:
             raise HTTPException(error.status_code, error.detail) from None
         if result.is_error:
-            raise HTTPException(409, "One or more tracks no longer resolve to the active collection snapshot.")
+            raise HTTPException(409, "One or more tracks no longer resolve to the active collection.")
         value = result_value(result)
         if not isinstance(value, list):
             raise HTTPException(502, "Unexpected collection track response.")
@@ -296,13 +296,23 @@ async def get_rekordbox_playlist_detail(playlist_id: str):
             'revision': state['revision'], 'editable': state.get('editable', False), 'tracks': tracks}
 
 
+def require_local_playlist_origin(http_request: Request):
+    from .artwork import _require_local_artwork_origin
+    try:
+        _require_local_artwork_origin(http_request)
+    except HTTPException:
+        raise HTTPException(403, 'Playlist edits are allowed only from the local CrateBox interface.') from None
+
+
 @router.post('/api/rekordbox/playlists')
-async def create_rekordbox_playlist(request: RekordboxPlaylistCreate):
+async def create_rekordbox_playlist(request: RekordboxPlaylistCreate, http_request: Request):
+    require_local_playlist_origin(http_request)
     return await call_tool('edit_playlist', {'action': 'create', 'name': request.name})
 
 
 @router.post('/api/rekordbox/playlists/{playlist_id}/edit')
-async def edit_rekordbox_playlist(playlist_id: str, request: PlaylistEdit):
+async def edit_rekordbox_playlist(playlist_id: str, request: PlaylistEdit, http_request: Request):
+    require_local_playlist_origin(http_request)
     return await call_tool('edit_playlist', {'playlist_id': playlist_id, **request.model_dump()})
 
 

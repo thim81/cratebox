@@ -16,7 +16,7 @@ def test_playlist_edit_forwards_entry_ids_and_revision_without_retry(monkeypatch
     assert hasattr(api, 'PlaylistEdit')
     result = asyncio.run(api.edit_rekordbox_playlist('100', api.PlaylistEdit(
         action='move', expected_revision='old', entry_ids=['503'], position=1,
-    )))
+    ), api.Request({"type":"http", "headers":[(b"origin", b"http://localhost:4444")]})))
     assert result['revision'] == 'new'
     assert calls == [('edit_playlist', dict(action='move', playlist_id='100', expected_revision='old',
         name=None, entry_ids=['503'], track_ids=None, position=1, target_entry_id=None, before=True))]
@@ -33,3 +33,10 @@ def test_detail_rejects_mixed_playlist_revisions(monkeypatch):
     with pytest.raises(api.HTTPException) as caught:
         asyncio.run(api.get_rekordbox_playlist_detail('100'))
     assert caught.value.status_code == 409
+
+
+def test_database_mutations_reject_remote_browser_origins():
+    request = api.Request({'type':'http', 'headers':[(b'origin', b'https://untrusted.example')]})
+    with pytest.raises(api.HTTPException) as caught:
+        api.require_local_playlist_origin(request)
+    assert caught.value.status_code == 403

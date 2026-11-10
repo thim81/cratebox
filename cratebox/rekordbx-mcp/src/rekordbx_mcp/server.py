@@ -14,7 +14,7 @@ from fastmcp.exceptions import ToolError
 from loguru import logger
 from rekordbox_mcp import database as upstream_database
 from rekordbox_mcp import server as upstream
-from pyrekordbox.masterdb.models import DjmdCue, DjmdPlaylist, DjmdSongPlaylist
+from pyrekordbox.masterdb.models import DjmdContent, DjmdCue, DjmdPlaylist, DjmdSongPlaylist
 from sqlalchemy import func
 
 from .database import SnapshotDatabase, content_by_ids
@@ -159,7 +159,8 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
                                 "id": str(playlist_id),
                                 "name": str(playlist_name or ""),
                             })
-                        entries = database.db.query(DjmdSongPlaylist).filter(
+                        entries = database.db.query(DjmdSongPlaylist).join(DjmdContent, DjmdContent.ID == DjmdSongPlaylist.ContentID).filter(
+                            DjmdContent.rb_local_deleted == 0,
                             DjmdSongPlaylist.PlaylistID == str(kwargs.get('playlist_id') or (args[0] if args else '')),
                             DjmdSongPlaylist.rb_local_deleted == 0,
                         ).order_by(DjmdSongPlaylist.TrackNo).all()

@@ -253,7 +253,7 @@ async def export_playlist(
             raise ValueError(f"Separator {kind!r} is unavailable in the configured music folder.")
         resolved = _validate_rows(await resolve_tracks(file_paths=[str(separator_path)]))
         if len(resolved) != 1 or resolved[0]["file_path"] != str(separator_path):
-            raise ValueError(f"Separator {kind!r} must match exactly one active snapshot track.")
+            raise ValueError(f"Separator {kind!r} must match exactly one active collection track.")
         separators_before.setdefault(before, []).append((resolved[0], kind))
 
     playlist_items = []

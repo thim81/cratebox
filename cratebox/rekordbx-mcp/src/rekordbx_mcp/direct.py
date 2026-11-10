@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pyrekordbox import MasterDatabase
 from pyrekordbox.masterdb.database import BLOB
-from pyrekordbox.masterdb.models import DjmdPlaylist, DjmdSongPlaylist
+from pyrekordbox.masterdb.models import DjmdContent, DjmdPlaylist, DjmdSongPlaylist
 from pyrekordbox.masterdb.registry import RekordboxAgentRegistry
 from pyrekordbox.masterdb.aux_files import MasterPlaylistXml
 from pyrekordbox.utils import deobfuscate
@@ -24,8 +24,10 @@ class DirectMasterDatabase(MasterDatabase):
         require_rekordbox_closed()
         if path.is_symlink() or not path.is_file():
             raise ValueError('Select an existing database file, not a symlink.')
+        reject_sidecars(path)
         def connect():
             require_rekordbox_closed()
+            reject_sidecars(path)
             conn = sqlite.connect(path.as_uri() + '?mode=rw', uri=True, check_same_thread=False, timeout=2)
             try:
                 conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
@@ -83,9 +85,10 @@ def playlist_state(db, playlist_id):
         DjmdSongPlaylist.PlaylistID == str(playlist.ID),
         DjmdSongPlaylist.rb_local_deleted == 0,
     ).order_by(DjmdSongPlaylist.TrackNo).all()
+    visible = [row for row in entries if (track := db.get_content(ID=row.ContentID)) is not None and not track.rb_local_deleted]
     state = dict(id=str(playlist.ID), name=playlist.Name,
-                 editable=playlist.Attribute == 0,
-                 entries=[dict(entry_id=str(row.ID), track_id=str(row.ContentID), position=int(row.TrackNo)) for row in entries])
+                 editable=playlist.Attribute == 0 and len(visible) == len(entries),
+                 entries=[dict(entry_id=str(row.ID), track_id=str(row.ContentID), position=int(row.TrackNo)) for row in visible])
     state['revision'] = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
     return state
 
@@ -190,12 +193,14 @@ class PlaylistEditor:
                 db.flush()
                 expected = playlist_state(db, playlist_id)
                 require_rekordbox_closed()
+                self.backups.blocked.write_text('Commit in progress; inspect recovery if interrupted.')
                 committing = True
                 db.finish()
                 committed = True
                 result = playlist_state(db, playlist_id)
                 if result != expected:
                     raise RuntimeError('Playlist verification failed after commit.')
+                self.backups.blocked.unlink()
                 return result
             except BaseException:
                 db.session.rollback()

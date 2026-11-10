@@ -103,3 +103,73 @@ async def test_mcp_reads_entry_ids_and_moves_without_exposing_paths(library, tmp
         assert not moved.is_error
         names = {t.name for t in await client.list_tools()}
         assert not names & {'delete_playlist','import_track','remove_broken_tracks','connect_database'}
+
+
+def test_reads_reject_transaction_sidecars_without_recovering(library, tmp_path):
+    editor = service(library, tmp_path)
+    before = library.read_bytes()
+    library.with_name('master.db-journal').write_bytes(b'pending recovery')
+    with pytest.raises(ValueError, match='sidecar'):
+        editor.read('100')
+    assert library.read_bytes() == before
+
+
+async def test_orphaned_entries_remain_browsable_but_not_editable(library, tmp_path):
+    import json
+    from fastmcp import Client
+    from rekordbx_mcp.server import build_server
+    from sqlcipher3 import dbapi2 as sqlite
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    with sqlite.connect(library) as conn:
+        conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+        conn.execute("UPDATE djmdSongPlaylist SET ContentID='999' WHERE ID='502'")
+    async with Client(build_server(library, tmp_path / 'backups')) as client:
+        result = await client.call_tool('get_playlist_tracks', {'playlist_id':'100'})
+        assert [t['playlist_entry_id'] for t in json.loads(result.content[0].text)] == ['501','503']
+        state = service(library, tmp_path).read('100')
+        assert state['editable'] is False
+        assert [e['entry_id'] for e in state['entries']] == ['501','503']
+
+
+@pytest.fixture
+def companion(library):
+    from datetime import datetime
+    from sqlcipher3 import dbapi2 as sqlite
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    now = datetime.now()
+    with sqlite.connect(library) as conn:
+        conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+        conn.execute('UPDATE djmdPlaylist SET updated_at=?', (now.isoformat(' '),))
+    path = library.with_name('masterPlaylists6.xml')
+    path.write_text(f'<MASTER_PLAYLIST Version="1" AutomaticSync="0"><PRODUCT Version="7"/><PLAYLISTS><NODE Id="64" ParentId="0" Attribute="0" Timestamp="{int(now.timestamp()*1000)}" Lib_Type="0" CheckType="0"/></PLAYLISTS></MASTER_PLAYLIST>')
+    return path
+
+
+def test_creation_updates_companion_and_restore_recovers_both(library, tmp_path, companion):
+    from pyrekordbox.masterdb.aux_files import MasterPlaylistXml
+    editor = service(library, tmp_path)
+    original = companion.read_bytes()
+    created = editor.edit('create', name='Created with XML')
+    assert MasterPlaylistXml(path=companion).get(created['id']) is not None
+    point = editor.backups.list()[0]['id']
+    editor.backups.restore(point)
+    assert companion.read_bytes() == original
+    with pytest.raises(ValueError, match='not found'):
+        editor.read(created['id'])
+
+
+def test_companion_failure_blocks_further_writes_until_recovery(library, tmp_path, companion, monkeypatch):
+    from pyrekordbox.masterdb.aux_files import MasterPlaylistXml
+    editor = service(library, tmp_path)
+    def fail(_self):
+        raise OSError('companion failed')
+    monkeypatch.setattr(MasterPlaylistXml, 'save', fail)
+    with pytest.raises(OSError, match='companion failed'):
+        editor.edit('create', name='Uncertain')
+    assert editor.backups.blocked.exists()
+    with pytest.raises(RuntimeError, match='recovery required'):
+        editor.edit('create', name='Must block')
+    editor.backups.restore(editor.backups.list()[0]['id'])
+    assert not editor.backups.blocked.exists()
