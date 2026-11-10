@@ -104,6 +104,8 @@ async def call_tool(name: str, arguments: dict | None = None):
                 ('close rekordbox', 409, 'Close Rekordbox and its background agents to access the collection.'),
                 ('process inspection', 503, 'Cannot verify Rekordbox is closed. Try again after closing it and its agents.'),
                 ('playlist changed', 409, 'Playlist changed; reload it before editing.'),
+                ('commit outcome', 503, 'The edit may have been saved, but could not be verified. Do not repeat it; inspect database recovery.'),
+                ('sidecar', 409, 'Close Rekordbox cleanly; unresolved database transaction files prevent access.'),
                 ('busy', 409, 'Rekordbox database is busy. Try the action again.'),
                 ('backup', 503, 'A verified database backup is unavailable. The edit was blocked.'),
                 ('recovery required', 503, 'Database recovery required. Inspect and restore a verified backup before editing.'),

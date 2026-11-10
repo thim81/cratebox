@@ -58,7 +58,7 @@ def latest_snapshot(destination: Path) -> Path:
 
 def reject_sidecars(path: Path) -> None:
     for suffix in ("-wal", "-shm", "-journal"):
-        if path.with_name(path.name + suffix).exists():
+        if path.with_name(path.name + suffix).exists() or path.with_name(path.name + suffix).is_symlink():
             raise ValueError("Database transaction sidecar exists; close Rekordbox cleanly.")
 
 

@@ -166,10 +166,49 @@ def test_companion_failure_blocks_further_writes_until_recovery(library, tmp_pat
     def fail(_self):
         raise OSError('companion failed')
     monkeypatch.setattr(MasterPlaylistXml, 'save', fail)
-    with pytest.raises(OSError, match='companion failed'):
+    with pytest.raises(RuntimeError, match='commit outcome is uncertain'):
         editor.edit('create', name='Uncertain')
     assert editor.backups.blocked.exists()
     with pytest.raises(RuntimeError, match='recovery required'):
         editor.edit('create', name='Must block')
     editor.backups.restore(editor.backups.list()[0]['id'])
     assert not editor.backups.blocked.exists()
+
+
+def test_agents_starting_during_flush_are_checked_at_session_commit(library, tmp_path, monkeypatch):
+    from pyrekordbox.masterdb.registry import RekordboxAgentRegistry
+    from rekordbx_mcp import direct
+    editor = service(library, tmp_path)
+    state = editor.read('100')
+    started = [False]
+    original = RekordboxAgentRegistry.autoincrement_local_update_count
+    def update(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        started[0] = True
+        return result
+    def closed():
+        if started[0]:
+            raise RuntimeError('Close Rekordbox agent')
+    monkeypatch.setattr(RekordboxAgentRegistry, 'autoincrement_local_update_count', update)
+    monkeypatch.setattr(direct, 'require_rekordbox_closed', closed)
+    with pytest.raises(RuntimeError):
+        editor.edit('move', '100', state['revision'], entry_ids=['503'], position=1)
+    started[0] = False
+    assert editor.read('100') == state
+
+
+def test_soft_deleted_entries_do_not_count_toward_active_positions(library, tmp_path):
+    from sqlcipher3 import dbapi2 as sqlite
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    with sqlite.connect(library) as conn:
+        conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+        conn.execute("INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo, rb_local_deleted) VALUES ('old', '100', '2', 4, 1)")
+    editor = service(library, tmp_path)
+    state = editor.read('100')
+    state = editor.edit('add', '100', state['revision'], track_ids=['2'])
+    assert [e['position'] for e in state['entries']] == [1,2,3,4]
+    state = editor.edit('move', '100', state['revision'], entry_ids=[state['entries'][-1]['entry_id']], position=1)
+    assert [e['position'] for e in state['entries']] == [1,2,3,4]
+    with encrypted_connection(library) as conn:
+        assert conn.execute("SELECT TrackNo, rb_local_deleted FROM djmdSongPlaylist WHERE ID='old'").fetchone() == (4,1)

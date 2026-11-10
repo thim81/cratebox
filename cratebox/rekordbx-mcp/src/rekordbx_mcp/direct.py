@@ -11,7 +11,7 @@ from pyrekordbox.masterdb.registry import RekordboxAgentRegistry
 from pyrekordbox.masterdb.aux_files import MasterPlaylistXml
 from pyrekordbox.utils import deobfuscate
 from rekordbox_mcp.database import RekordboxDatabase
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 from sqlcipher3 import dbapi2 as sqlite
 
@@ -45,6 +45,14 @@ class DirectMasterDatabase(MasterDatabase):
         self._share_dir = path.parent / 'share'
         self.playlist_xml = MasterPlaylistXml(db_dir=path.parent) if path.with_name('masterPlaylists6.xml').exists() else None
         self.session = Session(self.engine)
+        event.listen(self.session, 'before_commit', lambda _session: require_rekordbox_closed())
+
+    def query(self, *entities, **kwargs):
+        query = super().query(*entities, **kwargs)
+        # Library ordering helpers must not count or move tombstoned entries.
+        if len(entities) == 1 and entities[0] is DjmdSongPlaylist:
+            query = query.filter(DjmdSongPlaylist.rb_local_deleted == 0)
+        return query
 
     def commit(self, *args, **kwargs):
         # Library removal commits internally. Only the transaction owner may persist.
@@ -202,10 +210,11 @@ class PlaylistEditor:
                     raise RuntimeError('Playlist verification failed after commit.')
                 self.backups.blocked.unlink()
                 return result
-            except BaseException:
+            except BaseException as error:
                 db.session.rollback()
                 if committed or committing:
                     self.backups.blocked.write_text('Commit outcome requires inspection; do not retry automatically.')
+                    raise RuntimeError('Playlist commit outcome is uncertain; inspect recovery before editing again.') from error
                 raise
             finally:
                 db.close()
