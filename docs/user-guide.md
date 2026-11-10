@@ -1,12 +1,18 @@
 # CrateBox user guide
 
+## Rekordbox playlist editing
+
+CrateBox reads the original Rekordbox database directly while Rekordbox and its agents are closed. Local CrateBox playlists stay independent. Ordinary Rekordbox playlists support immediate creation, rename, add, remove, replacement, and drag reordering; no separate Save action is needed. Playlist IDs and unaffected entry identities are preserved.
+
+The first edit in each session creates a verified recovery point; further edits reuse it for up to five minutes. Backups live in `.cratebox/rekordbox-backups/`, outside the Rekordbox directory, and include `masterPlaylists6.xml` when present. Required backup failures block writes. Process checks, short transactions, revision checks, and result validation protect each edit; they do not guarantee that another application cannot start between checks. See the [repository instructions](../AGENTS.md).
+
 [Product overview](../README.md) · [CrateBox app](../cratebox/README.md) · [Adapter details](../cratebox/rekordbx-mcp/README.md)
 
 **CrateBox — A direct, playful nod to Rekordbox, hinting at crate management and track prep.**
 
-CrateBox combines a local playlist UI, REST API, Core services, and MCP endpoint. A small Rekordbox adapter provides generic data from a verified snapshot. The app runs on macOS with Python 3.12, uv, Node.js, and Codex. Docker is not used.
+CrateBox combines a local playlist UI, REST API, Core services, and MCP endpoint. A small Rekordbox adapter provides generic data directly from the original database. The app runs on macOS with Python 3.12, uv, Node.js, and Codex. Docker is not used.
 
-The Rekordbox database, playlists, XML exports, analysis files, and metadata are read-only. CrateBox can update only embedded cover artwork on an MP3/M4A selected from a local crate or a Rekordbox playlist. It stages and verifies the change before atomically replacing the selected audio file; it does not retain a backup. Other audio edits are not allowed.
+Direct database changes are limited to the playlist operations above. CrateBox can separately update embedded artwork or a loaded-track rating on an MP3/M4A selected from a local crate or verified Rekordbox playlist membership. It stages and verifies the change before atomically replacing the selected audio file; it does not retain a backup. Other audio edits remain outside these permissions.
 
 ## 1. Install
 
@@ -32,12 +38,24 @@ For another Codex client, use [`cratebox-mcp.example.toml`](../cratebox-mcp.exam
 
 Restart Codex or its CrateBox MCP connection. If services are missing, the launcher starts them; if they're already healthy, it reuses them. The UI is at <http://localhost:4444/> and the API is at <http://localhost:8000/>.
 
-When the Rekordbox worker first connects:
+The collection worker opens the original database directly. Close Rekordbox and its background agents before browsing or editing. If process checks fail or a transaction journal is present, access is rejected. Close Rekordbox cleanly and try the request again. Local playlist browsing and playback remain independent.
 
-- If Rekordbox and its agents are closed, it creates and verifies a fresh copy of `master.db`.
-- If Rekordbox is running, it reuses only the newest verified snapshot already on disk. It never copies the live database and fails if no valid snapshot is available.
+In the Rekordbox tab, select an ordinary playlist to edit it. Drop tracks to reorder; use Add track, Replace track, or the row removal button; use the pencil beside the active playlist to rename it. Create playlist creates an empty Rekordbox playlist at the root. Smart playlists and folders remain browse-only. Names commit when confirmed, and each other editing action persists once. Errors are displayed without automatically retrying the write. Click Refresh after a conflicting or failed edit.
 
-Snapshots remain under the existing repository-root `rekordbx-mcp/.cache/rekordbox-snapshots/` location. The worker pins one verified snapshot for its lifetime. To refresh it, close Rekordbox and its agents, then restart the worker or API. A collection-startup failure does not interrupt local playlist browsing or playback.
+For another collection location, set `REKORDBOX_DATABASE` to its absolute `master.db` path before launching the API. Set `REKORDBOX_BACKUP_DIRECTORY` to override the backup folder; it must be outside the original database directory.
+
+### Backup and recovery
+
+The first edit creates and verifies a backup. Edits within the next 300 seconds reuse that recovery point; a subsequent edit after expiry creates another. No backups run while idle and none are automatically pruned. Restoring a recovery point can undo successful edits made since it was taken.
+
+List backups and explicitly restore one with Rekordbox and its agents closed:
+
+```sh
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp backup-list
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp restore --backup-id BACKUP_ID
+```
+
+Both commands accept `--source /absolute/path/master.db` and `--backup-directory /absolute/path/backups`. Use the same source and backup directory configured for the API. Restore verifies the selected recovery point and preserves current files first, even if damaged or missing. An interrupted or uncertain commit blocks further edits until inspected and explicitly restored. Database and companion XML replacement are separate file operations; interrupted recovery remains blocked and can be retried explicitly.
 
 For foreground diagnostics, run from `cratebox/`:
 
@@ -76,9 +94,9 @@ Ask Codex to export an ordered ID list:
 
 > Export the final selection with `export_playlist`, named "House warm-up", preserving the agreed order. Provide links to the M3U8 and JSON files.
 
-CrateBox Core resolves active snapshot records, checks the audio files, and writes the M3U8 to `playlists/` with its CrateBox JSON metadata in `.cratebox/crates/`. The JSON records order, duplicates, IDs, paths, and collection metadata. Existing JSON files in `output/` are left untouched and are not read. The audio paths are kept out of the tool response and browser payloads. Passing `file_paths` sends those paths as tool inputs; prefer IDs when possible.
+CrateBox Core resolves active collection records, checks the audio files, and writes the M3U8 to `playlists/` with its CrateBox JSON metadata in `.cratebox/crates/`. The JSON records order, duplicates, IDs, paths, and collection metadata. Existing JSON files in `output/` are left untouched and are not read. The audio paths are kept out of the tool response and browser payloads. Passing `file_paths` sends those paths as tool inputs; prefer IDs when possible.
 
-If the requested name already exists, confirm whether to replace the existing pair or use a different name. CrateBox never imports a playlist into Rekordbox. Import the M3U8 yourself when ready.
+If the requested name already exists, confirm whether to replace the existing pair or use a different name. CrateBox does not currently import a playlist into Rekordbox. Import the M3U8 yourself when ready.
 
 ## 6. Update the upstream adapter
 
@@ -101,9 +119,9 @@ The updater pins an exact commit and rolls back dependency files if checks fail.
 | Symptom | What to do |
 | --- | --- |
 | CrateBox MCP startup fails | Check `/tmp/cratebox-api.log` and `/tmp/cratebox-ui.log`; confirm ports 8000 and 4444 are available. Run `npm run dev:all` from `cratebox/` to diagnose in the foreground. |
-| Collection worker says to close Rekordbox | Quit Rekordbox and its background agents. If Rekordbox must remain open, an existing verified snapshot is required. |
-| Snapshot hash invalid | Do not edit the snapshot or manifest. Close Rekordbox and restart the worker to create a new verified copy. |
-| Collection results look old | Close Rekordbox, then restart the API/worker to refresh its pinned snapshot. |
+| Collection worker says to close Rekordbox | Quit Rekordbox and its background agents, then retry the request. Collection browsing also requires them closed. |
+| Backup verification failed | The edit is blocked. Inspect the backup storage and use the recovery commands above if required. |
+| Collection results look old | Close Rekordbox, then refresh the playlist view; reads use the original database. |
 | MCP tools do not appear | Check that the repository is trusted, confirm the configured paths, then restart the CrateBox MCP connection. |
 | Playlists changed outside CrateBox | Keep the UI visible or focus it; it checks for edits every two seconds and refreshes the active playlist without replacing the loaded Deck. |
 
@@ -139,6 +157,6 @@ npm run build
 
 ## Privacy and limits
 
-The adapter uses a verified snapshot, read-only SQLCipher connection, SQL authorizer, and fixed upstream reading allowlist. It runs with normal user permissions; it is not OS filesystem or network isolation. Returned collection metadata becomes part of the Codex conversation, so the conversation is not fully offline.
+The adapter uses direct SQLCipher access, process checks, serialized operations, and a fixed tool allowlist. It runs with normal user permissions, not OS filesystem or network isolation. Returned collection metadata can become part of the Codex conversation. Browser payloads and conversational tools omit audio paths.
 
-The adapter never edits Rekordbox's original database, playlists, XML, analysis files, or metadata. CrateBox artwork editing is limited to its documented backup-verified MP3 operation. M3U8 exports contain local audio paths; keep them private.
+Permitted playlist edits modify the original database and required playlist companion files. They do not authorize collection metadata or analysis edits. Embedded artwork and loaded-track file-rating updates retain their separate permissions. M3U8 exports and database backups contain private local-library data; keep them private.

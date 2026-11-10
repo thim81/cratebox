@@ -1,7 +1,7 @@
 [project]
 name = "rekordbx-mcp"
 version = "0.1.0"
-description = "Snapshot-only, read-only access to the upstream Rekordbox MCP"
+description = "Direct Rekordbox collection access and controlled playlist editing"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "rekordbox-mcp",

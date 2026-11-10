@@ -9,3 +9,13 @@ Approved in chat: direct original database access only while Rekordbox and agent
 5. Verify backend/frontend and embedded browser with synthetic databases; update docs.
 
 Rulings: cold file copies are allowed only with source connections closed and no transaction sidecars; verify with SQLCipher integrity checks and recovery tests. Preserve required playlist XML companion. Reuse upstream cooldown policy rather than its warning-only backup copy. Internal removal commits must not escape the transaction owner.
+
+## Implementation verification
+
+- MCP suite: 57 tests passed, including actual SQLCipher writes/restores, duplicate identities, tombstoned entries, agent-start checks at commit, missing-file recovery, and XML companion failure recovery.
+- API/Core suite: 102 tests passed.
+- Frontend: 15 tests passed; production build and lint passed (existing fast-refresh warnings).
+- Strict TypeScript check: the same 20 diagnostics as the pre-UI-change HEAD, confirmed by checking an archived baseline; no new diagnostics. Existing errors remain outside this change.
+- Embedded browser: verified create, rename, remove, add to an empty playlist, drag reorder, and replace with duplicate track occurrences against the synthetic API on port 8017.
+- All database development writes, backup creation and restores used synthetic encrypted databases in temporary folders. No mutations or recovery tests were run against the user's original Rekordbox collection.
+- Explicit offline inspection helpers remain for compatibility; normal startup does not create or reuse snapshots.

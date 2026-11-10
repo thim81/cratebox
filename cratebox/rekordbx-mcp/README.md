@@ -1,74 +1,47 @@
 # Rekordbox MCP adapter
 
-This project adapts the pinned upstream [`rekordbox-mcp`](https://github.com/davehenke/rekordbox-mcp) to use a verified local snapshot through a read-only SQLCipher connection. It is a consumer-neutral collection data provider; playlist editing, export, Spotify, Sockseek, playback, and artwork behavior belong to CrateBox Core and its API.
+This consumer-neutral adapter wraps the pinned [thim81/rekordbox-mcp](https://github.com/thim81/rekordbox-mcp) and pyrekordbox. It reads the original SQLCipher database and permits playlist creation, renaming, membership changes, swaps, and ordering. CrateBox-specific behavior stays in its API and UI.
 
-The original Rekordbox database, playlists, XML exports, analysis files, metadata, and audio are not modified by this adapter. It runs with normal user permissions; these application-level controls are not OS filesystem or network isolation. Docker is not used.
+## Startup
 
-## Install and run
-
-From the repository root:
+Close Rekordbox and its background agents, then run:
 
 ```sh
 uv --directory cratebox/rekordbx-mcp sync --locked --python 3.12
-uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp --help
-```
-
-The upstream source is pinned in `pyproject.toml`, and the dependency resolution is pinned by `uv.lock`. The adapter imports upstream reading functions without changing the installed upstream files.
-
-For a standalone consumer, use [`codex-mcp.example.toml`](codex-mcp.example.toml) as a starting point. The CrateBox app uses a different configuration: [the repository example](../cratebox-mcp.example.toml) launches CrateBox's same-process REST/MCP service and proxies it over stdio.
-
-To start the adapter manually for diagnostics, close Rekordbox and its background agents, then run:
-
-```sh
 uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp start
 ```
 
-When Rekordbox is closed, `start` creates and verifies a fresh snapshot. When Rekordbox is running, it reuses only the newest verified snapshot already on disk; it fails if no valid snapshot is available. It never copies the live database. The worker uses one fixed snapshot path for its lifetime.
+The default source is `~/Library/Pioneer/rekordbox/master.db`. Override it with `--source /absolute/path/master.db`; use `--backup-directory /absolute/path/backups` to choose backup storage outside the original database directory. CrateBox's API passes `REKORDBOX_DATABASE` and `REKORDBOX_BACKUP_DIRECTORY` through to those options when set.
 
-Use `snapshot` to create a copy without starting an MCP session:
+Startup and every collection operation require Rekordbox and its agents to be closed. Unreadable process inventories and transaction sidecars reject access. Connections close after each request and reconnect on the next request. There is no runtime snapshot creation or fallback; legacy offline inspection helpers and existing snapshot files are untouched.
 
-```sh
-uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp snapshot
-```
+## Tools
 
-Snapshots remain under the existing repository-root `rekordbx-mcp/.cache/rekordbox-snapshots/` location, are ignored by Git, and contain private library metadata. The source is checked before and after copying; transaction sidecars, hash mismatches, and invalid manifests prevent a snapshot from being served.
+The reviewed upstream reading-tool allowlist remains explicit. `get_collection_tracks` resolves ordered IDs, exact absolute locations, or pages of active collection records. Locations are an internal contract for trusted local application clients; keep this tool out of conversational MCP allowlists. Other collection responses redact file and database paths.
 
-## Generic collection contract
+`get_playlist_state` returns the playlist ID, name, editable flag, revision, and ordered entries containing `entry_id`, `track_id`, and one-based `position`. `get_playlist_tracks` includes `playlist_entry_id`. Playlists with unresolved collection references remain viewable but cannot be edited.
 
-The adapter registers a fixed set of reviewed upstream reading functions. Newly added upstream tools are excluded until reviewed. The custom `get_collection_tracks` operation supports ordered track IDs, exact absolute file locations, or deterministic pagination over active tracks. It returns generic metadata, technical audio details, cue counts, playlist membership, and local locations for trusted application clients.
+`edit_playlist` accepts `create`, `rename`, `add`, `remove`, `swap`, or `move`. Existing-playlist operations require the revision returned by `get_playlist_state`. Remove, swap and move use playlist-entry IDs, not collection-track IDs. `move_playlist_track(playlist_id, playlist_song_id, position, expected_revision)` wraps pyrekordbox's existing reorder method. Multi-entry moves preserve playlist order within the moved group.
 
-The CrateBox API uses locations only inside the local server for matching, playback, and export. Do not add `get_collection_tracks` or other path-returning operations to conversational MCP client allowlists. Public adapter responses redact file and database paths. CrateBox's browser API and conversational MCP tools also omit audio paths.
+Only the transaction owner commits: library-internal removal commits flush instead. Compound edits commit once, preserve unaffected entry IDs and relative order, and roll back before-commit failures. Process checks run again before committing. Database lock errors are returned without mutation retries. The permitted tool registry excludes playlist deletion, imports, cleanup and arbitrary reconnect operations. Upstream stays pinned and unmodified; updates must remain explicit through `update-upstream` with compatibility tests and rollback.
 
-The adapter does not expose collection mutation, playlist export, Spotify, Sockseek, artwork, or CrateBox-specific matching tools. CrateBox Core owns those behaviors.
+## Backups and restoration
 
-## Protection boundaries
+The adapter follows upstream's 300-second cooldown policy but replaces its warning-only copy behavior. Before the first edit in a session, it creates a recovery point outside the original database directory. It copies only with its writable connections closed, no transaction sidecars, and a SQLCipher read lock, then verifies hashes and encrypted integrity. Required companion XML is included. Backup failure blocks writing. A verified recovery point can be reused within the cooldown while unchanged; external database changes invalidate the interval. No timer runs while idle, and backups are not automatically deleted.
 
-- Snapshot creation writes only new copies outside the source folder; it does not change source permissions or links.
-- The connection uses an explicit snapshot file URI with `mode=ro&immutable=1`, SQLCipher, query-only mode, and an authorizer that blocks database attachment and PRAGMA changes.
-- A process lock serializes use of the shared upstream ORM session and snapshot connection.
-- The adapter has a fixed registry of reviewed upstream reading tools. Upstream create, delete, import, cleanup, and arbitrary reconnect functions are unavailable, including when called directly by name.
-- `enabled_tools` in a client config is an additional discovery/invocation restriction, not a replacement for the adapter's snapshot and tool protections.
-
-## Update upstream
-
-Check for a new upstream revision without changing the installation:
+Default storage: repository `.cratebox/rekordbox-backups/`. Recovery points include a manifest, `master.db`, and `masterPlaylists6.xml` when present. Normal user permissions apply; this is not OS isolation.
 
 ```sh
-uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp update-upstream --check
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp backup-list
+uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp restore --backup-id BACKUP_ID
 ```
 
-For an explicit update, stop active MCP sessions and run:
+Use matching `--source` and `--backup-directory` options for non-default installations. Restore validates the recovery point, preserves current files first (even damaged/missing files), then replaces and validates the database and companion. Do not restore while any collection client is active. An interrupted or uncertain commit/restore leaves a recovery-required marker and blocks further mutations. SQLite and XML cannot commit atomically together; explicit recovery may undo edits made since the selected backup. No automatic restore or retry occurs.
 
-```sh
-uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp update-upstream
-```
-
-The updater resolves the new revision to an exact commit, updates the pin and lockfile, runs compatibility and safety tests, and rolls back dependency files if an update fails. Review and commit `pyproject.toml` and `uv.lock` only after the update succeeds. New upstream tools are never enabled automatically.
-
-## Tests
+## Verification
 
 ```sh
 uv --directory cratebox/rekordbx-mcp run --locked pytest -q
 ```
 
-Tests use synthetic encrypted collections and cover snapshot creation/verification, source preservation, database write restrictions, reconnect restrictions, direct calls to forbidden tools, generic track resolution, and an MCP stdio session through the snapshot launcher.
+Tests use synthetic encrypted databases for actual create/rename/add/remove/reorder/swap operations, duplicate-entry identity, revision conflicts, rollback, process checks, backup cooldown, corruption/missing-file recovery, companion updates/failures, forbidden tools, and a direct MCP stdio session. Never run development mutation tests against the original collection.
