@@ -635,7 +635,7 @@ function Index() {
         rating: match.rating,
         bpm: match.bpm,
         key: match.key,
-        quality: "Rekordbox collection",
+        quality: match.quality ?? "",
         url: collectionStreamUrl(apiUrl, match.id),
         artwork_url: collectionArtworkUrl(apiUrl, match.id),
       };
@@ -1835,26 +1835,6 @@ function Index() {
               </Button>
             ) : <span />}
             <div className="flex min-w-0 items-center justify-end gap-2">
-              {playlistSource === "crate" && (
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  Insert separator
-                  <select
-                    aria-label="Separator type to insert"
-                    className="h-8 rounded border border-input bg-background px-2 text-xs text-foreground"
-                    value={separatorType}
-                    disabled={separatorInserting}
-                    onChange={(event) =>
-                      setSeparatorType(event.currentTarget.value as SeparatorType)
-                    }
-                  >
-                    {PLAYLIST_SEPARATORS.map(({ type, label }) => (
-                      <option key={type} value={type}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
               {playlistSource === "rekordbox" &&
                 activeRekordboxPlaylist &&
                 !activeRekordboxPlaylist.is_folder && (
@@ -1904,6 +1884,26 @@ function Index() {
                 </Button>
               )}
               <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                {playlistSource === "crate" && (
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    Insert separator
+                    <select
+                      aria-label="Separator type to insert"
+                      className="h-8 rounded border border-input bg-background px-2 text-xs text-foreground"
+                      value={separatorType}
+                      disabled={separatorInserting}
+                      onChange={(event) =>
+                        setSeparatorType(event.currentTarget.value as SeparatorType)
+                      }
+                    >
+                      {PLAYLIST_SEPARATORS.map(({ type, label }) => (
+                        <option key={type} value={type}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <div className="relative min-w-0 w-72">
                   <Search
                     size={14}

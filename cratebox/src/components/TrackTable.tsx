@@ -150,7 +150,7 @@ export function TrackTable({
 
   return (
     <div ref={scrollportRef} className="min-h-0 flex-1 overflow-auto">
-      <table className="w-full border-collapse text-xs">
+      <table className="w-full border-collapse text-xs [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
         <thead className="text-[10px] text-muted-foreground">
           <tr>
             <Th className="w-10">{""}</Th>
@@ -169,7 +169,7 @@ export function TrackTable({
             <Th k="bpm">BPM</Th>
             <Th k="key">Key</Th>
             <Th>Quality</Th>
-            <Th className="w-10">{""}</Th>
+            <Th className="w-16">{""}</Th>
           </tr>
         </thead>
         <tbody>
@@ -368,48 +368,50 @@ export function TrackTable({
                       {track.quality}
                     </span>
                   </td>
-                  <td className="px-1 py-1 text-right">
-                    {(readOnly || showAppendAction) && onAppendToPlaylist ? (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-7 text-muted-foreground hover:text-white"
-                        disabled={!track.rekordbox_id || appendDisabled}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onAppendToPlaylist(track);
-                        }}
-                        aria-label={`Add ${track.title} to a CrateBox playlist`}
-                        title={
-                          appendDisabled
-                            ? "No CrateBox playlist available"
-                            : appendDestinationSelected
-                              ? "Add to selected CrateBox playlist"
-                              : "Choose a CrateBox playlist"
-                        }
-                      >
-                        {appendingTrackId === track.id ? (
-                          <LoaderCircle size={14} className="animate-spin" />
-                        ) : (
-                          <ListPlus size={14} />
-                        )}
-                      </Button>
-                    ) : null}
-                    {!readOnly ? (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-7 text-muted-foreground hover:text-destructive"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onRemove(track);
-                        }}
-                        aria-label={`Remove ${track.title} from playlist`}
-                        title="Remove from playlist"
-                      >
-                        <Trash2 size={14} />
-                      </Button>
-                    ) : null}
+                  <td className="w-16 px-1 py-1 text-right">
+                    <span className="inline-flex items-center justify-end">
+                      {(readOnly || showAppendAction) && onAppendToPlaylist ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-7 text-muted-foreground hover:text-white"
+                          disabled={!track.rekordbox_id || appendDisabled}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onAppendToPlaylist(track);
+                          }}
+                          aria-label={`Add ${track.title} to a CrateBox playlist`}
+                          title={
+                            appendDisabled
+                              ? "No CrateBox playlist available"
+                              : appendDestinationSelected
+                                ? "Add to selected CrateBox playlist"
+                                : "Choose a CrateBox playlist"
+                          }
+                        >
+                          {appendingTrackId === track.id ? (
+                            <LoaderCircle size={14} className="animate-spin" />
+                          ) : (
+                            <ListPlus size={14} />
+                          )}
+                        </Button>
+                      ) : null}
+                      {!readOnly ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-7 text-muted-foreground hover:text-destructive"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRemove(track);
+                          }}
+                          aria-label={`Remove ${track.title} from playlist`}
+                          title="Remove from playlist"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      ) : null}
+                    </span>
                   </td>
                 </tr>
                 {!readOnly && expandedLookupTrackId === track.id && lookupTrack && (
