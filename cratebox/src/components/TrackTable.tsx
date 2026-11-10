@@ -55,7 +55,9 @@ interface TrackTableProps {
   appendDisabled?: boolean;
   appendDestinationSelected?: boolean;
   appendingTrackId?: string | null;
+  showAppendAction?: boolean;
   readOnly?: boolean;
+  separatorsEnabled?: boolean;
   reorderEnabled?: boolean;
   reordering?: boolean;
   onReorder?: (sourceTrackIds: string[], targetTrackId: string, before: boolean) => void;
@@ -96,7 +98,9 @@ export function TrackTable({
   appendDisabled = true,
   appendDestinationSelected = false,
   appendingTrackId,
+  showAppendAction = false,
   readOnly = false,
+  separatorsEnabled = true,
   reorderEnabled = false,
   reordering = false,
   onReorder,
@@ -285,7 +289,7 @@ export function TrackTable({
                     {trackNumbers.get(track.id)}
                   </td>
                   <td className="relative w-6 px-1 py-1">
-                    {!readOnly && index > 0 && (
+                    {!readOnly && separatorsEnabled && index > 0 && (
                       <Button
                         size="icon"
                         variant="ghost"
@@ -365,7 +369,7 @@ export function TrackTable({
                     </span>
                   </td>
                   <td className="px-1 py-1 text-right">
-                    {readOnly && onAppendToPlaylist ? (
+                    {(readOnly || showAppendAction) && onAppendToPlaylist ? (
                       <Button
                         size="icon"
                         variant="ghost"
@@ -390,7 +394,8 @@ export function TrackTable({
                           <ListPlus size={14} />
                         )}
                       </Button>
-                    ) : !readOnly ? (
+                    ) : null}
+                    {!readOnly ? (
                       <Button
                         size="icon"
                         variant="ghost"
@@ -442,7 +447,7 @@ export function TrackTable({
                     </td>
                   </tr>
                 )}
-                {!readOnly && isSeparator && expandedSeparatorTrackId === track.id && (
+                {!readOnly && separatorsEnabled && isSeparator && expandedSeparatorTrackId === track.id && (
                   <tr>
                     <td colSpan={15} className="px-3 py-2">
                       <SeparatorSwapChoices

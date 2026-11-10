@@ -28,6 +28,8 @@ interface Props {
   apiUrl: string;
   open: boolean;
   anchorTrack: Track | null;
+  allowAppendWithoutAnchor?: boolean;
+  operation?: 'add' | 'swap';
   addingTrackId: string | null;
   activeTrackId: string | null;
   activeRekordboxId: string | null;
@@ -35,7 +37,7 @@ interface Props {
   currentTime: number;
   duration: number;
   onOpenChange: (open: boolean) => void;
-  onAdd: (track: Track, match: CollectionMatch) => Promise<void>;
+  onAdd: (track: Track | null, match: CollectionMatch) => Promise<void>;
   onPlay: (match: CollectionMatch) => void;
   onSeekTo: (seconds: number) => void;
   onOpenRekordboxPlaylist: (playlistId: string, trackId: string) => void;
@@ -45,6 +47,8 @@ export function CollectionTrackSearchDialog({
   apiUrl,
   open,
   anchorTrack,
+  allowAppendWithoutAnchor = false,
+  operation = 'add',
   addingTrackId,
   activeTrackId,
   activeRekordboxId,
@@ -194,10 +198,12 @@ export function CollectionTrackSearchDialog({
         onKeyDown={seekFromKeyboard}
       >
         <DialogHeader>
-          <DialogTitle>Add a track</DialogTitle>
+          <DialogTitle>{operation === "swap" ? "Replace track" : "Add a track"}</DialogTitle>
           <DialogDescription>
-            Search by artist, title, or both. The selected result will be inserted after
-            {anchorTrack ? ` “${anchorTrack.title}”` : " the selected track"}.
+            Search by artist, title, or both. {operation === 'swap'
+              ? `The selected result will replace “${anchorTrack?.title ?? 'the selected track'}”.`
+              : anchorTrack ? `The selected result will be inserted after “${anchorTrack.title}”.`
+              : 'The selected result will be added to the playlist.'}
           </DialogDescription>
         </DialogHeader>
         <form className="grid gap-2 sm:grid-cols-[1fr_1.4fr_auto]" onSubmit={search}>
@@ -398,15 +404,15 @@ export function CollectionTrackSearchDialog({
                   size="sm"
                   variant="outline"
                   className="h-7 gap-1 px-2 text-[10px]"
-                  disabled={!anchorTrack || match.playable === false || addingTrackId !== null}
+                  disabled={(!anchorTrack && !allowAppendWithoutAnchor) || match.playable === false || addingTrackId !== null}
                   onClick={async () => {
-                    if (!anchorTrack) return;
+                    if (!anchorTrack && !allowAppendWithoutAnchor) return;
                     await onAdd(anchorTrack, match);
                     onOpenChange(false);
                   }}
                 >
                   {addingTrackId === match.id ? <LoaderCircle className="animate-spin" /> : <Plus />}
-                  Add
+                  {operation === "swap" ? "Replace" : "Add"}
                 </Button>
               </div>
             ))}

@@ -51,6 +51,10 @@ import {
   renameCratePlaylist,
   getRekordboxPlaylists,
   getRekordboxPlaylistTracks,
+  getRekordboxPlaylistDetail,
+  editRekordboxPlaylist,
+  createRekordboxPlaylist,
+  type RekordboxEdit,
   insertPlaylistSeparator,
   replacePlaylistSeparator,
   lookupCollection,
@@ -64,6 +68,7 @@ import {
   setCrateTrackRating,
   setRekordboxTrackRating,
 } from "@/lib/cratebox-api";
+import { selectionAfterEdit } from "@/lib/rekordbox-selection";
 import { updateTrackRating } from "@/lib/track-rating";
 import {
   fmtTime,
@@ -177,8 +182,17 @@ function Index() {
   const [activeRekordboxId, setActiveRekordboxId] = useState("");
   const [rekordboxFolderId, setRekordboxFolderId] = useState<string | null>(null);
   const [rekordboxTracks, setRekordboxTracks] = useState<Track[]>([]);
+  const [rekordboxRevision, setRekordboxRevision] = useState<string | null>(null);
+  const [rekordboxEditing, setRekordboxEditing] = useState(false);
+  const rekordboxEditLock = useRef(false);
+  const rekordboxSelectedEntry = useRef<string | null>(null);
+  const rekordboxContext = useRef({ id: activeRekordboxId, source: playlistSource });
+  useLayoutEffect(() => {
+    rekordboxContext.current = { id: activeRekordboxId, source: playlistSource };
+  }, [activeRekordboxId, playlistSource]);
   const [rekordboxError, setRekordboxError] = useState<string | null>(null);
   const [rekordboxRefreshing, setRekordboxRefreshing] = useState(false);
+  const [rekordboxLoadVersion, setRekordboxLoadVersion] = useState(0);
   const [rekordboxLoaded, setRekordboxLoaded] = useState(false);
   const [copyingRekordboxId, setCopyingRekordboxId] = useState<string | null>(null);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
@@ -231,6 +245,7 @@ function Index() {
   const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
   const [addingCollectionTrackId, setAddingCollectionTrackId] = useState<string | null>(null);
   const [addTrackSearchOpen, setAddTrackSearchOpen] = useState(false);
+  const [trackSearchOperation, setTrackSearchOperation] = useState<'add' | 'swap'>('add');
   const [appendPlaylistId, setAppendPlaylistId] = useState("");
   const [pendingAppendTrack, setPendingAppendTrack] = useState<Track | null>(null);
   const [crateQ, setCrateQ] = useState("");
@@ -299,7 +314,7 @@ function Index() {
 
   const playlistMutationInProgress = Boolean(
     creatingPlaylist || renamingCratePlaylist || deletingPlaylist || removingTracks || separatorInserting || reordering
-      || copyingRekordboxId || appendingTrackId || addingCollectionTrackId,
+      || copyingRekordboxId || appendingTrackId || addingCollectionTrackId || rekordboxEditing,
   );
 
   useEffect(() => {
@@ -352,7 +367,66 @@ function Index() {
     };
   }, [activeId, apiUrl, playlistMutationInProgress, playlistSource]);
 
+  const runRekordboxEdit = useCallback(async (edit: RekordboxEdit) => {
+    if (!activeRekordboxId || !rekordboxRevision || rekordboxEditLock.current) return false;
+    const id = activeRekordboxId;
+    rekordboxEditLock.current = true;
+    setRekordboxEditing(true);
+    let saved = false;
+    try {
+      await editRekordboxPlaylist(apiUrl, id, rekordboxRevision, edit);
+      saved = true;
+      const detail = await getRekordboxPlaylistDetail(apiUrl, id);
+      if (rekordboxContext.current.id === id && rekordboxContext.current.source === 'rekordbox') {
+        const selected = selectionAfterEdit(rekordboxTracks, detail.tracks, rekordboxSelectedEntry.current);
+        if (selected) selectedTrackByPlaylist.current.set(`rekordbox:${id}`, selected);
+        else selectedTrackByPlaylist.current.delete(`rekordbox:${id}`);
+        setRekordboxTracks(detail.tracks);
+        setRekordboxRevision(detail.editable ? detail.revision : null);
+        setRekordboxError(null);
+      }
+      try { setRekordboxPlaylists(await getRekordboxPlaylists(apiUrl)); }
+      catch { toast.error('Edit saved, but the playlist list could not be refreshed.'); }
+      return true;
+    } catch (error) {
+      const message = `${saved ? 'Edit saved, but refresh failed' : 'Playlist edit failed'}: ${error instanceof Error ? error.message : 'request failed'}`;
+      toast.error(message);
+      if (rekordboxContext.current.id === id) {
+        setRekordboxError(message);
+        setRekordboxRevision(null);
+      }
+      return false;
+    } finally {
+      rekordboxEditLock.current = false;
+      setRekordboxEditing(false);
+    }
+  }, [activeRekordboxId, apiUrl, rekordboxRevision, rekordboxTracks]);
+
   const createCratePlaylist = useCallback(async (name: string) => {
+    if (playlistSource === 'rekordbox') {
+      if (rekordboxEditLock.current) return false;
+      rekordboxEditLock.current = true;
+      setCreatingPlaylist(true);
+      try {
+        const created = await createRekordboxPlaylist(apiUrl, name);
+        setRekordboxFolderId(null);
+        setRekordboxLoaded(true);
+        setActiveRekordboxId(created.id);
+        setRekordboxError(null);
+        try {
+          setRekordboxPlaylists(await getRekordboxPlaylists(apiUrl));
+        } catch {
+          setRekordboxError('Playlist created, but the list could not be refreshed. Click Refresh; do not create it again.');
+        }
+        return true;
+      } catch (error) {
+        setRekordboxError(error instanceof Error ? error.message : 'Could not create playlist.');
+        return false;
+      } finally {
+        rekordboxEditLock.current = false;
+        setCreatingPlaylist(false);
+      }
+    }
     setCreatingPlaylist(true);
     setApiError(null);
     try {
@@ -372,9 +446,10 @@ function Index() {
     } finally {
       setCreatingPlaylist(false);
     }
-  }, [apiUrl, updateCrateUrl]);
+  }, [apiUrl, playlistSource, updateCrateUrl]);
 
   const renamePlaylist = useCallback(async (playlist: Playlist, name: string) => {
+    if (playlistSource === 'rekordbox') return runRekordboxEdit({ action: 'rename', name });
     setRenamingCratePlaylist(true);
     try {
       const renamed = await renameCratePlaylist(apiUrl, playlist.id, name);
@@ -410,7 +485,7 @@ function Index() {
     } finally {
       setRenamingCratePlaylist(false);
     }
-  }, [activeId, apiUrl, playlistSource, updateCrateUrl]);
+  }, [activeId, apiUrl, playlistSource, runRekordboxEdit, updateCrateUrl]);
 
   const confirmDeletePlaylist = useCallback(async () => {
     const pending = pendingPlaylistDeletion;
@@ -464,6 +539,7 @@ function Index() {
           : null,
       );
       setRekordboxLoaded(true);
+      setRekordboxLoadVersion(value => value + 1);
     } catch (error) {
       setRekordboxError(
         error instanceof Error ? error.message : "Could not load Rekordbox playlists.",
@@ -614,11 +690,11 @@ function Index() {
   const activeRekordboxFolder = rekordboxPlaylists.find(
     (playlist) => playlist.id === rekordboxFolderId,
   );
+  const rekordboxPlaylistAvailable = Boolean(activeRekordboxPlaylist && !activeRekordboxPlaylist.is_folder);
   useEffect(() => {
     setRangeAnchor(null);
     if (
-      !rekordboxLoaded || !activeRekordboxId || !activeRekordboxPlaylist
-      || activeRekordboxPlaylist.is_folder
+      !rekordboxLoaded || !activeRekordboxId || !rekordboxPlaylistAvailable
     ) {
       setRekordboxTracks([]);
       return;
@@ -626,9 +702,13 @@ function Index() {
     let cancelled = false;
     setRekordboxTracks([]);
     setRekordboxError(null);
-    getRekordboxPlaylistTracks(apiUrl, activeRekordboxId)
-      .then((items) => {
-        if (!cancelled) setRekordboxTracks(items);
+    setRekordboxRevision(null);
+    getRekordboxPlaylistDetail(apiUrl, activeRekordboxId)
+      .then((detail) => {
+        if (!cancelled) {
+          setRekordboxTracks(detail.tracks);
+          setRekordboxRevision(detail.editable ? detail.revision : null);
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -640,7 +720,7 @@ function Index() {
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, activeRekordboxId, activeRekordboxPlaylist, rekordboxLoaded]);
+  }, [apiUrl, activeRekordboxId, rekordboxPlaylistAvailable, rekordboxLoaded, rekordboxLoadVersion]);
 
   const copySelectedRekordboxPlaylist = useCallback(async () => {
     const playlist = activeRekordboxPlaylist;
@@ -886,6 +966,9 @@ function Index() {
     return list;
   }, [currentTracks, missingArtworkOnly, q, sort, trackNumbers]);
   const selectedTrack = view[sel] ?? null;
+  useLayoutEffect(() => {
+    if (playlistSource === 'rekordbox') rekordboxSelectedEntry.current = selectedTrack?.id ?? null;
+  }, [playlistSource, selectedTrack?.id]);
 
   const selectionKey = `${playlistSource}:${playlistSource === "crate" ? activeId : activeRekordboxId}`;
   const headerPlaylistName =
@@ -1025,11 +1108,23 @@ function Index() {
     [activeId, activePlaylistName, apiUrl, loaded, refreshPlaylists, selectTrackAt],
   );
   const requestCollectionSwap = useCallback((sourceTrack: Track, match: CollectionMatch) => {
+    if (playlistSource === 'rekordbox') {
+      void runRekordboxEdit({ action: 'swap', entry_ids: [sourceTrack.id], track_ids: [match.id] });
+      return;
+    }
     setPendingCollectionSwap({ sourceTrack, match });
-  }, []);
+  }, [playlistSource, runRekordboxEdit]);
   const addCollectionMatch = useCallback(
-    async (sourceTrack: Track, match: CollectionMatch) => {
-      if (!activeId || playlistSource !== "crate" || addingCollectionTrackId) return;
+    async (sourceTrack: Track | null, match: CollectionMatch) => {
+      if (playlistSource === 'rekordbox') {
+        setAddingCollectionTrackId(match.id);
+        try {
+          await runRekordboxEdit({ action: 'add', track_ids: [match.id],
+            ...(sourceTrack ? { target_entry_id: sourceTrack.id, before: false } : {}) });
+        } finally { setAddingCollectionTrackId(null); }
+        return;
+      }
+      if (!sourceTrack || !activeId || addingCollectionTrackId) return;
       const requestPlaylistId = activeId;
       const generation = ++playlistTracksGeneration.current;
       setAddingCollectionTrackId(match.id);
@@ -1075,7 +1170,7 @@ function Index() {
         setAddingCollectionTrackId(null);
       }
     },
-    [activeId, addingCollectionTrackId, apiUrl, playlistSource, refreshPlaylists, selectTrackAt],
+    [activeId, addingCollectionTrackId, apiUrl, playlistSource, refreshPlaylists, runRekordboxEdit, selectTrackAt],
   );
 
   const addSeparator = useCallback((type: SeparatorType, track: Track) => {
@@ -1225,7 +1320,11 @@ function Index() {
   }, [appendDestination, appendTracksToPlaylist, selectedRekordboxTracks]);
   const reorderTrack = useCallback(
     async (sourceTrackIds: string[], targetTrackId: string, before: boolean) => {
-      if (!activeId || playlistSource !== "crate" || reordering) return;
+      if (playlistSource === 'rekordbox') {
+        await runRekordboxEdit({ action: 'move', entry_ids: sourceTrackIds, target_entry_id: targetTrackId, before });
+        return;
+      }
+      if (!activeId || reordering) return;
       const requestPlaylistId = activeId;
       const selectedTrackId = view[sel]?.id;
       setReordering(true);
@@ -1256,7 +1355,7 @@ function Index() {
         setReordering(false);
       }
     },
-    [activeId, apiUrl, playlistSource, reordering, sel, selectTrackAt, view],
+    [activeId, apiUrl, playlistSource, reordering, runRekordboxEdit, sel, selectTrackAt, view],
   );
   const collectionStatusLabel =
     collectionStatus.state === "idle"
@@ -1316,14 +1415,19 @@ function Index() {
 
   const removeTracks = useCallback(
     (toRemove: Track[]) => {
-      if (!toRemove.length || playlistSource === "rekordbox" || !activeId) return;
+      if (!toRemove.length) return;
+      if (playlistSource === 'rekordbox') {
+        void runRekordboxEdit({ action: 'remove', entry_ids: toRemove.map(track => track.id) });
+        return;
+      }
+      if (!activeId) return;
       setPendingRemoval({
         tracks: toRemove,
         playlistId: activeId,
         playlistName: activePl?.name ?? "this playlist",
       });
     },
-    [activeId, activePl?.name, playlistSource],
+    [activeId, activePl?.name, playlistSource, runRekordboxEdit],
   );
 
   const confirmRemoveTracks = useCallback(async () => {
@@ -1391,7 +1495,7 @@ function Index() {
       if (tag === "INPUT" || tag === "TEXTAREA" || settingsOpen) return;
       if (e.metaKey && e.key === "Backspace") {
         e.preventDefault();
-        if (playlistSource === "crate") {
+        {
           void removeTracks(selectedRange.length ? selectedRange : view[sel] ? [view[sel]] : []);
         }
       } else if (
@@ -1399,7 +1503,7 @@ function Index() {
         !e.metaKey &&
         !e.ctrlKey &&
         !e.altKey &&
-        playlistSource === "crate" &&
+        (playlistSource === "crate" || Boolean(rekordboxRevision)) &&
         view[sel]
       ) {
         e.preventDefault();
@@ -1480,6 +1584,7 @@ function Index() {
     selectTrackAt,
     expandedLookupTrackId,
     lookupTrackInCollection,
+    rekordboxRevision,
   ]);
 
   const toggleSort = (k: SortKey) => {
@@ -1603,6 +1708,7 @@ function Index() {
         apiUrl={apiUrl}
         open={addTrackSearchOpen}
         anchorTrack={selectedTrack}
+        allowAppendWithoutAnchor={playlistSource === "rekordbox"}
         addingTrackId={addingCollectionTrackId}
         activeTrackId={loaded?.track.id ?? null}
         activeRekordboxId={loaded?.track.rekordbox_id ?? null}
@@ -1610,7 +1716,14 @@ function Index() {
         currentTime={playbackTime}
         duration={playbackDuration}
         onOpenChange={setAddTrackSearchOpen}
-        onAdd={addCollectionMatch}
+        operation={trackSearchOperation}
+        onAdd={async (track, match) => {
+          if (playlistSource === 'rekordbox' && trackSearchOperation === 'swap' && track) {
+            setAddingCollectionTrackId(match.id);
+            try { await runRekordboxEdit({ action: 'swap', entry_ids: [track.id], track_ids: [match.id] }); }
+            finally { setAddingCollectionTrackId(null); }
+          } else await addCollectionMatch(track, match);
+        }}
         onPlay={playCollectionMatch}
         onSeekTo={(seconds) => deck.current?.seek(seconds - playbackTime)}
         onOpenRekordboxPlaylist={navigateToRekordboxPlaylistAtTrack}
@@ -1631,7 +1744,8 @@ function Index() {
           rekordboxError={rekordboxError}
           refreshing={refreshing}
           rekordboxRefreshing={rekordboxRefreshing}
-          creatingPlaylist={creatingPlaylist}
+          creatingPlaylist={creatingPlaylist || rekordboxEditing}
+          rekordboxEditable={Boolean(rekordboxRevision) && !rekordboxEditing}
           onFilterChange={setCrateQ}
           onSourceChange={changePlaylistSource}
           onRefresh={() => void refreshPlaylists()}
@@ -1716,18 +1830,24 @@ function Index() {
                 {view.length} tracks · {fmtTime(view.reduce((total, track) => total + track.duration, 0))}
               </span>
             </div>
-            {playlistSource === "crate" ? (
+            {playlistSource === "crate" || rekordboxRevision ? (
               <Button
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1.5"
-                disabled={!selectedTrack || addingCollectionTrackId !== null}
-                onClick={() => setAddTrackSearchOpen(true)}
+                disabled={(playlistSource === "crate" && !selectedTrack) || addingCollectionTrackId !== null || rekordboxEditing}
+                onClick={() => { setTrackSearchOperation('add'); setAddTrackSearchOpen(true); }}
               >
                 <Plus size={14} />
                 Add track
               </Button>
             ) : <span />}
+            {playlistSource === 'rekordbox' && rekordboxRevision && (
+              <Button size="sm" variant="outline" className="h-8" disabled={!selectedTrack || rekordboxEditing}
+                onClick={() => { setTrackSearchOperation('swap'); setAddTrackSearchOpen(true); }}>
+                Replace track
+              </Button>
+            )}
             <div className="flex shrink-0 items-center justify-end gap-2">
               {playlistSource === "crate" && (
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1914,9 +2034,11 @@ function Index() {
             appendDisabled={playlists.length === 0 || appendingTrackId !== null}
             appendDestinationSelected={Boolean(appendDestination)}
             appendingTrackId={appendingTrackId}
-            readOnly={playlistSource === "rekordbox"}
-            reorderEnabled={playlistSource === "crate" && sort.k === null && !q}
-            reordering={reordering}
+            showAppendAction={playlistSource === "rekordbox"}
+            readOnly={playlistSource === 'rekordbox' && (!rekordboxRevision || rekordboxEditing)}
+            separatorsEnabled={playlistSource === 'crate'}
+            reorderEnabled={(playlistSource === 'crate' || Boolean(rekordboxRevision)) && sort.k === null && !q}
+            reordering={reordering || rekordboxEditing}
             onReorder={(sourceTrackIds, targetTrackId, before) =>
               void reorderTrack(sourceTrackIds, targetTrackId, before)
             }

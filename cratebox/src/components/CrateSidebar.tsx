@@ -21,6 +21,7 @@ interface CrateSidebarProps {
   refreshing: boolean;
   rekordboxRefreshing: boolean;
   creatingPlaylist: boolean;
+  rekordboxEditable?: boolean;
   onFilterChange: (filter: string) => void;
   onSourceChange: (source: "crate" | "rekordbox") => void;
   onRefresh: () => void;
@@ -49,6 +50,7 @@ export function CrateSidebar({
   refreshing,
   rekordboxRefreshing,
   creatingPlaylist,
+  rekordboxEditable = false,
   onFilterChange,
   onSourceChange,
   onRefresh,
@@ -138,7 +140,7 @@ export function CrateSidebar({
           {source === "crate" ? <Package size={12} /> : <ListMusic size={12} />}
           {source === "crate"
             ? "Crates"
-            : `Rekordbox · ${currentRekordboxFolder?.name ?? "Level 0"} · Read only`}
+            : `Rekordbox · ${currentRekordboxFolder?.name ?? "Level 0"}`}
         </span>
         {source === "rekordbox" && rekordboxFolderId && (
           <Button
@@ -153,8 +155,9 @@ export function CrateSidebar({
           </Button>
         )}
         <div className="flex items-center gap-1">
-          {source === "crate" && (
+          {(source === "crate" || source === "rekordbox") && (
             <Button
+              disabled={creatingPlaylist}
               size="icon"
               variant="ghost"
               className="size-7"
@@ -299,15 +302,15 @@ export function CrateSidebar({
         )}
         {source === "rekordbox" &&
           rekordboxEntries.map((playlist) => (
+            <div key={playlist.id} className="relative">
             <button
-              key={playlist.id}
               ref={playlist.id === activeRekordboxId ? activeRekordboxPlaylistRef : undefined}
               onClick={() =>
                 playlist.is_folder
                   ? onOpenRekordboxFolder(playlist.id)
                   : onSelectRekordboxPlaylist(playlist.id)
               }
-              className={`flex w-full items-center gap-2 border-b border-l-2 border-b-sidebar-border px-3 py-2 text-left transition-colors ${playlist.id === activeRekordboxId ? "border-l-primary bg-primary/15" : "border-l-transparent hover:bg-sidebar-accent/60"}`}
+              className={`flex w-full items-center gap-2 border-b border-l-2 border-b-sidebar-border px-3 py-2 pr-10 text-left transition-colors ${playlist.id === activeRekordboxId ? "border-l-primary bg-primary/15" : "border-l-transparent hover:bg-sidebar-accent/60"}`}
             >
               {playlist.is_folder ? (
                 <Folder
@@ -332,6 +335,15 @@ export function CrateSidebar({
                 </span>
               </span>
             </button>
+            {playlist.id === activeRekordboxId && rekordboxEditable && !playlist.is_folder && !playlist.is_smart_playlist && (
+              <Button size="icon" variant="ghost" className="absolute right-1 top-2 size-7"
+                aria-label={`Rename ${playlist.name}`} title="Rename playlist"
+                onClick={() => {
+                  setRenameName(playlist.name);
+                  setRenamePlaylist({ id: playlist.id, name: playlist.name, created: '', trackCount: playlist.track_count, duration: 0 });
+                }}><Pencil size={14} /></Button>
+            )}
+            </div>
           ))}
         {source === "rekordbox" && rekordboxRefreshing && rekordboxPlaylists.length === 0 && (
           <div className="p-3 text-xs text-muted-foreground">Loading Rekordbox playlists…</div>
@@ -348,12 +360,12 @@ export function CrateSidebar({
       <div className="border-t border-sidebar-border p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
         {source === "crate"
           ? "↑↓ browse · ⌘↑↓ load · ⇧↑↓ select · ⌘⌫ remove · ←→ seek 5s"
-          : "Read only · Copy to CrateBox to edit"}
+          : "Edits save immediately · Close Rekordbox to edit"}
       </div>
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New CrateBox playlist</DialogTitle>
+            <DialogTitle>New {source === "crate" ? "CrateBox" : "Rekordbox"} playlist</DialogTitle>
             <DialogDescription>Create an empty playlist to add tracks to.</DialogDescription>
           </DialogHeader>
           <form
@@ -391,9 +403,9 @@ export function CrateSidebar({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename CrateBox playlist</DialogTitle>
+            <DialogTitle>Rename {source === "crate" ? "CrateBox" : "Rekordbox"} playlist</DialogTitle>
             <DialogDescription>
-              The playlist and its CrateBox metadata will be renamed together.
+              {source === "crate" ? "The playlist and its CrateBox metadata will be renamed together." : "The Rekordbox playlist keeps its identity and track order."}
             </DialogDescription>
           </DialogHeader>
           <form

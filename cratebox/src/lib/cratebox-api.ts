@@ -395,3 +395,38 @@ export function collectionStreamUrl(apiUrl: string, trackId: string): string {
 export function collectionArtworkUrl(apiUrl: string, trackId: string): string {
   return `${apiUrl}/api/collection/tracks/${encodeURIComponent(trackId)}/artwork`;
 }
+
+export interface RekordboxEdit {
+  action: 'rename' | 'add' | 'remove' | 'swap' | 'move';
+  name?: string;
+  entry_ids?: string[];
+  track_ids?: string[];
+  position?: number;
+  target_entry_id?: string;
+  before?: boolean;
+}
+
+export interface RekordboxPlaylistDetail {
+  id: string;
+  name: string;
+  revision: string;
+  editable: boolean;
+  tracks: Track[];
+}
+
+export function getRekordboxPlaylistDetail(apiUrl: string, playlistId: string): Promise<RekordboxPlaylistDetail> {
+  return requestJson(apiUrl, `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/detail`);
+}
+
+export function editRekordboxPlaylist(apiUrl: string, playlistId: string, revision: string, edit: RekordboxEdit): Promise<{ id: string; name: string; revision: string }> {
+  return requestJson(apiUrl, `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/edit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...edit, expected_revision: revision }),
+  });
+}
+
+export function createRekordboxPlaylist(apiUrl: string, name: string): Promise<{ id: string }> {
+  return requestJson(apiUrl, '/api/rekordbox/playlists', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  });
+}
