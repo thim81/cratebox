@@ -1760,8 +1760,8 @@ function Index() {
         />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-3 py-2">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2">
               <h1 className="truncate text-sm font-semibold">
                 {headerPlaylistName || "—"}
               </h1>
@@ -1822,7 +1822,19 @@ function Index() {
                 {view.length} tracks · {fmtTime(view.reduce((total, track) => total + track.duration, 0))}
               </span>
             </div>
-            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 border-t border-border/50 pt-2">
+            {playlistSource === "crate" || rekordboxRevision ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 shrink-0 gap-1.5"
+                disabled={(playlistSource === "crate" && !selectedTrack) || addingCollectionTrackId !== null || rekordboxEditing}
+                onClick={() => setAddTrackSearchOpen(true)}
+              >
+                <Plus size={14} />
+                Add track
+              </Button>
+            ) : <span />}
+            <div className="flex min-w-0 items-center justify-end gap-2">
               {playlistSource === "crate" && (
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   Insert separator
@@ -1891,19 +1903,7 @@ function Index() {
                   Add selected ({selectedRange.length})
                 </Button>
               )}
-              <div className="ml-auto flex min-w-0 items-center gap-2">
-                {playlistSource === "crate" || rekordboxRevision ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 shrink-0 gap-1.5"
-                    disabled={(playlistSource === "crate" && !selectedTrack) || addingCollectionTrackId !== null || rekordboxEditing}
-                    onClick={() => setAddTrackSearchOpen(true)}
-                  >
-                    <Plus size={14} />
-                    Add track
-                  </Button>
-                ) : null}
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
                 <div className="relative min-w-0 w-72">
                   <Search
                     size={14}
