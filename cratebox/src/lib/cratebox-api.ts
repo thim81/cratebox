@@ -418,7 +418,13 @@ export function getRekordboxPlaylistDetail(apiUrl: string, playlistId: string): 
   return requestJson(apiUrl, `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/detail`);
 }
 
-export function editRekordboxPlaylist(apiUrl: string, playlistId: string, revision: string, edit: RekordboxEdit): Promise<{ id: string; name: string; revision: string }> {
+export function editRekordboxPlaylist(apiUrl: string, playlistId: string, revision: string, edit: RekordboxEdit): Promise<{
+  id: string;
+  name: string;
+  revision: string;
+  editable: boolean;
+  entries: { entry_id: string; track_id: string }[];
+}> {
   return requestJson(apiUrl, `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/edit`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...edit, expected_revision: revision }),

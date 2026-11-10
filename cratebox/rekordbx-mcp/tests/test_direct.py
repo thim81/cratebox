@@ -37,6 +37,9 @@ def test_move_uses_entry_id_preserves_duplicates_and_revision(library, tmp_path)
     with pytest.raises(ValueError, match='changed'):
         editor.edit('remove', '100', state['revision'], entry_ids=['501'])
     assert len(editor.backups.list()) == 1
+    restored = editor.edit('move', '100', result['revision'], entry_ids=['503'], position=3)
+    assert restored == state
+
 
 
 def test_swap_is_atomic_even_after_library_internal_commit(library, tmp_path, monkeypatch):

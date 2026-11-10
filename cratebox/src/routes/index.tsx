@@ -68,7 +68,7 @@ import {
   setCrateTrackRating,
   setRekordboxTrackRating,
 } from "@/lib/cratebox-api";
-import { selectionAfterEdit } from "@/lib/rekordbox-selection";
+import { selectionAfterEdit, tracksInSavedOrder } from "@/lib/rekordbox-selection";
 import { updateTrackRating } from "@/lib/track-rating";
 import {
   fmtTime,
@@ -373,9 +373,10 @@ function Index() {
     setRekordboxEditing(true);
     let saved = false;
     try {
-      await editRekordboxPlaylist(apiUrl, id, rekordboxRevision, edit);
+      const result = await editRekordboxPlaylist(apiUrl, id, rekordboxRevision, edit);
       saved = true;
-      const detail = await getRekordboxPlaylistDetail(apiUrl, id);
+      const ordered = edit.action === 'move' ? tracksInSavedOrder(rekordboxTracks, result.entries) : null;
+      const detail = ordered ? { ...result, tracks: ordered } : await getRekordboxPlaylistDetail(apiUrl, id);
       if (rekordboxContext.current.id === id && rekordboxContext.current.source === 'rekordbox') {
         const selected = selectionAfterEdit(rekordboxTracks, detail.tracks, rekordboxSelectedEntry.current);
         if (selected) selectedTrackByPlaylist.current.set(`rekordbox:${id}`, selected);
@@ -384,8 +385,14 @@ function Index() {
         setRekordboxRevision(detail.editable ? detail.revision : null);
         setRekordboxError(null);
       }
-      try { setRekordboxPlaylists(await getRekordboxPlaylists(apiUrl)); }
-      catch { toast.error('Edit saved, but the playlist list could not be refreshed.'); }
+      if (!ordered) {
+        setRekordboxPlaylists(current => current.map(playlist => playlist.id === id ? {
+          ...playlist,
+          name: detail.name,
+          track_count: detail.tracks.length,
+          duration: detail.tracks.reduce((total, track) => total + track.duration, 0),
+        } : playlist));
+      }
       return true;
     } catch (error) {
       const message = `${saved ? 'Edit saved, but refresh failed' : 'Playlist edit failed'}: ${error instanceof Error ? error.message : 'request failed'}`;

@@ -90,11 +90,13 @@ def playlist_state(db, playlist_id):
     playlist = db.get_playlist(ID=playlist_id)
     if playlist is None or playlist.rb_local_deleted:
         raise ValueError('Playlist not found.')
-    entries = db.query(DjmdSongPlaylist).filter(
+    entries = db.query(DjmdSongPlaylist, DjmdContent.ID, DjmdContent.rb_local_deleted).outerjoin(
+        DjmdContent, DjmdContent.ID == DjmdSongPlaylist.ContentID,
+    ).filter(
         DjmdSongPlaylist.PlaylistID == str(playlist.ID),
         DjmdSongPlaylist.rb_local_deleted == 0,
     ).order_by(DjmdSongPlaylist.TrackNo).all()
-    visible = [row for row in entries if (track := db.get_content(ID=row.ContentID)) is not None and not track.rb_local_deleted]
+    visible = [row for row, content_id, deleted in entries if content_id is not None and not deleted]
     state = dict(id=str(playlist.ID), name=playlist.Name,
                  editable=playlist.Attribute == 0 and len(visible) == len(entries),
                  entries=[dict(entry_id=str(row.ID), track_id=str(row.ContentID), position=int(row.TrackNo)) for row in visible])
@@ -206,10 +208,14 @@ class PlaylistEditor:
                         if position is None or not 1 <= position <= len(remaining) + 1:
                             raise ValueError('Position is outside the playlist.')
                         index = position - 1
-                    desired = remaining[:index] + moved + remaining[index:]
-                    for index, entry_id in enumerate(desired, 1):
-                        db.move_song_in_playlist(playlist, rows[entry_id], index)
-                        db.flush()
+                    if len(moved) == 1 and all(rows[entry].TrackNo == position for position, entry in enumerate(ordered, 1)):
+                        db.move_song_in_playlist(playlist, rows[moved[0]], index + 1)
+                    else:
+                        desired = remaining[:index] + moved + remaining[index:]
+                        for position, entry_id in enumerate(desired, 1):
+                            if rows[entry_id].TrackNo != position:
+                                db.move_song_in_playlist(playlist, rows[entry_id], position)
+                                db.flush()
                 db.flush()
                 expected = playlist_state(db, playlist_id)
                 require_rekordbox_closed()
