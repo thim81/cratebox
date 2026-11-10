@@ -1835,29 +1835,6 @@ function Index() {
               </Button>
             ) : <span />}
             <div className="flex min-w-0 items-center justify-end gap-2">
-              {playlistSource === "rekordbox" &&
-                activeRekordboxPlaylist &&
-                !activeRekordboxPlaylist.is_folder && (
-                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <select
-                      aria-label="Local CrateBox playlist to insert into"
-                      className="h-8 max-w-56 rounded border border-input bg-background px-2 text-xs text-foreground"
-                      value={appendPlaylistId}
-                      disabled={playlists.length === 0 || appendingTrackId !== null}
-                      onChange={(event) => {
-                        setAppendPlaylistId(event.currentTarget.value);
-                        setApiError(null);
-                      }}
-                    >
-                      <option value="">Select CrateBox playlist</option>
-                      {playlists.map((playlist) => (
-                        <option key={playlist.id} value={playlist.id}>
-                          {playlist.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
               {playlistSource === "rekordbox" && selectedRange.length > 1 && (
                 <Button
                   size="sm"
@@ -1883,75 +1860,96 @@ function Index() {
                   Add selected ({selectedRange.length})
                 </Button>
               )}
-              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-                {playlistSource === "crate" && (
+              {playlistSource === "rekordbox" &&
+                activeRekordboxPlaylist &&
+                !activeRekordboxPlaylist.is_folder && (
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    Insert separator
                     <select
-                      aria-label="Separator type to insert"
-                      className="h-8 rounded border border-input bg-background px-2 text-xs text-foreground"
-                      value={separatorType}
-                      disabled={separatorInserting}
-                      onChange={(event) =>
-                        setSeparatorType(event.currentTarget.value as SeparatorType)
-                      }
+                      aria-label="Local CrateBox playlist to insert into"
+                      className="h-8 max-w-56 rounded border border-input bg-background px-2 text-xs text-foreground"
+                      value={appendPlaylistId}
+                      disabled={playlists.length === 0 || appendingTrackId !== null}
+                      onChange={(event) => {
+                        setAppendPlaylistId(event.currentTarget.value);
+                        setApiError(null);
+                      }}
                     >
-                      {PLAYLIST_SEPARATORS.map(({ type, label }) => (
-                        <option key={type} value={type}>
-                          {label}
+                      <option value="">Select CrateBox playlist</option>
+                      {playlists.map((playlist) => (
+                        <option key={playlist.id} value={playlist.id}>
+                          {playlist.name}
                         </option>
                       ))}
                     </select>
                   </label>
                 )}
-                <div className="relative min-w-0 w-72">
-                  <Search
-                    size={14}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  />
-                  <Input
-                    ref={tracklistSearchRef}
-                    value={q}
-                    onChange={(e) => {
-                      setQ(e.target.value);
-                      setRangeAnchor(null);
-                    }}
-                    placeholder="Search title, artist, key, BPM…"
-                    className="h-8 pl-7 pr-8 text-xs"
-                  />
-                  {q && (
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      aria-label="Clear tracklist search"
-                      title="Clear search"
-                      onClick={() => {
-                        setQ("");
-                        setRangeAnchor(null);
-                        tracklistSearchRef.current?.focus();
-                      }}
-                    >
-                      <X size={13} />
-                    </Button>
-                  )}
-                </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className={`size-8 shrink-0 ${missingArtworkOnly ? "bg-primary/15 text-primary ring-1 ring-primary/50 hover:bg-primary/25" : ""}`}
-                  aria-label={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
-                  aria-pressed={missingArtworkOnly}
-                  title={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
-                  onClick={() => {
-                    setMissingArtworkOnly((value) => !value);
+              {playlistSource === "crate" && (
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  Insert separator
+                  <select
+                    aria-label="Separator type to insert"
+                    className="h-8 rounded border border-input bg-background px-2 text-xs text-foreground"
+                    value={separatorType}
+                    disabled={separatorInserting}
+                    onChange={(event) =>
+                      setSeparatorType(event.currentTarget.value as SeparatorType)
+                    }
+                  >
+                    {PLAYLIST_SEPARATORS.map(({ type, label }) => (
+                      <option key={type} value={type}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <div className="relative min-w-0 w-72">
+                <Search
+                  size={14}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  ref={tracklistSearchRef}
+                  value={q}
+                  onChange={(e) => {
+                    setQ(e.target.value);
                     setRangeAnchor(null);
                   }}
-                >
-                  <ImageOff size={14} />
-                </Button>
+                  placeholder="Search title, artist, key, BPM…"
+                  className="h-8 pl-7 pr-8 text-xs"
+                />
+                {q && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label="Clear tracklist search"
+                    title="Clear search"
+                    onClick={() => {
+                      setQ("");
+                      setRangeAnchor(null);
+                      tracklistSearchRef.current?.focus();
+                    }}
+                  >
+                    <X size={13} />
+                  </Button>
+                )}
               </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className={`size-8 shrink-0 ${missingArtworkOnly ? "bg-primary/15 text-primary ring-1 ring-primary/50 hover:bg-primary/25" : ""}`}
+                aria-label={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
+                aria-pressed={missingArtworkOnly}
+                title={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
+                onClick={() => {
+                  setMissingArtworkOnly((value) => !value);
+                  setRangeAnchor(null);
+                }}
+              >
+                <ImageOff size={14} />
+              </Button>
             </div>
           </div>
           <TrackTable
