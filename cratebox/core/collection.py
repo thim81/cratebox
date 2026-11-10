@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 from fastmcp.client.transports import StdioTransport
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,9 @@ class CollectionClient:
                 client = await self.connect()
                 try:
                     return await client.call_tool(name, arguments or {})
+                except ToolError:
+                    # A rejected operation is a valid tool response, not a lost transport.
+                    raise
                 except Exception:
                     logger.exception("Rekordbox MCP tool %s failed; dropping the worker session", name)
                     await self._invalidate(client)

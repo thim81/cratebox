@@ -48,3 +48,14 @@ def test_playlist_summary_keeps_total_duration(monkeypatch):
     monkeypatch.setattr(api, 'playlist_records', records)
     summaries = asyncio.run(api.get_rekordbox_playlists())
     assert summaries[0]['duration'] == 640
+
+
+def test_tool_error_keeps_the_specific_safe_api_error(monkeypatch):
+    from fastmcp.exceptions import ToolError
+    async def fail(*_args, **_kwargs):
+        raise ToolError('Database transaction sidecar exists; close Rekordbox cleanly.')
+    monkeypatch.setattr(api.collection_mcp, 'call_tool', fail)
+    with pytest.raises(api.HTTPException) as caught:
+        asyncio.run(api.call_tool('edit_playlist', {'action':'move'}))
+    assert caught.value.status_code == 409
+    assert 'transaction files' in caught.value.detail

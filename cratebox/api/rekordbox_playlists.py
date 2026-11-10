@@ -8,6 +8,7 @@ from typing import Literal
 import mutagen
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from fastmcp.exceptions import ToolError
 
 from .artwork_data import embedded_artwork
 from .collection import collection_mcp
@@ -86,41 +87,47 @@ def result_value(result):
     return value
 
 
+def raise_playlist_tool_error(name: str, message: str):
+    logger.error("Rekordbox MCP tool returned an error (%s): %s", name, message)
+    if name in {'edit_playlist', 'get_playlist_state', 'get_playlist_tracks', 'get_playlists'}:
+        safe_errors = [
+            ('sidecar', 409, 'Close Rekordbox cleanly; unresolved database transaction files prevent access.'),
+            ('close rekordbox', 409, 'Close Rekordbox and its background agents to access the collection.'),
+            ('process inspection', 503, 'Cannot verify Rekordbox is closed. Try again after closing it and its agents.'),
+            ('playlist changed', 409, 'Playlist changed; reload it before editing.'),
+            ('commit outcome', 503, 'The edit may have been saved, but could not be verified. Do not repeat it; inspect database recovery.'),
+            ('busy', 409, 'Rekordbox database is busy. Try the action again.'),
+            ('backup', 503, 'A verified database backup is unavailable. The edit was blocked.'),
+            ('recovery required', 503, 'Database recovery required. Inspect and restore a verified backup before editing.'),
+            ('smart playlist', 400, 'Folders and smart playlists cannot be edited.'),
+            ('playlist not found', 404, 'Rekordbox playlist not found.'),
+            ('track is not active', 409, 'Track is no longer active in the collection.'),
+        ]
+        for needle, code, detail in safe_errors:
+            if needle in message.lower():
+                raise HTTPException(code, detail)
+    if "already exists" in message.lower():
+        raise HTTPException(409, "A CrateBox playlist with this name already exists.")
+    if name == "get_collection_tracks":
+        raise HTTPException(409, "One or more playlist tracks no longer match the Rekordbox collection.")
+    raise HTTPException(502, "Rekordbox playlist request failed.")
+
+
 async def call_tool(name: str, arguments: dict | None = None):
     try:
         result = await collection_mcp.call_tool(name, arguments or {})
     except HTTPException:
         raise
+    except ToolError as error:
+        raise_playlist_tool_error(name, str(error))
     except CollectionConnectionError as error:
         raise HTTPException(error.status_code, error.detail) from None
     except Exception:
         logger.exception("Rekordbox MCP tool call failed (%s)", name)
         raise HTTPException(502, "Rekordbox playlist request failed.") from None
     if result.is_error:
-        message = next((item.text for item in result.content if hasattr(item, "text")), "")
-        logger.error("Rekordbox MCP tool returned an error (%s): %s", name, message)
-        if name in {'edit_playlist', 'get_playlist_state', 'get_playlist_tracks', 'get_playlists'}:
-            safe_errors = [
-                ('close rekordbox', 409, 'Close Rekordbox and its background agents to access the collection.'),
-                ('process inspection', 503, 'Cannot verify Rekordbox is closed. Try again after closing it and its agents.'),
-                ('playlist changed', 409, 'Playlist changed; reload it before editing.'),
-                ('commit outcome', 503, 'The edit may have been saved, but could not be verified. Do not repeat it; inspect database recovery.'),
-                ('sidecar', 409, 'Close Rekordbox cleanly; unresolved database transaction files prevent access.'),
-                ('busy', 409, 'Rekordbox database is busy. Try the action again.'),
-                ('backup', 503, 'A verified database backup is unavailable. The edit was blocked.'),
-                ('recovery required', 503, 'Database recovery required. Inspect and restore a verified backup before editing.'),
-                ('smart playlist', 400, 'Folders and smart playlists cannot be edited.'),
-                ('playlist not found', 404, 'Rekordbox playlist not found.'),
-                ('track is not active', 409, 'Track is no longer active in the collection.'),
-            ]
-            for needle, code, detail in safe_errors:
-                if needle in message.lower():
-                    raise HTTPException(code, detail)
-        if "already exists" in message.lower():
-            raise HTTPException(409, "A CrateBox playlist with this name already exists.")
-        if name == "get_collection_tracks":
-            raise HTTPException(409, "One or more playlist tracks no longer match the Rekordbox collection.")
-        raise HTTPException(502, "Rekordbox playlist request failed.")
+        message = next((item.text for item in result.content if hasattr(item, 'text')), '')
+        raise_playlist_tool_error(name, message)
     try:
         return result_value(result)
     except (IndexError, TypeError, json.JSONDecodeError):

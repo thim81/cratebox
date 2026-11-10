@@ -63,3 +63,30 @@ def test_collection_client_serializes_calls_and_reuses_connection(tmp_path, monk
     assert [call[1] for call in entered] == [{"offset": 0}, {"offset": 1}]
     assert client.state == "idle"
     assert client.client is None
+
+
+def test_tool_rejection_does_not_drop_session_or_retry(tmp_path):
+    from fastmcp.exceptions import ToolError
+    class RejectedClient:
+        calls = 0
+        closed = False
+        async def call_tool(self, *_):
+            self.calls += 1
+            raise ToolError('Database transaction sidecar exists; close Rekordbox cleanly.')
+        async def close(self):
+            self.closed = True
+    client = collection.CollectionClient(tmp_path)
+    worker = RejectedClient()
+    client.client = worker
+    async def connect():
+        return worker
+    client.connect = connect
+    async def run():
+        try:
+            await client.call_tool('edit_playlist', {'action':'move'})
+        except ToolError:
+            pass
+    asyncio.run(run())
+    assert worker.calls == 1
+    assert not worker.closed
+    assert client.client is worker
