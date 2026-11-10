@@ -29,7 +29,6 @@ interface Props {
   open: boolean;
   anchorTrack: Track | null;
   allowAppendWithoutAnchor?: boolean;
-  operation?: 'add' | 'swap';
   addingTrackId: string | null;
   activeTrackId: string | null;
   activeRekordboxId: string | null;
@@ -48,7 +47,6 @@ export function CollectionTrackSearchDialog({
   open,
   anchorTrack,
   allowAppendWithoutAnchor = false,
-  operation = 'add',
   addingTrackId,
   activeTrackId,
   activeRekordboxId,
@@ -198,11 +196,9 @@ export function CollectionTrackSearchDialog({
         onKeyDown={seekFromKeyboard}
       >
         <DialogHeader>
-          <DialogTitle>{operation === "swap" ? "Replace track" : "Add a track"}</DialogTitle>
+          <DialogTitle>Add a track</DialogTitle>
           <DialogDescription>
-            Search by artist, title, or both. {operation === 'swap'
-              ? `The selected result will replace “${anchorTrack?.title ?? 'the selected track'}”.`
-              : anchorTrack ? `The selected result will be inserted after “${anchorTrack.title}”.`
+            Search by artist, title, or both. {anchorTrack ? `The selected result will be inserted after “${anchorTrack.title}”.`
               : 'The selected result will be added to the playlist.'}
           </DialogDescription>
         </DialogHeader>
@@ -412,7 +408,7 @@ export function CollectionTrackSearchDialog({
                   }}
                 >
                   {addingTrackId === match.id ? <LoaderCircle className="animate-spin" /> : <Plus />}
-                  {operation === "swap" ? "Replace" : "Add"}
+                  Add
                 </Button>
               </div>
             ))}

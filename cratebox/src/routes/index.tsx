@@ -245,7 +245,6 @@ function Index() {
   const [appendingTrackId, setAppendingTrackId] = useState<string | null>(null);
   const [addingCollectionTrackId, setAddingCollectionTrackId] = useState<string | null>(null);
   const [addTrackSearchOpen, setAddTrackSearchOpen] = useState(false);
-  const [trackSearchOperation, setTrackSearchOperation] = useState<'add' | 'swap'>('add');
   const [appendPlaylistId, setAppendPlaylistId] = useState("");
   const [pendingAppendTrack, setPendingAppendTrack] = useState<Track | null>(null);
   const [crateQ, setCrateQ] = useState("");
@@ -1716,14 +1715,7 @@ function Index() {
         currentTime={playbackTime}
         duration={playbackDuration}
         onOpenChange={setAddTrackSearchOpen}
-        operation={trackSearchOperation}
-        onAdd={async (track, match) => {
-          if (playlistSource === 'rekordbox' && trackSearchOperation === 'swap' && track) {
-            setAddingCollectionTrackId(match.id);
-            try { await runRekordboxEdit({ action: 'swap', entry_ids: [track.id], track_ids: [match.id] }); }
-            finally { setAddingCollectionTrackId(null); }
-          } else await addCollectionMatch(track, match);
-        }}
+        onAdd={addCollectionMatch}
         onPlay={playCollectionMatch}
         onSeekTo={(seconds) => deck.current?.seek(seconds - playbackTime)}
         onOpenRekordboxPlaylist={navigateToRekordboxPlaylistAtTrack}
@@ -1830,26 +1822,6 @@ function Index() {
                 {view.length} tracks · {fmtTime(view.reduce((total, track) => total + track.duration, 0))}
               </span>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-            {playlistSource === "crate" || rekordboxRevision ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1.5"
-                disabled={(playlistSource === "crate" && !selectedTrack) || addingCollectionTrackId !== null || rekordboxEditing}
-                onClick={() => { setTrackSearchOperation('add'); setAddTrackSearchOpen(true); }}
-              >
-                <Plus size={14} />
-                Add track
-              </Button>
-            ) : <span />}
-            {playlistSource === 'rekordbox' && rekordboxRevision && (
-              <Button size="sm" variant="outline" className="h-8" disabled={!selectedTrack || rekordboxEditing}
-                onClick={() => { setTrackSearchOperation('swap'); setAddTrackSearchOpen(true); }}>
-                Replace track
-              </Button>
-            )}
-            </div>
             <div className="flex w-full min-w-0 flex-wrap items-center gap-2 border-t border-border/50 pt-2">
               {playlistSource === "crate" && (
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1919,53 +1891,67 @@ function Index() {
                   Add selected ({selectedRange.length})
                 </Button>
               )}
-              <div className="relative ml-auto w-full sm:w-72">
-                <Search
-                  size={14}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-                />
-                <Input
-                  ref={tracklistSearchRef}
-                  value={q}
-                  onChange={(e) => {
-                    setQ(e.target.value);
+              <div className="ml-auto flex min-w-0 items-center gap-2">
+                {playlistSource === "crate" || rekordboxRevision ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 shrink-0 gap-1.5"
+                    disabled={(playlistSource === "crate" && !selectedTrack) || addingCollectionTrackId !== null || rekordboxEditing}
+                    onClick={() => setAddTrackSearchOpen(true)}
+                  >
+                    <Plus size={14} />
+                    Add track
+                  </Button>
+                ) : null}
+                <div className="relative min-w-0 w-72">
+                  <Search
+                    size={14}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    ref={tracklistSearchRef}
+                    value={q}
+                    onChange={(e) => {
+                      setQ(e.target.value);
+                      setRangeAnchor(null);
+                    }}
+                    placeholder="Search title, artist, key, BPM…"
+                    className="h-8 pl-7 pr-8 text-xs"
+                  />
+                  {q && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label="Clear tracklist search"
+                      title="Clear search"
+                      onClick={() => {
+                        setQ("");
+                        setRangeAnchor(null);
+                        tracklistSearchRef.current?.focus();
+                      }}
+                    >
+                      <X size={13} />
+                    </Button>
+                  )}
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className={`size-8 shrink-0 ${missingArtworkOnly ? "bg-primary/15 text-primary ring-1 ring-primary/50 hover:bg-primary/25" : ""}`}
+                  aria-label={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
+                  aria-pressed={missingArtworkOnly}
+                  title={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
+                  onClick={() => {
+                    setMissingArtworkOnly((value) => !value);
                     setRangeAnchor(null);
                   }}
-                  placeholder="Search title, artist, key, BPM…"
-                  className="h-8 pl-7 pr-8 text-xs"
-                />
-                {q && (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="absolute right-0.5 top-1/2 size-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    aria-label="Clear tracklist search"
-                    title="Clear search"
-                    onClick={() => {
-                      setQ("");
-                      setRangeAnchor(null);
-                      tracklistSearchRef.current?.focus();
-                    }}
-                  >
-                    <X size={13} />
-                  </Button>
-                )}
+                >
+                  <ImageOff size={14} />
+                </Button>
               </div>
-              <Button
-                size="icon"
-                variant="ghost"
-                className={`size-8 shrink-0 ${missingArtworkOnly ? "bg-primary/15 text-primary ring-1 ring-primary/50 hover:bg-primary/25" : ""}`}
-                aria-label={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
-                aria-pressed={missingArtworkOnly}
-                title={missingArtworkOnly ? "Show all tracks" : "Show tracks without artwork"}
-                onClick={() => {
-                  setMissingArtworkOnly((value) => !value);
-                  setRangeAnchor(null);
-                }}
-              >
-                <ImageOff size={14} />
-              </Button>
             </div>
           </div>
           <TrackTable
