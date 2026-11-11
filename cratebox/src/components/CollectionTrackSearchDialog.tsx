@@ -295,10 +295,10 @@ export function CollectionTrackSearchDialog({
             className="overflow-x-auto rounded border border-border"
             onKeyDown={navigateResults}
           >
-            <div className="grid min-w-[970px] grid-cols-[1rem_minmax(10rem,1.4fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_4rem_4.5rem_3.5rem_6rem_4rem_4rem_2.5rem_5rem] gap-2 bg-muted/50 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid min-w-[970px] grid-cols-[1rem_minmax(8rem,1fr)_minmax(10rem,1.4fr)_minmax(8rem,1fr)_4rem_4.5rem_3.5rem_6rem_4rem_4rem_2.5rem_5rem] gap-2 bg-muted/50 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               <span />
-              <span>Title</span>
               <span>Artist</span>
+              <span>Title</span>
               <span>Album</span>
               <span className="text-right">Time</span>
               <span className="text-center">Stars</span>
@@ -315,7 +315,7 @@ export function CollectionTrackSearchDialog({
                 data-add-result={match.id}
                 tabIndex={0}
                 aria-current={selectedMatchId === match.id ? "true" : undefined}
-                className={`grid min-w-[970px] grid-cols-[1rem_minmax(10rem,1.4fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_4rem_4.5rem_3.5rem_6rem_4rem_4rem_2.5rem_5rem] items-center gap-2 border-t border-border px-3 py-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-primary ${selectedMatchId === match.id ? "bg-primary/10" : ""} ${activeTrackId === `collection-${match.id}` || activeRekordboxId === match.id ? "text-accent" : ""}`}
+                className={`grid min-w-[970px] grid-cols-[1rem_minmax(8rem,1fr)_minmax(10rem,1.4fr)_minmax(8rem,1fr)_4rem_4.5rem_3.5rem_6rem_4rem_4rem_2.5rem_5rem] items-center gap-2 border-t border-border px-3 py-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-primary ${selectedMatchId === match.id ? "bg-primary/10" : ""} ${activeTrackId === `collection-${match.id}` || activeRekordboxId === match.id ? "text-accent" : ""}`}
                 onClick={(event) => {
                   if ((event.target as HTMLElement).closest("button")) return;
                   setSelectedMatchId(match.id);
@@ -335,8 +335,8 @@ export function CollectionTrackSearchDialog({
                       <span className="text-accent">▸</span>
                     ))}
                 </span>
-                <span className="truncate font-medium" title={match.title}>{match.title}</span>
                 <span className="truncate text-muted-foreground" title={match.artist}>{match.artist}</span>
+                <span className="truncate font-medium" title={match.title}>{match.title}</span>
                 <span className="truncate text-muted-foreground" title={match.album}>{match.album || "—"}</span>
                 <span className="text-right font-mono text-muted-foreground">{fmtTime(match.duration)}</span>
                 <span
