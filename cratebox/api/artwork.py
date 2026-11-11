@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from pathlib import Path
 from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
@@ -14,7 +13,8 @@ from .artwork_data import embedded_artwork, is_http_url, read_artwork_overrides,
 from . import artwork_write
 from . import google_image_search
 from . import music_artwork
-from .playlists import find_playlist, parse_playlist, playlist_entries, playlist_files, read_plan_ids
+from .collection import collection_mcp, resolve_collection_audio
+from .playlists import find_playlist, parse_playlist, playlist_entries, playlist_files, playlist_mutation_lock, read_plan_ids
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -234,40 +234,23 @@ def _require_local_artwork_origin(http_request: Request):
         raise HTTPException(403, "Artwork embedding is allowed only from the local CrateBox interface")
 
 
-@router.put("/api/rekordbox/playlists/{playlist_id}/tracks/{track_id}/artwork/embed")
+@router.put("/api/collection/tracks/{track_id}/artwork/embed")
 async def embed_rekordbox_artwork(
-    playlist_id: str, track_id: str, request: RekordboxArtworkEmbed, http_request: Request,
+    track_id: str, request: RekordboxArtworkEmbed, http_request: Request,
 ):
     _require_local_artwork_origin(http_request)
     if len(request.image_url) > 2048:
         raise HTTPException(400, "The selected image URL is too long")
 
-    from .rekordbox_playlists import call_tool
-
-    locations = await call_tool(
-        "get_playlist_track_location", {"playlist_id": playlist_id, "track_id": track_id},
-    )
-    if locations == []:
-        raise HTTPException(404, "Track not found in Rekordbox playlist.")
-    if (
-        not isinstance(locations, list) or len(locations) != 1
-        or not isinstance(locations[0], dict)
-        or str(locations[0].get("id")) != track_id
-        or not isinstance(locations[0].get("file_path"), str)
-        or any(character in locations[0]["file_path"] for character in "\r\n\x00\x85\u2028\u2029")
-        or not Path(locations[0]["file_path"]).is_absolute()
-    ):
-        raise HTTPException(409, "The Rekordbox track no longer resolves to one local audio file.")
-
+    source = await resolve_collection_audio(track_id)
     try:
-        source = Path(locations[0]["file_path"])
         artwork_write._validate_source(source)
-        image_data, mime = artwork_write.download_cover_image(request.image_url)
-        artwork_write.embed_cover_art(source, image_data, mime)
+        image_data, mime = await asyncio.to_thread(artwork_write.download_cover_image, request.image_url)
+        async with playlist_mutation_lock(str(source)):
+            await asyncio.to_thread(artwork_write.embed_cover_art, source, image_data, mime)
     except artwork_write.ArtworkWriteError as exc:
         raise HTTPException(400, str(exc)) from None
 
-    from .collection import collection_mcp
     collection_mcp.track_paths[track_id] = source
     return {
         "backup_id": None,

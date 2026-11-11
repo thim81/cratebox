@@ -80,13 +80,12 @@ export async function embedArtwork(
 
 export async function embedRekordboxArtwork(
   apiUrl: string,
-  playlistId: string,
   trackId: string,
   imageUrl: string,
 ): Promise<{ backup_id: null; artwork_url: string }> {
   const result = await requestJson<{ backup_id: null; artwork_url: string }>(
     apiUrl,
-    `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}/artwork/embed`,
+    `/api/collection/tracks/${encodeURIComponent(trackId)}/artwork/embed`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -111,11 +110,10 @@ export function setCrateTrackRating(
 
 export function setRekordboxTrackRating(
   apiUrl: string,
-  playlistId: string,
   trackId: string,
   rating: number,
 ): Promise<{ rating: number }> {
-  return requestJson(apiUrl, `/api/rekordbox/playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}/rating`, {
+  return requestJson(apiUrl, `/api/collection/tracks/${encodeURIComponent(trackId)}/rating`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rating }),

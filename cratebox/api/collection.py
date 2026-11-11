@@ -23,6 +23,22 @@ class CollectionLookup(BaseModel):
 
 collection_mcp = CollectionClient(REPO_ROOT / "cratebox" / "rekordbx-mcp")
 
+
+async def resolve_collection_audio(track_id: str) -> Path:
+    from .rekordbox_playlists import call_tool
+
+    track = await call_tool("get_track_file_path", {"track_id": track_id})
+    location = track.get("file_path") if isinstance(track, dict) else None
+    if (
+        not isinstance(location, str)
+        or track.get("track_id") != track_id
+        or any(character in location for character in "\r\n\x00\x85\u2028\u2029")
+        or not Path(location).is_absolute()
+    ):
+        raise HTTPException(409, "The Rekordbox track no longer resolves to one local audio file.")
+    return Path(location)
+
+
 @router.get("/api/collection/status")
 async def collection_status():
     return await collection_mcp.status()

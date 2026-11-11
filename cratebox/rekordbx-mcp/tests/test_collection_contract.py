@@ -2,6 +2,14 @@ import json
 from fastmcp import Client
 from rekordbx_mcp.server import build_server
 
+
+async def test_upstream_track_file_path_resolves_active_tracks_without_a_playlist(playable_snapshot):
+    async with Client(build_server(playable_snapshot)) as client:
+        result = await client.call_tool("get_track_file_path", {"track_id": "1"})
+        assert result.structured_content["file_path"] == str(playable_snapshot / "music/Été #1.mp3")
+        assert (await client.call_tool("get_track_file_path", {"track_id": "4"}, raise_on_error=False)).is_error
+
+
 async def test_generic_tracks_preserve_order_duplicates_and_page(playable_snapshot):
     async with Client(build_server(playable_snapshot)) as client:
         result = await client.call_tool('get_collection_tracks', {'track_ids': ['2', '1', '2']})

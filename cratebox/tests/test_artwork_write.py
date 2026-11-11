@@ -565,7 +565,7 @@ def test_embed_endpoint_restores_old_override_when_mp3_write_fails(tmp_path, mon
     assert artwork_data.read_artwork_overrides()["tracks"]["Set"]["42-1"] == old_override
 
 
-def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio(tmp_path, monkeypatch):
+def test_rekordbox_embed_endpoint_resolves_track_id_and_updates_audio(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from api.app import app as api_app
     from api import rekordbox_playlists
@@ -580,14 +580,14 @@ def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio
     async def call_tool(name, arguments=None):
         calls.append((name, arguments))
         return {
-            "get_playlist_track_location": [{"id": "track-1", "file_path": str(source)}],
+            "get_track_file_path": {"track_id": "track-1", "file_path": str(source)},
         }[name]
 
     monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
     collection_mcp.track_paths.pop("track-1", None)
     with TestClient(api_app) as client:
         response = client.put(
-            "/api/rekordbox/playlists/playlist-1/tracks/track-1/artwork/embed",
+            "/api/collection/tracks/track-1/artwork/embed",
             json={"image_url": "https://images.example/cover.png"},
             headers={"Origin": "http://localhost:4444"},
         )
@@ -597,12 +597,12 @@ def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio
     assert "file_path" not in response.text
     assert response.json()["backup_id"] is None
     assert response.json()["artwork_url"].startswith("/api/collection/tracks/track-1/artwork?v=")
-    assert calls == [("get_playlist_track_location", {"playlist_id": "playlist-1", "track_id": "track-1"})]
+    assert calls == [("get_track_file_path", {"track_id": "track-1"})]
     assert next(frame.data for frame in MP3(source).tags.getall("APIC") if frame.type == 3) == png(b"\x01\x02\x03")
     assert not (tmp_path / "backups").exists()
 
 
-def test_rekordbox_embed_endpoint_rejects_track_outside_playlist(tmp_path, monkeypatch):
+def test_rekordbox_embed_endpoint_rejects_invalid_location(monkeypatch):
     from fastapi.testclient import TestClient
     from api.app import app as api_app
     from api import rekordbox_playlists
@@ -611,19 +611,19 @@ def test_rekordbox_embed_endpoint_rejects_track_outside_playlist(tmp_path, monke
 
     async def call_tool(name, arguments=None):
         called.append(name)
-        return {"get_playlist_track_location": []}[name]
+        return {"get_track_file_path": {"track_id": "other-track", "file_path": "relative.mp3"}}[name]
 
     monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
     monkeypatch.setattr(artwork_write, "download_cover_image", lambda _url: pytest.fail("image should not download"))
     with TestClient(api_app) as client:
         response = client.put(
-            "/api/rekordbox/playlists/playlist-1/tracks/other-track/artwork/embed",
+            "/api/collection/tracks/other-track/artwork/embed",
             json={"image_url": "https://images.example/cover.png"},
             headers={"Origin": "http://localhost:4444"},
         )
 
-    assert response.status_code == 404
-    assert called == ["get_playlist_track_location"]
+    assert response.status_code == 409
+    assert called == ["get_track_file_path"]
 
 
 def test_crate_rating_endpoint_updates_only_the_audio_rating(tmp_path, monkeypatch):
@@ -649,7 +649,7 @@ def test_crate_rating_endpoint_updates_only_the_audio_rating(tmp_path, monkeypat
     assert read_embedded_rating(source) == 4
 
 
-def test_rekordbox_rating_endpoint_resolves_membership_and_never_writes_collection(tmp_path, monkeypatch):
+def test_rekordbox_rating_endpoint_resolves_track_id_and_never_writes_collection(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from api.app import app as api_app
     from api import rekordbox_playlists
@@ -663,15 +663,13 @@ def test_rekordbox_rating_endpoint_resolves_membership_and_never_writes_collecti
     async def call_tool(name, arguments=None):
         calls.append((name, arguments))
         return {
-            "get_playlists": [{"id": "playlist-1"}],
-            "get_playlist_tracks": [{"id": "track-1"}],
-            "get_collection_tracks": [{"id": "track-1", "file_path": str(source)}],
+            "get_track_file_path": {"track_id": "track-1", "file_path": str(source)},
         }[name]
 
     monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
     with TestClient(api_app) as client:
         response = client.put(
-            "/api/rekordbox/playlists/playlist-1/tracks/track-1/rating",
+            "/api/collection/tracks/track-1/rating",
             json={"rating": 5},
             headers={"Origin": "http://localhost:4444"},
         )
@@ -679,7 +677,7 @@ def test_rekordbox_rating_endpoint_resolves_membership_and_never_writes_collecti
     assert response.status_code == 200, response.text
     assert response.json() == {"rating": 5}
     assert str(source) not in response.text and "file_path" not in response.text
-    assert [call[0] for call in calls] == ["get_playlists", "get_playlist_tracks", "get_collection_tracks"]
+    assert calls == [("get_track_file_path", {"track_id": "track-1"})]
     assert read_embedded_rating(source) == 5
 
 
@@ -755,27 +753,28 @@ def test_crate_rating_endpoint_rejects_untrusted_origin_without_writing(tmp_path
     assert source.read_bytes() == original
 
 
-def test_rekordbox_rating_endpoint_rejects_non_member_before_resolving_path(monkeypatch):
+def test_rekordbox_rating_endpoint_rejects_unknown_track(monkeypatch):
+    from fastmcp.exceptions import ToolError
     from fastapi.testclient import TestClient
     from api.app import app as api_app
-    from api import rekordbox_playlists
+    from api.collection import collection_mcp
 
     calls = []
 
     async def call_tool(name, arguments=None):
         calls.append(name)
-        return {"get_playlists": [{"id": "playlist-1"}], "get_playlist_tracks": []}[name]
+        raise ToolError("Track with ID 999 not found")
 
-    monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
+    monkeypatch.setattr(collection_mcp, "call_tool", call_tool)
     with TestClient(api_app) as client:
         response = client.put(
-            "/api/rekordbox/playlists/playlist-1/tracks/not-member/rating",
+            "/api/collection/tracks/999/rating",
             json={"rating": 3},
             headers={"Origin": "http://localhost:4444"},
         )
 
     assert response.status_code == 404
-    assert calls == ["get_playlists", "get_playlist_tracks"]
+    assert calls == ["get_track_file_path"]
 
 
 def test_rekordbox_playlist_rating_prefers_the_embedded_audio_rating(tmp_path, monkeypatch):

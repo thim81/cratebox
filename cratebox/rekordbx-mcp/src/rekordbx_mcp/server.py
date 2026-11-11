@@ -182,10 +182,10 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
                         return result
 
                     result = await run_database_operation(add_usage_counts)
-                return redact_paths(result)
+                return result if tool_name == "get_track_file_path" else redact_paths(result)
         return call
 
-    for name in READ_TOOLS:
+    for name in (*READ_TOOLS, "get_track_file_path"):
         upstream_tool = getattr(upstream, name)
         original = getattr(upstream_tool, "fn", upstream_tool)
         server.tool(
@@ -265,26 +265,6 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
                 return await run_database_operation(resolve)
             except ValueError:
                 raise ToolError("A selector must resolve to active collection tracks; each file location must match exactly one track.") from None
-
-    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
-    async def get_playlist_track_location(playlist_id: str, track_id: str) -> list[dict]:
-        """Resolve an active track's file location through active playlist membership. Internal consumer contract."""
-        async with session_scope():
-            await ensure_connected()
-
-            def resolve():
-                row = database.db.query(DjmdContent.ID, DjmdContent.FolderPath).join(
-                    DjmdSongPlaylist, DjmdSongPlaylist.ContentID == DjmdContent.ID,
-                ).join(
-                    DjmdPlaylist, DjmdPlaylist.ID == DjmdSongPlaylist.PlaylistID,
-                ).filter(
-                    DjmdPlaylist.ID == playlist_id, DjmdContent.ID == track_id,
-                    DjmdPlaylist.rb_local_deleted == 0, DjmdContent.rb_local_deleted == 0,
-                    DjmdSongPlaylist.rb_local_deleted == 0,
-                ).first()
-                return [{"id": str(row.ID), "file_path": str(row.FolderPath or "")}] if row else []
-
-            return await run_database_operation(resolve)
 
     if not offline:
         @server.tool(annotations={"readOnlyHint": True})

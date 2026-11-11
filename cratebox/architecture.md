@@ -22,7 +22,7 @@ CrateBox uses “crate” for this app-owned concept. A Rekordbox playlist is so
 - **CrateBox MCP (`api/`)** exposes an allowlisted local MCP interface in the same process as REST and delegates behavior to Core.
 - **Rekordbox adapter (`rekordbx-mcp/`)** supplies generic collection reads and controlled playlist edits directly against the original database. It does not own CrateBox crate behavior.
 
-CrateBox can update embedded cover art and loaded-track ratings for a permitted audio file selected through a local crate or verified Rekordbox playlist membership. The API stages and verifies the changed tags, then atomically replaces the audio file; it keeps no backup. These audio-tag operations are separate from direct playlist database edits; collection metadata, cues, beatgrids, XML exports and analysis files are not edited.
+CrateBox can update embedded cover art and loaded-track ratings for a permitted audio file selected through a local crate or resolved by its track ID in the Rekordbox collection. The API stages and verifies the changed tags, then atomically replaces the audio file; it keeps no backup. These audio-tag operations are separate from direct playlist database edits; collection metadata, cues, beatgrids, XML exports and analysis files are not edited.
 
 ## Storage boundaries
 

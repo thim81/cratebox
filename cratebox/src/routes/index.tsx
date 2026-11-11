@@ -257,7 +257,6 @@ function Index() {
   const [loaded, setLoaded] = useState<{
     track: Track;
     playlist: string;
-    rekordboxPlaylistId?: string;
   } | null>(null);
   const [autoPlay, setAutoPlay] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -266,16 +265,16 @@ function Index() {
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const [imageTarget, setImageTarget] = useState<{
-    source: "crate" | "rekordbox";
-    playlistId: string;
-    trackId?: string;
     query: string;
     artist?: string;
     album?: string;
     searchTrack?: string;
     sourceTrack?: Track;
     currentImageUrl?: string;
-  } | null>(null);
+  } & (
+    | { source: "crate"; playlistId: string; trackId?: string }
+    | { source: "rekordbox"; trackId: string }
+  ) | null>(null);
   const deck = useRef<DeckHandle>(null);
   const tracklistSearchRef = useRef<HTMLInputElement>(null);
   const removeConfirmRef = useRef<HTMLButtonElement>(null);
@@ -650,7 +649,6 @@ function Index() {
       setLoaded({
         track,
         playlist: "Rekordbox collection",
-        ...(match.playlists[0]?.id ? { rekordboxPlaylistId: match.playlists[0].id } : {}),
       });
     },
     [apiUrl, loaded],
@@ -812,10 +810,9 @@ function Index() {
     [appendTracksToPlaylist],
   );
   const editLoadedArtwork = (track: Track) => {
-    if (loaded?.rekordboxPlaylistId && track.rekordbox_id) {
+    if (!track.playlist_id && track.rekordbox_id) {
       setImageTarget({
         source: "rekordbox",
-        playlistId: loaded.rekordboxPlaylistId,
         trackId: track.rekordbox_id,
         query: `${track.artist} ${track.title}`.trim(),
         artist: track.artist,
@@ -848,13 +845,8 @@ function Index() {
     const track = active.track;
     setRatingSaving(true);
     try {
-      if (active.rekordboxPlaylistId && track.rekordbox_id) {
-        await setRekordboxTrackRating(
-          apiUrl,
-          active.rekordboxPlaylistId,
-          track.rekordbox_id,
-          rating,
-        );
+      if (!track.playlist_id && track.rekordbox_id) {
+        await setRekordboxTrackRating(apiUrl, track.rekordbox_id, rating);
         setRekordboxTracks((current) =>
           updateTrackRating(current, track.id, rating, track.rekordbox_id),
         );
@@ -862,7 +854,7 @@ function Index() {
         await setCrateTrackRating(apiUrl, track.playlist_id, track.id, rating);
         setTracks((current) => updateTrackRating(current, track.id, rating));
       } else {
-        throw new Error("Load this track from a CrateBox or Rekordbox playlist to rate it.");
+        throw new Error("Load a track from CrateBox or the Rekordbox collection to rate it.");
       }
       setLoaded((current) =>
         current?.track.id === track.id
@@ -889,21 +881,21 @@ function Index() {
   );
   const chooseArtwork = async (image: import("@/lib/crate-data").ImageResult) => {
     if (!imageTarget) return;
+    if (imageTarget.source === "rekordbox") {
+      const result = await embedRekordboxArtwork(apiUrl, imageTarget.trackId, image.image_url);
+      setRekordboxTracks((current) => current.map((track) =>
+        track.rekordbox_id === imageTarget.trackId
+          ? { ...track, artwork_url: result.artwork_url, has_artwork: true }
+          : track,
+      ));
+      setLoaded((current) => current?.track.rekordbox_id === imageTarget.trackId
+        ? { ...current, track: { ...current.track, artwork_url: result.artwork_url, has_artwork: true } }
+        : current,
+      );
+      return;
+    }
     if (imageTarget.trackId) {
-      const embed = imageTarget.source === "rekordbox" ? embedRekordboxArtwork : embedArtwork;
-      const result = await embed(apiUrl, imageTarget.playlistId, imageTarget.trackId, image.image_url);
-      if (imageTarget.source === "rekordbox") {
-        setRekordboxTracks((current) => current.map((track) =>
-          track.rekordbox_id === imageTarget.trackId
-            ? { ...track, artwork_url: result.artwork_url, has_artwork: true }
-            : track,
-        ));
-        setLoaded((current) => current?.track.rekordbox_id === imageTarget.trackId
-          ? { ...current, track: { ...current.track, artwork_url: result.artwork_url, has_artwork: true } }
-          : current,
-        );
-        return;
-      }
+      const result = await embedArtwork(apiUrl, imageTarget.playlistId, imageTarget.trackId, image.image_url);
       if (activeId === imageTarget.playlistId) {
         setTracks((current) =>
           current.map((track) => {
@@ -1390,10 +1382,9 @@ function Index() {
       setLoaded({
         track,
         playlist,
-        ...(playlistSource === "rekordbox" ? { rekordboxPlaylistId: activeRekordboxId } : {}),
       });
     },
-    [activePl?.name, activeRekordboxId, activeRekordboxPlaylist?.name, apiUrl, playlistSource],
+    [activePl?.name, activeRekordboxPlaylist?.name, apiUrl, playlistSource],
   );
 
   const step = (d: number) => {
@@ -1685,7 +1676,7 @@ function Index() {
         onRate={(rating) => void rateLoadedTrack(rating)}
         ratingSaving={ratingSaving || !(
           loaded?.track.playlist_id ||
-          (loaded?.rekordboxPlaylistId && loaded.track.rekordbox_id)
+          loaded?.track.rekordbox_id
         )}
         onRevealTrack={(track) => void showTrackInFinder(track)}
       />
