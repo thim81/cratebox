@@ -5,7 +5,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def closed_processes(monkeypatch):
-    monkeypatch.setattr("rekordbx_mcp.snapshot.psutil.process_iter", lambda *_: [])
+    monkeypatch.setattr("rekordbx_mcp.access.psutil.process_iter", lambda *_: [])
 
 
 @pytest.fixture

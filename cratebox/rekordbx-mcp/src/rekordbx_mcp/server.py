@@ -17,9 +17,7 @@ from rekordbox_mcp import server as upstream
 from pyrekordbox.masterdb.models import DjmdContent, DjmdCue, DjmdPlaylist, DjmdSongPlaylist
 from sqlalchemy import func
 
-from .database import SnapshotDatabase, content_by_ids
-from .snapshot import verify_snapshot
-from .direct import DirectDatabase, PlaylistEditor, playlist_state
+from .direct import DirectDatabase, PlaylistEditor, content_by_ids, playlist_state
 from .backup import DEFAULT_BACKUP_DIRECTORY
 
 
@@ -44,7 +42,7 @@ async def _serialized_database_to_thread(function, /, *args, **kwargs):
 
 
 # Upstream database methods use asyncio.to_thread internally, including close().
-# Serialize those calls because SnapshotMasterDatabase uses one StaticPool connection.
+# Serialize work on the shared upstream session.
 upstream_database.asyncio = SimpleNamespace(to_thread=_serialized_database_to_thread)
 def redact_paths(value):
     if isinstance(value, dict):
@@ -58,12 +56,10 @@ def redact_paths(value):
 
 
 def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY) -> FastMCP:
-    # Explicit offline snapshot serving remains for old inspection tools, never startup fallback.
-    offline = source.is_dir()
-    if offline:
-        verify_snapshot(source)
-    database = SnapshotDatabase(source) if offline else DirectDatabase(source)
-    editor = None if offline else PlaylistEditor(source, backup_directory)
+    if source.is_symlink() or not source.is_file():
+        raise ValueError('Select an existing database file, not a symlink.')
+    database = DirectDatabase(source)
+    editor = PlaylistEditor(source, backup_directory)
 
     async def complete_before_cancellation(awaitable):
         task = asyncio.create_task(awaitable)
@@ -80,9 +76,8 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
     async def ensure_connected():
         if not await database.is_connected():
             await database.connect()
-            if not offline:
-                # Surface connection failures before upstream can treat them as missing tracks.
-                await run_database_operation(database.db.session.connection)
+            # Surface connection failures before upstream can treat them as missing tracks.
+            await run_database_operation(database.db.session.connection)
 
     @asynccontextmanager
     async def session_scope():
@@ -90,7 +85,7 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
             try:
                 yield
             finally:
-                if not offline and database.db is not None:
+                if database.db is not None:
                     await complete_before_cancellation(database.disconnect())
 
     @asynccontextmanager
@@ -101,13 +96,13 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
             async with _upstream_lock:
                 await database.disconnect()
 
-    server = FastMCP("Rekordbox collection" if not offline else "Offline snapshot", lifespan=lifespan)
+    server = FastMCP("Rekordbox collection", lifespan=lifespan)
 
     def wrap(original, tool_name: str):
         @wraps(original)
         async def call(*args, **kwargs):
             # Upstream's ORM session and module globals are shared. Serialize
-            # requests, bind our snapshot and replace every lazy reconnect path.
+            # requests, bind our configured database and replace every lazy reconnect path.
             async with session_scope():
                 upstream.db = database
                 upstream._db_initialized = True
@@ -265,38 +260,37 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
             except ValueError:
                 raise ToolError("A selector must resolve to active collection tracks; each file location must match exactly one track.") from None
 
-    if not offline:
-        @server.tool(annotations={"readOnlyHint": True})
-        async def get_playlist_state(playlist_id: str) -> dict:
-            """Current playlist entry identities, order and optimistic revision."""
-            async with session_scope():
-                await ensure_connected()
-                return await run_database_operation(lambda: playlist_state(database.db, playlist_id))
+    @server.tool(annotations={"readOnlyHint": True})
+    async def get_playlist_state(playlist_id: str) -> dict:
+        """Current playlist entry identities, order and optimistic revision."""
+        async with session_scope():
+            await ensure_connected()
+            return await run_database_operation(lambda: playlist_state(database.db, playlist_id))
 
-        @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
-        async def edit_playlist(
-            action: str, playlist_id: str = '', expected_revision: str = '',
-            name: str | None = None, entry_ids: list[str] | None = None,
-            track_ids: list[str] | None = None, position: int | None = None,
-            target_entry_id: str | None = None, before: bool = True,
-        ) -> dict:
-            """Create, rename, add, remove, swap or move playlist entries as one persisted action."""
-            async with _upstream_lock:
-                try:
-                    return await run_database_operation(lambda: editor.edit(
-                        action, playlist_id, expected_revision, name=name, entry_ids=entry_ids,
-                        track_ids=track_ids, position=position, target_entry_id=target_entry_id, before=before,
-                    ))
-                except (ValueError, RuntimeError, OSError) as error:
-                    raise ToolError(str(error)) from None
+    @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+    async def edit_playlist(
+        action: str, playlist_id: str = '', expected_revision: str = '',
+        name: str | None = None, entry_ids: list[str] | None = None,
+        track_ids: list[str] | None = None, position: int | None = None,
+        target_entry_id: str | None = None, before: bool = True,
+    ) -> dict:
+        """Create, rename, add, remove, swap or move playlist entries as one persisted action."""
+        async with _upstream_lock:
+            try:
+                return await run_database_operation(lambda: editor.edit(
+                    action, playlist_id, expected_revision, name=name, entry_ids=entry_ids,
+                    track_ids=track_ids, position=position, target_entry_id=target_entry_id, before=before,
+                ))
+            except (ValueError, RuntimeError, OSError) as error:
+                raise ToolError(str(error)) from None
 
-        @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
-        async def move_playlist_track(
-            playlist_id: str, playlist_song_id: str, position: int, expected_revision: str,
-        ) -> dict:
-            """Move one playlist entry to a one-based position, preserving playlist and entry IDs."""
-            return await edit_playlist('move', playlist_id, expected_revision,
-                                       entry_ids=[playlist_song_id], position=position)
+    @server.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+    async def move_playlist_track(
+        playlist_id: str, playlist_song_id: str, position: int, expected_revision: str,
+    ) -> dict:
+        """Move one playlist entry to a one-based position, preserving playlist and entry IDs."""
+        return await edit_playlist('move', playlist_id, expected_revision,
+                                   entry_ids=[playlist_song_id], position=position)
 
     return server
 

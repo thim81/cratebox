@@ -5,7 +5,7 @@ from rekordbx_mcp.backup import encrypted_connection
 
 @pytest.fixture
 def library(encrypted_database, tmp_path, monkeypatch):
-    monkeypatch.setattr('rekordbx_mcp.snapshot.psutil.process_iter', lambda *_: [])
+    monkeypatch.setattr('rekordbx_mcp.access.psutil.process_iter', lambda *_: [])
     source = tmp_path / 'original' / 'master.db'
     source.parent.mkdir()
     encrypted_database.rename(source)
@@ -86,7 +86,7 @@ async def test_each_read_checks_processes_when_opening_sqlite(library, tmp_path,
         checks.append(True)
         return running
 
-    monkeypatch.setattr('rekordbx_mcp.snapshot.psutil.process_iter', processes)
+    monkeypatch.setattr('rekordbx_mcp.access.psutil.process_iter', processes)
     async with Client(build_server(library, tmp_path / 'backups')) as client:
         await client.call_tool('get_track_file_path', {'track_id': '1'})
         assert len(checks) == 1

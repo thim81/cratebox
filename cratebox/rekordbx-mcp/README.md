@@ -13,7 +13,7 @@ uv --directory cratebox/rekordbx-mcp run --locked rekordbx-mcp start
 
 The default source is `~/Library/Pioneer/rekordbox/master.db`. Override it with `--source /absolute/path/master.db`; use `--backup-directory /absolute/path/backups` to choose backup storage outside the original database directory. CrateBox's API passes `REKORDBOX_DATABASE` and `REKORDBOX_BACKUP_DIRECTORY` through to those options when set.
 
-Startup and every collection operation require Rekordbox and its agents to be closed. Unreadable process inventories, pending rollback journals, and unrecognized transaction sidecars reject access. Normal WAL/SHM files are supported; SQLite handles their committed state. Connections close after each request and reconnect on the next request. There is no runtime snapshot creation or fallback; legacy offline inspection helpers and existing snapshot files are untouched.
+Startup and every collection operation require Rekordbox and its agents to be closed. Unreadable process inventories, pending rollback journals, and unrecognized transaction sidecars reject access. Normal WAL/SHM files are supported; SQLite handles their committed state. Connections close after each request and reconnect on the next request. The adapter accepts a database file. Verified backups support recovery through the commands below.
 
 ## Tools
 

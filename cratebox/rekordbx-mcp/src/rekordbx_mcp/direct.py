@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from sqlcipher3 import dbapi2 as sqlite
 
 from .backup import BackupManager, DEFAULT_BACKUP_DIRECTORY, verify_journal_mode
-from .snapshot import require_rekordbox_closed, reject_rollback_journal
+from .access import require_rekordbox_closed, reject_rollback_journal
 
 
 class DirectMasterDatabase(MasterDatabase):
@@ -80,6 +80,19 @@ class DirectDatabase(RekordboxDatabase):
         self.db = DirectMasterDatabase(self.source)
         self._connected = True
         self._invalidate_content_cache()
+
+
+def content_by_ids(database: MasterDatabase, track_ids: list[str]):
+    query = database.get_content()
+    content_model = query.column_descriptions[0]["entity"]
+    ids = [
+        int(track_id) if track_id.isascii() and track_id.isdigit() else track_id
+        for track_id in track_ids
+    ]
+    return {
+        str(content.ID): content
+        for content in query.filter(content_model.ID.in_(ids)).all()
+    }
 
 
 def playlist_state(db, playlist_id):

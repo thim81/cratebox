@@ -16,7 +16,7 @@ from sqlcipher3 import dbapi2 as sqlite
 from pyrekordbox.masterdb.database import BLOB
 from pyrekordbox.utils import deobfuscate
 
-from .snapshot import require_rekordbox_closed, reject_sidecars, reject_rollback_journal, sha256
+from .access import require_rekordbox_closed, reject_sidecars, reject_rollback_journal, sha256
 
 DEFAULT_BACKUP_DIRECTORY = Path(__file__).resolve().parents[4] / '.cratebox' / 'rekordbox-backups'
 COMPANION = 'masterPlaylists6.xml'

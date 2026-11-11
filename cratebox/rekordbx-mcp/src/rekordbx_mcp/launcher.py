@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from .backup import DEFAULT_BACKUP_DIRECTORY
-from .snapshot import require_rekordbox_closed
+from .access import require_rekordbox_closed
 
 
 def serve(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY) -> int:

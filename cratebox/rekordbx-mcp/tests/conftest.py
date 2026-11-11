@@ -1,5 +1,3 @@
-import json
-
 import pytest
 from sqlalchemy import MetaData, create_engine
 
@@ -11,7 +9,8 @@ def encrypted_database(tmp_path):
     from pyrekordbox.utils import deobfuscate
     from sqlcipher3 import dbapi2
 
-    path = tmp_path / "master.db"
+    path = tmp_path / "database" / "master.db"
+    path.parent.mkdir()
     def connect():
         conn = dbapi2.connect(path)
         conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
@@ -38,22 +37,12 @@ def encrypted_database(tmp_path):
 
 
 @pytest.fixture
-def snapshot(encrypted_database):
-    from rekordbx_mcp.snapshot import sha256
-    directory = encrypted_database.parent
-    (directory / "manifest.json").write_text(json.dumps({
-        "format": 1, "sha256": sha256(encrypted_database),
-    }))
-    return directory
-
-
-@pytest.fixture
-def playable_snapshot(encrypted_database, tmp_path):
+def playable_collection(encrypted_database, tmp_path, monkeypatch):
     from pyrekordbox.masterdb.database import BLOB
     from pyrekordbox.utils import deobfuscate
     from sqlcipher3 import dbapi2
-    from rekordbx_mcp.snapshot import sha256
 
+    monkeypatch.setattr('rekordbx_mcp.access.psutil.process_iter', lambda *_: [])
     music = tmp_path / "music"
     music.mkdir()
     first = music / "Été #1.mp3"
@@ -86,7 +75,4 @@ def playable_snapshot(encrypted_database, tmp_path):
         connection.commit()
     finally:
         connection.close()
-    (tmp_path / "manifest.json").write_text(json.dumps({
-        "format": 1, "sha256": sha256(encrypted_database),
-    }))
-    return tmp_path
+    return encrypted_database

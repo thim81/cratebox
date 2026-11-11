@@ -6,12 +6,26 @@ import pytest
 from fastmcp import Client
 
 from rekordbx_mcp.server import build_server
-from rekordbx_mcp.snapshot import sha256
+from rekordbx_mcp.access import sha256
 
 
-async def test_search_uses_snapshot_and_omits_audio_paths(snapshot):
-    before = sha256(snapshot / "master.db")
-    async with Client(build_server(snapshot)) as client:
+@pytest.fixture(autouse=True)
+def closed_processes(monkeypatch):
+    monkeypatch.setattr('rekordbx_mcp.access.psutil.process_iter', lambda *_: [])
+
+
+def test_server_rejects_legacy_snapshot_directory(encrypted_database, tmp_path):
+    directory = encrypted_database.parent
+    (directory / "manifest.json").write_text(json.dumps({
+        "format": 1, "sha256": sha256(encrypted_database),
+    }))
+    with pytest.raises(ValueError, match="existing database file"):
+        build_server(directory, tmp_path / "backups")
+
+
+async def test_search_uses_direct_database_and_omits_audio_paths(encrypted_database, tmp_path):
+    before = sha256(encrypted_database)
+    async with Client(build_server(encrypted_database, tmp_path / "backups")) as client:
         result = await client.call_tool("search_tracks", {"artist": "Daft Punk"})
         tracks = json.loads(result.content[0].text)
         assert tracks[0]["id"] == "1"
@@ -24,7 +38,7 @@ async def test_search_uses_snapshot_and_omits_audio_paths(snapshot):
         result = json.loads(validated.content[0].text)
         assert result["valid"] == ["1"]
         assert result["invalid"] == ["999"]
-    assert sha256(snapshot / "master.db") == before
+    assert sha256(encrypted_database) == before
 
 
 @pytest.mark.parametrize("name,arguments", [
@@ -40,16 +54,16 @@ async def test_search_uses_snapshot_and_omits_audio_paths(snapshot):
     ("connect_database", {"database_path": "/private/original"}),
     ("unexpected_future_tool", {}),
 ])
-async def test_forbidden_tool_cannot_be_called_directly(snapshot, name, arguments):
-    async with Client(build_server(snapshot)) as client:
+async def test_forbidden_tool_cannot_be_called_directly(encrypted_database, tmp_path, name, arguments):
+    async with Client(build_server(encrypted_database, tmp_path / "backups")) as client:
         assert name not in {tool.name for tool in await client.list_tools()}
         with pytest.raises(Exception, match="Unknown tool|not found"):
             await client.call_tool(name, arguments)
 
 
-async def test_reconnect_never_accepts_another_database(snapshot, tmp_path):
-    from rekordbx_mcp.database import SnapshotDatabase
-    database = SnapshotDatabase(snapshot)
+async def test_reconnect_never_accepts_another_database(encrypted_database, tmp_path):
+    from rekordbx_mcp.direct import DirectDatabase
+    database = DirectDatabase(encrypted_database)
     await database.connect()
     assert database.db.get_content(ID="1").Title == "One More Time"
     await database.disconnect()
@@ -63,8 +77,8 @@ async def test_reconnect_never_accepts_another_database(snapshot, tmp_path):
 async def test_real_mcp_stdio_direct_worker(encrypted_database, tmp_path):
     from fastmcp.client.transports import StdioTransport
     # Substitute only host process discovery; this worker accesses a synthetic DB.
-    code = "from pathlib import Path; import sys; import rekordbx_mcp.snapshot as s; s.psutil.process_iter=lambda *_: []; from rekordbx_mcp.server import build_server; build_server(Path(sys.argv[1]), Path(sys.argv[2])).run(transport='stdio', show_banner=False)"
-    transport = StdioTransport(command=sys.executable, args=['-c', code, str(encrypted_database), str(tmp_path.parent / (tmp_path.name + '-backups'))])
+    code = "from pathlib import Path; import sys; import rekordbx_mcp.access as s; s.psutil.process_iter=lambda *_: []; from rekordbx_mcp.server import build_server; build_server(Path(sys.argv[1]), Path(sys.argv[2])).run(transport='stdio', show_banner=False)"
+    transport = StdioTransport(command=sys.executable, args=['-c', code, str(encrypted_database), str(tmp_path / 'backups')])
     async with Client(transport, timeout=30) as client:
         names = {t.name for t in await client.list_tools()}
         assert 'move_playlist_track' in names
