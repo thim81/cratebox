@@ -324,7 +324,7 @@ export async function insertPlaylistSeparator(
   await requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}/separators`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, after_track_id: afterTrackId, confirm_update: true }),
+    body: JSON.stringify({ type, after_track_id: afterTrackId }),
   });
 }
 
@@ -340,7 +340,6 @@ export async function replacePlaylistSeparator(
     body: JSON.stringify({
       separator_row_id: separatorRowId,
       type,
-      confirm_update: true,
     }),
   });
 }
@@ -361,7 +360,7 @@ export async function appendRekordboxTracks(
   await requestJson(apiUrl, `/api/playlists/${encodeURIComponent(playlistId)}/tracks/append-many`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ track_ids: trackIds, confirm_update: true }),
+    body: JSON.stringify({ track_ids: trackIds }),
   });
 }
 
@@ -380,7 +379,6 @@ export async function insertRekordboxTrackAfter(
       body: JSON.stringify({
         track_id: trackId,
         after_track_id: afterTrackId,
-        confirm_update: true,
       }),
     },
   );

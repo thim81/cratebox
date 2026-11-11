@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 import mutagen
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastmcp.exceptions import ToolError
 
@@ -52,29 +52,24 @@ class CopyPlaylistRequest(BaseModel):
 class InsertSeparatorRequest(BaseModel):
     type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
     after_track_id: str
-    confirm_update: bool = False
 
 
 class ReplaceSeparatorRequest(BaseModel):
     type: Literal["generic", "90s", "R&B", "Ambi", "Salsa", "Party", "Dance"]
     separator_row_id: str
-    confirm_update: bool = False
 
 
 class AppendTrackRequest(BaseModel):
     track_id: str
-    confirm_update: bool = False
 
 
 class AppendTracksRequest(BaseModel):
     track_ids: list[str]
-    confirm_update: bool = False
 
 
 class InsertTrackRequest(BaseModel):
     track_id: str
     after_track_id: str
-    confirm_update: bool = False
 
 
 def result_value(result):
@@ -363,10 +358,8 @@ async def copy_rekordbox_playlist(playlist_id: str, request: CopyPlaylistRequest
     }
 
 
-@router.post("/api/playlists/{playlist_id}/separators")
+@router.post("/api/playlists/{playlist_id}/separators", dependencies=[Depends(require_local_playlist_origin)])
 async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRequest):
-    if not request.confirm_update:
-        raise HTTPException(400, "Confirm updating this playlist before inserting a separator.")
     async with playlist_mutation_lock(playlist_id):
         exported = await apply_crate_operation(
             core_insert_crate_separator, playlist_id, request.type, request.after_track_id,
@@ -381,10 +374,8 @@ async def insert_playlist_separator(playlist_id: str, request: InsertSeparatorRe
         }
 
 
-@router.post("/api/playlists/{playlist_id}/separators/replace")
+@router.post("/api/playlists/{playlist_id}/separators/replace", dependencies=[Depends(require_local_playlist_origin)])
 async def replace_playlist_separator(playlist_id: str, request: ReplaceSeparatorRequest):
-    if not request.confirm_update:
-        raise HTTPException(400, "Confirm updating this playlist before replacing a separator.")
     async with playlist_mutation_lock(playlist_id):
         return await apply_crate_operation(
             core_replace_crate_separator,
@@ -392,18 +383,16 @@ async def replace_playlist_separator(playlist_id: str, request: ReplaceSeparator
         )
 
 
-@router.post("/api/playlists/{playlist_id}/tracks/append")
+@router.post("/api/playlists/{playlist_id}/tracks/append", dependencies=[Depends(require_local_playlist_origin)])
 async def append_rekordbox_track(playlist_id: str, request: AppendTrackRequest):
     return await append_rekordbox_tracks(
         playlist_id,
-        AppendTracksRequest(track_ids=[request.track_id], confirm_update=request.confirm_update),
+        AppendTracksRequest(track_ids=[request.track_id]),
     )
 
 
-@router.post("/api/playlists/{playlist_id}/tracks/append-many")
+@router.post("/api/playlists/{playlist_id}/tracks/append-many", dependencies=[Depends(require_local_playlist_origin)])
 async def append_rekordbox_tracks(playlist_id: str, request: AppendTracksRequest):
-    if not request.confirm_update:
-        raise HTTPException(400, "Confirm inserting this track into the playlist.")
     async with playlist_mutation_lock(playlist_id):
         exported = await apply_crate_operation(
             core_append_crate_tracks, playlist_id, request.track_ids,
@@ -417,10 +406,8 @@ async def append_rekordbox_tracks(playlist_id: str, request: AppendTracksRequest
         }
 
 
-@router.post("/api/playlists/{playlist_id}/tracks/insert-after")
+@router.post("/api/playlists/{playlist_id}/tracks/insert-after", dependencies=[Depends(require_local_playlist_origin)])
 async def insert_rekordbox_track(playlist_id: str, request: InsertTrackRequest):
-    if not request.confirm_update:
-        raise HTTPException(400, "Confirm inserting this track into the playlist.")
     async with playlist_mutation_lock(playlist_id):
         result = await apply_crate_operation(
             core_insert_crate_track, playlist_id, request.track_id, request.after_track_id,

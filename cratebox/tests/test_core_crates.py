@@ -397,6 +397,67 @@ def test_replace_crate_separator_uses_registered_fixed_track_and_updates_pair(tm
     assert result == {"name": "Set", "track_count": 0, "separator_count": 1, "updated_existing": True}
 
 
+def test_local_crate_browser_edits_save_without_confirmation(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api import rekordbox_playlists as api
+    from api.app import app
+    from core import export as crate_export
+
+    playlists, crates, audio_paths = _write_crate(tmp_path, ["42"])
+    locations = {"42": audio_paths[0]}
+    for track_id, filename in [
+        ("99", "extra.mp3"), ("228753448", "Separator.wav"), ("118082420", "Separator-90.wav"),
+    ]:
+        locations[track_id] = tmp_path / filename
+        locations[track_id].write_bytes(b"audio")
+    monkeypatch.setattr(api, "PLAYLIST_DIR", playlists)
+    monkeypatch.setattr(api, "DEFAULT_PLAYLIST_DIR", playlists)
+    monkeypatch.setattr(api, "CRATE_DIRECTORY", crates)
+    monkeypatch.setattr(crate_export, "SEPARATOR_DIRECTORY", tmp_path)
+    records = {track_id: {"id": track_id, "file_path": str(path)} for track_id, path in locations.items()}
+    records_by_path = {record["file_path"]: record for record in records.values()}
+
+    async def call_tool(name, selector):
+        assert name == "get_collection_tracks"
+        if "track_ids" in selector:
+            return [records[track_id] for track_id in selector["track_ids"]]
+        return [records_by_path[path] for path in selector["file_paths"]]
+
+    monkeypatch.setattr(api, "call_tool", call_tool)
+
+    with TestClient(app) as client:
+        for action, payload, expected in [
+            ("tracks/append", {"track_id": "99"}, ["42", "99"]),
+            ("tracks/append-many", {"track_ids": ["99"]}, ["42", "99", "99"]),
+            ("tracks/insert-after", {"track_id": "42", "after_track_id": "99-1"}, ["42", "99", "42", "99"]),
+            ("separators", {"type": "generic", "after_track_id": "42-1"}, ["42", "228753448", "99", "42", "99"]),
+            ("separators/replace", {"type": "90s", "separator_row_id": "228753448-1"}, ["42", "118082420", "99", "42", "99"]),
+        ]:
+            url = f"/api/playlists/Set/{action}"
+            response = client.post(url, json=payload, headers={"Origin": "http://localhost:4444"})
+            assert response.status_code == 200, response.text
+            plan = crates / "Set.json"
+            assert [row["track_id"] for row in json.loads(plan.read_text())["tracks"]] == expected
+            m3u = playlists / "Set.m3u8"
+            assert m3u.read_text().splitlines() == ["#EXTM3U", *(str(locations[track_id]) for track_id in expected)]
+
+            before = (plan.read_bytes(), m3u.read_bytes())
+            response = client.post(url, json=payload, headers={"Origin": "https://attacker.example"})
+            assert response.status_code == 403, response.text
+            assert (plan.read_bytes(), m3u.read_bytes()) == before
+
+
+@pytest.mark.asyncio
+async def test_conversational_crate_edits_require_explicit_true():
+    from api.app import mcp
+
+    tools = {tool.name: tool for tool in await mcp.list_tools()}
+    for name in ("cratebox_append_tracks", "cratebox_insert_track", "cratebox_insert_separator"):
+        schema = tools[name].parameters
+        assert "confirm_update" in schema["required"]
+        assert schema["properties"]["confirm_update"]["const"] is True
+
+
 def _write_crate(tmp_path, track_ids, *, extinf=False):
     playlists = tmp_path / "playlists"
     crates = tmp_path / ".cratebox" / "crates"

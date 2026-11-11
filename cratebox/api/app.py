@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 import asyncio
+from typing import Literal
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -89,7 +90,7 @@ async def cratebox_reorder_tracks(
 
 @mcp.tool
 async def lookup_similar_tracks(artist: str = "", title: str = "", limit: int = 50):
-    """Find candidate tracks in the protected Rekordbox snapshot."""
+    """Find candidate tracks in the Rekordbox collection."""
     from .collection import CollectionLookup, collection_lookup
     result = await collection_lookup(CollectionLookup(artist=artist, title=title, limit=limit))
     return result["matches"]
@@ -100,7 +101,7 @@ async def search_tracks(
     genre: str | None = None, key: str | None = None, bpm_min: float | None = None,
     bpm_max: float | None = None, rating_min: int | None = None, limit: int = 50,
 ):
-    """Search active tracks in the protected Rekordbox snapshot."""
+    """Search active tracks in the Rekordbox collection."""
     from .collection import collection_mcp
     result = await collection_mcp.call_tool("search_tracks", {
         "query": query, "artist": artist, "title": title, "genre": genre,
@@ -143,7 +144,7 @@ async def get_session_tracks(session_id: str):
 
 @mcp.tool
 async def get_library_stats():
-    """Read aggregate statistics from the protected collection snapshot."""
+    """Read aggregate statistics from the Rekordbox collection."""
     from .collection import collection_mcp
     from .rekordbox_playlists import result_value
     return result_value(await collection_mcp.call_tool("get_library_stats"))
@@ -159,31 +160,31 @@ async def cratebox_copy_rekordbox_playlist(playlist_id: str, name: str, update_e
     return result
 
 @mcp.tool
-async def cratebox_append_tracks(playlist_id: str, track_ids: list[str], confirm_update: bool = False):
+async def cratebox_append_tracks(playlist_id: str, track_ids: list[str], confirm_update: Literal[True]):
     """Append collection track IDs to a local playlist; confirm before modifying it."""
     from .rekordbox_playlists import AppendTracksRequest, append_rekordbox_tracks
-    result = await append_rekordbox_tracks(playlist_id, AppendTracksRequest(
-        track_ids=track_ids, confirm_update=confirm_update,
-    ))
+    result = await append_rekordbox_tracks(playlist_id, AppendTracksRequest(track_ids=track_ids))
     playlist_revision.mark_written()
     return result
 
 @mcp.tool
-async def cratebox_insert_track(playlist_id: str, track_id: str, after_track_id: str, confirm_update: bool = False):
+async def cratebox_insert_track(playlist_id: str, track_id: str, after_track_id: str, confirm_update: Literal[True]):
     """Insert a collection track after a playlist row; confirm before modifying it."""
     from .rekordbox_playlists import InsertTrackRequest, insert_rekordbox_track
     result = await insert_rekordbox_track(playlist_id, InsertTrackRequest(
-        track_id=track_id, after_track_id=after_track_id, confirm_update=confirm_update,
+        track_id=track_id, after_track_id=after_track_id,
     ))
     playlist_revision.mark_written()
     return result
 
 @mcp.tool
-async def cratebox_insert_separator(playlist_id: str, separator_type: str, after_track_id: str, confirm_update: bool = False):
+async def cratebox_insert_separator(
+    playlist_id: str, separator_type: str, after_track_id: str, confirm_update: Literal[True],
+):
     """Insert a fixed separator track after a playlist row; confirm before modifying it."""
     from .rekordbox_playlists import InsertSeparatorRequest, insert_playlist_separator
     result = await insert_playlist_separator(playlist_id, InsertSeparatorRequest(
-        type=separator_type, after_track_id=after_track_id, confirm_update=confirm_update,
+        type=separator_type, after_track_id=after_track_id,
     ))
     playlist_revision.mark_written()
     return result
