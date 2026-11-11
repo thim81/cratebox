@@ -23,7 +23,6 @@ class DirectMasterDatabase(MasterDatabase):
     def __init__(self, path: Path):
         if path.is_symlink() or not path.is_file():
             raise ValueError('Select an existing database file, not a symlink.')
-        reject_rollback_journal(path)
         def connect():
             require_rekordbox_closed()
             reject_rollback_journal(path)
@@ -43,7 +42,7 @@ class DirectMasterDatabase(MasterDatabase):
         self._events = {}
         self._db_dir = path.parent
         self._share_dir = path.parent / 'share'
-        self.playlist_xml = MasterPlaylistXml(db_dir=path.parent) if path.with_name('masterPlaylists6.xml').exists() else None
+        self.playlist_xml = None
         self.session = Session(self.engine)
 
     def query(self, *entities, **kwargs):
@@ -164,6 +163,8 @@ class PlaylistEditor:
             event.listen(db.session, 'before_commit', before_commit, once=True)
             try:
                 db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+                if self.source.with_name('masterPlaylists6.xml').exists():
+                    db.playlist_xml = MasterPlaylistXml(db_dir=self.source.parent)
                 if action == 'create':
                     playlist = db.create_playlist(name.strip())
                     db.flush()

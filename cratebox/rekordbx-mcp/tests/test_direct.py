@@ -91,6 +91,11 @@ async def test_each_read_checks_processes_when_opening_sqlite(library, tmp_path,
         await client.call_tool('get_track_file_path', {'track_id': '1'})
         assert len(checks) == 1
         running.append(SimpleNamespace(info={'name': 'rekordboxAgent'}))
+        library.with_name('masterPlaylists6.xml').write_text('<unused/>')
+        def unexpected_access(*_args, **_kwargs):
+            raise AssertionError('must check Rekordbox before inspecting sidecars or companion XML')
+        monkeypatch.setattr('rekordbx_mcp.direct.reject_rollback_journal', unexpected_access)
+        monkeypatch.setattr('rekordbx_mcp.direct.MasterPlaylistXml', unexpected_access)
         with pytest.raises(ToolError, match='Close Rekordbox'):
             await client.call_tool('get_track_file_path', {'track_id': '1'})
         assert len(checks) == 2
