@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 from .backup import BackupManager, DEFAULT_BACKUP_DIRECTORY
-from .snapshot import require_rekordbox_closed
 
 
 def main():
@@ -30,7 +29,6 @@ def main():
         elif args.command == 'restore':
             print(json.dumps(BackupManager(args.source, args.backup_directory).restore(args.backup_id)))
         else:
-            require_rekordbox_closed()
             from .launcher import serve
             raise SystemExit(serve(args.source, args.backup_directory))
     except (OSError, ValueError, RuntimeError) as error:

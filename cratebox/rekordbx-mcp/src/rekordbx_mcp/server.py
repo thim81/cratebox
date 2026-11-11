@@ -18,7 +18,7 @@ from pyrekordbox.masterdb.models import DjmdContent, DjmdCue, DjmdPlaylist, Djmd
 from sqlalchemy import func
 
 from .database import SnapshotDatabase, content_by_ids
-from .snapshot import verify_snapshot, require_rekordbox_closed
+from .snapshot import verify_snapshot
 from .direct import DirectDatabase, PlaylistEditor, playlist_state
 from .backup import DEFAULT_BACKUP_DIRECTORY
 
@@ -78,17 +78,16 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
         return await complete_before_cancellation(_serialized_database_to_thread(function))
 
     async def ensure_connected():
-        if not offline:
-            require_rekordbox_closed()
         if not await database.is_connected():
             await database.connect()
+            if not offline:
+                # Surface connection failures before upstream can treat them as missing tracks.
+                await run_database_operation(database.db.session.connection)
 
     @asynccontextmanager
     async def session_scope():
         async with _upstream_lock:
             try:
-                if not offline:
-                    require_rekordbox_closed()
                 yield
             finally:
                 if not offline and database.db is not None:

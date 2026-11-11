@@ -1,5 +1,6 @@
 """Direct startup never copies a collection or falls back to a snapshot."""
 import sys
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -26,7 +27,7 @@ def test_start_serves_explicit_original_database(tmp_path, monkeypatch, capsys):
 def test_start_refuses_running_or_unreadable_processes(tmp_path, monkeypatch, capsys, name):
     monkeypatch.setattr('rekordbx_mcp.snapshot.psutil.process_iter', lambda *_: [SimpleNamespace(info={'name':name})])
     monkeypatch.setattr(sys, 'argv', ['rekordbx-mcp', 'start'])
-    monkeypatch.setattr('rekordbx_mcp.launcher.serve', lambda *_: pytest.fail('must not start'))
+    monkeypatch.setattr(subprocess, 'run', lambda *_args, **_kwargs: pytest.fail('must not start'))
     with pytest.raises(SystemExit) as stopped:
         cli.main()
     assert stopped.value.code == 1

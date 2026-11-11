@@ -74,20 +74,26 @@ def test_create_rename_add_remove_and_preserve_track_metadata(library, tmp_path)
         assert conn.execute("SELECT Title, Rating FROM djmdContent WHERE ID='1'").fetchone() == ('One More Time', 4)
 
 
-def test_rekordbox_starting_before_commit_rolls_back(library, tmp_path, monkeypatch):
-    editor = service(library, tmp_path)
-    state = editor.read('100')
-    from rekordbx_mcp import direct
-    checks = [0]
-    def closed():
-        if editor.database is not None:
-            checks[0] += 1
-            if checks[0] == 2:
-                raise RuntimeError('Close Rekordbox')
-    monkeypatch.setattr(direct, 'require_rekordbox_closed', closed)
-    with pytest.raises(RuntimeError, match='Close Rekordbox'):
-        editor.edit('move', '100', state['revision'], entry_ids=['503'], position=1)
-    assert editor.read('100') == state
+async def test_each_read_checks_processes_when_opening_sqlite(library, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from fastmcp import Client
+    from fastmcp.exceptions import ToolError
+    from rekordbx_mcp.server import build_server
+
+    checks = []
+    running = []
+    def processes(*_):
+        checks.append(True)
+        return running
+
+    monkeypatch.setattr('rekordbx_mcp.snapshot.psutil.process_iter', processes)
+    async with Client(build_server(library, tmp_path / 'backups')) as client:
+        await client.call_tool('get_track_file_path', {'track_id': '1'})
+        assert len(checks) == 1
+        running.append(SimpleNamespace(info={'name': 'rekordboxAgent'}))
+        with pytest.raises(ToolError, match='Close Rekordbox'):
+            await client.call_tool('get_track_file_path', {'track_id': '1'})
+        assert len(checks) == 2
 
 
 async def test_mcp_reads_entry_ids_and_moves_without_exposing_paths(library, tmp_path):
@@ -194,8 +200,9 @@ def test_agents_starting_during_flush_are_checked_at_session_commit(library, tmp
             raise RuntimeError('Close Rekordbox agent')
     monkeypatch.setattr(RekordboxAgentRegistry, 'autoincrement_local_update_count', update)
     monkeypatch.setattr(direct, 'require_rekordbox_closed', closed)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match='Close Rekordbox agent'):
         editor.edit('move', '100', state['revision'], entry_ids=['503'], position=1)
+    assert not editor.backups.blocked.exists()
     started[0] = False
     assert editor.read('100') == state
 

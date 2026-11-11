@@ -21,7 +21,6 @@ from .snapshot import require_rekordbox_closed, reject_rollback_journal
 
 class DirectMasterDatabase(MasterDatabase):
     def __init__(self, path: Path):
-        require_rekordbox_closed()
         if path.is_symlink() or not path.is_file():
             raise ValueError('Select an existing database file, not a symlink.')
         reject_rollback_journal(path)
@@ -46,7 +45,6 @@ class DirectMasterDatabase(MasterDatabase):
         self._share_dir = path.parent / 'share'
         self.playlist_xml = MasterPlaylistXml(db_dir=path.parent) if path.with_name('masterPlaylists6.xml').exists() else None
         self.session = Session(self.engine)
-        event.listen(self.session, 'before_commit', lambda _session: require_rekordbox_closed())
 
     def query(self, *entities, **kwargs):
         query = super().query(*entities, **kwargs)
@@ -60,7 +58,6 @@ class DirectMasterDatabase(MasterDatabase):
         self.flush()
 
     def finish(self):
-        require_rekordbox_closed()
         super().commit()
 
     def close(self):
@@ -80,7 +77,6 @@ class DirectDatabase(RekordboxDatabase):
     async def connect(self, database_path=None):
         if database_path is not None:
             raise PermissionError('Changing the configured database path is forbidden.')
-        require_rekordbox_closed()
         self.db = DirectMasterDatabase(self.source)
         self._connected = True
         self._invalidate_content_cache()
@@ -119,7 +115,6 @@ class PlaylistEditor:
     def __init__(self, source: Path, backups: Path = DEFAULT_BACKUP_DIRECTORY):
         self.backups = BackupManager(source, backups)
         self.source = self.backups.source
-        self.database = None
         self.source_stamp = None
 
     def read(self, playlist_id):
@@ -144,9 +139,16 @@ class PlaylistEditor:
             if self.source_stamp is not None and stamp != self.source_stamp:
                 self.backups.last = None  # A different writer invalidates our recovery interval.
             self.backups.ensure()
-            db = self.database = DirectMasterDatabase(self.source)
-            committed = False
+            db = DirectMasterDatabase(self.source)
             committing = False
+
+            def before_commit(_session):
+                nonlocal committing
+                require_rekordbox_closed()
+                self.backups.blocked.write_text('Commit in progress; inspect recovery if interrupted.')
+                committing = True
+
+            event.listen(db.session, 'before_commit', before_commit, once=True)
             try:
                 db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
                 if action == 'create':
@@ -218,11 +220,7 @@ class PlaylistEditor:
                                 db.flush()
                 db.flush()
                 expected = playlist_state(db, playlist_id)
-                require_rekordbox_closed()
-                self.backups.blocked.write_text('Commit in progress; inspect recovery if interrupted.')
-                committing = True
                 db.finish()
-                committed = True
                 result = playlist_state(db, playlist_id)
                 if result != expected:
                     raise RuntimeError('Playlist verification failed after commit.')
@@ -230,11 +228,10 @@ class PlaylistEditor:
                 return result
             except BaseException as error:
                 db.session.rollback()
-                if committed or committing:
+                if committing:
                     self.backups.blocked.write_text('Commit outcome requires inspection; do not retry automatically.')
                     raise RuntimeError('Playlist commit outcome is uncertain; inspect recovery before editing again.') from error
                 raise
             finally:
                 db.close()
-                self.database = None
                 self.source_stamp = database_stamp(self.source)
