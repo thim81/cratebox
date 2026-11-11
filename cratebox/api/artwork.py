@@ -242,20 +242,13 @@ async def embed_rekordbox_artwork(
     if len(request.image_url) > 2048:
         raise HTTPException(400, "The selected image URL is too long")
 
-    # Resolve only after confirming the IDs are a playlist membership in the read-only snapshot.
     from .rekordbox_playlists import call_tool
 
-    playlists = await call_tool("get_playlists")
-    if not isinstance(playlists, list) or not any(
-        isinstance(item, dict) and str(item.get("id")) == playlist_id for item in playlists
-    ):
-        raise HTTPException(404, "Rekordbox playlist not found.")
-    tracks = await call_tool("get_playlist_tracks", {"playlist_id": playlist_id})
-    if not isinstance(tracks, list) or not any(
-        isinstance(item, dict) and str(item.get("id")) == track_id for item in tracks
-    ):
+    locations = await call_tool(
+        "get_playlist_track_location", {"playlist_id": playlist_id, "track_id": track_id},
+    )
+    if locations == []:
         raise HTTPException(404, "Track not found in Rekordbox playlist.")
-    locations = await call_tool("get_collection_tracks", {"track_ids": [track_id]})
     if (
         not isinstance(locations, list) or len(locations) != 1
         or not isinstance(locations[0], dict)

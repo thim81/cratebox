@@ -27,6 +27,40 @@ def service(library, tmp_path):
     return direct.PlaylistEditor(library, tmp_path / 'backups')
 
 
+async def test_playlist_track_location_requires_active_membership(library, tmp_path):
+    from contextlib import closing
+    from fastmcp import Client
+    from pyrekordbox.masterdb.database import BLOB
+    from pyrekordbox.utils import deobfuscate
+    from sqlcipher3 import dbapi2 as sqlite
+    from rekordbx_mcp.server import build_server
+
+    with closing(sqlite.connect(library)) as conn:
+        conn.execute("PRAGMA key = '" + deobfuscate(BLOB) + "'")
+        conn.execute("INSERT INTO djmdContent (ID, rb_local_deleted) VALUES ('3', 0), ('4', 1), ('5', 0)")
+        conn.execute("INSERT INTO djmdPlaylist (ID, rb_local_deleted) VALUES ('101', 1)")
+        conn.execute("""
+            INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo, rb_local_deleted)
+            VALUES ('504', '100', '3', 4, 1), ('505', '100', '4', 5, 0), ('506', '101', '1', 1, 0)
+        """)
+        conn.commit()
+
+    async with Client(build_server(library, tmp_path / 'backups')) as client:
+        for playlist_id, track_id, expected in [
+            ('100', '1', [{'id': '1', 'file_path': '/private/original/music/track.mp3'}]),
+            ('100', '3', []),
+            ('100', '4', []),
+            ('100', '5', []),
+            ('100', '999', []),
+            ('101', '1', []),
+            ('999', '1', []),
+        ]:
+            result = await client.call_tool('get_playlist_track_location', {
+                'playlist_id': playlist_id, 'track_id': track_id,
+            })
+            assert result.structured_content == {'result': expected}
+
+
 def test_move_uses_entry_id_preserves_duplicates_and_revision(library, tmp_path):
     editor = service(library, tmp_path)
     state = editor.read('100')

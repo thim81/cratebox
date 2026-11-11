@@ -89,7 +89,7 @@ def result_value(result):
 
 def raise_playlist_tool_error(name: str, message: str):
     logger.error("Rekordbox MCP tool returned an error (%s): %s", name, message)
-    if name in {'edit_playlist', 'get_playlist_state', 'get_playlist_tracks', 'get_playlists'}:
+    if name in {'edit_playlist', 'get_playlist_state', 'get_playlist_tracks', 'get_playlists', 'get_playlist_track_location'}:
         safe_errors = [
             ('sidecar', 409, 'Close Rekordbox cleanly; unresolved database transaction files prevent access.'),
             ('close rekordbox', 409, 'Close Rekordbox and its background agents to access the collection.'),

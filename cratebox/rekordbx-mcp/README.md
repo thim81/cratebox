@@ -17,7 +17,7 @@ Startup and every collection operation require Rekordbox and its agents to be cl
 
 ## Tools
 
-The reviewed upstream reading-tool allowlist remains explicit. `get_collection_tracks` resolves ordered IDs, exact absolute locations, or pages of active collection records. Locations are an internal contract for trusted local application clients; keep this tool out of conversational MCP allowlists. Other collection responses redact file and database paths.
+The reviewed upstream reading-tool allowlist remains explicit. `get_collection_tracks` resolves ordered IDs, exact absolute locations, or pages of active collection records. `get_playlist_track_location` resolves one active track through an active playlist membership. These location tools are an internal contract for trusted local application clients. Keep them out of conversational MCP allowlists. Other collection responses redact file and database paths.
 
 `get_playlist_state` returns the playlist ID, name, editable flag, revision, and ordered entries containing `entry_id`, `track_id`, and one-based `position`. `get_playlist_tracks` includes `playlist_entry_id`. Playlists with unresolved collection references remain viewable but cannot be edited.
 

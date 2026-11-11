@@ -580,9 +580,7 @@ def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio
     async def call_tool(name, arguments=None):
         calls.append((name, arguments))
         return {
-            "get_playlists": [{"id": "playlist-1"}],
-            "get_playlist_tracks": [{"id": "track-1"}],
-            "get_collection_tracks": [{"id": "track-1", "file_path": str(source)}],
+            "get_playlist_track_location": [{"id": "track-1", "file_path": str(source)}],
         }[name]
 
     monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
@@ -599,7 +597,7 @@ def test_rekordbox_embed_endpoint_resolves_playlist_membership_and_updates_audio
     assert "file_path" not in response.text
     assert response.json()["backup_id"] is None
     assert response.json()["artwork_url"].startswith("/api/collection/tracks/track-1/artwork?v=")
-    assert [call[0] for call in calls] == ["get_playlists", "get_playlist_tracks", "get_collection_tracks"]
+    assert calls == [("get_playlist_track_location", {"playlist_id": "playlist-1", "track_id": "track-1"})]
     assert next(frame.data for frame in MP3(source).tags.getall("APIC") if frame.type == 3) == png(b"\x01\x02\x03")
     assert not (tmp_path / "backups").exists()
 
@@ -613,7 +611,7 @@ def test_rekordbox_embed_endpoint_rejects_track_outside_playlist(tmp_path, monke
 
     async def call_tool(name, arguments=None):
         called.append(name)
-        return {"get_playlists": [{"id": "playlist-1"}], "get_playlist_tracks": []}[name]
+        return {"get_playlist_track_location": []}[name]
 
     monkeypatch.setattr(rekordbox_playlists, "call_tool", call_tool)
     monkeypatch.setattr(artwork_write, "download_cover_image", lambda _url: pytest.fail("image should not download"))
@@ -625,7 +623,7 @@ def test_rekordbox_embed_endpoint_rejects_track_outside_playlist(tmp_path, monke
         )
 
     assert response.status_code == 404
-    assert called == ["get_playlists", "get_playlist_tracks"]
+    assert called == ["get_playlist_track_location"]
 
 
 def test_crate_rating_endpoint_updates_only_the_audio_rating(tmp_path, monkeypatch):

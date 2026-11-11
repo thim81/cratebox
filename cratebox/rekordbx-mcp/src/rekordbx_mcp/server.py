@@ -266,6 +266,26 @@ def build_server(source: Path, backup_directory: Path = DEFAULT_BACKUP_DIRECTORY
             except ValueError:
                 raise ToolError("A selector must resolve to active collection tracks; each file location must match exactly one track.") from None
 
+    @server.tool(annotations={"readOnlyHint": True, "destructiveHint": False})
+    async def get_playlist_track_location(playlist_id: str, track_id: str) -> list[dict]:
+        """Resolve an active track's file location through active playlist membership. Internal consumer contract."""
+        async with session_scope():
+            await ensure_connected()
+
+            def resolve():
+                row = database.db.query(DjmdContent.ID, DjmdContent.FolderPath).join(
+                    DjmdSongPlaylist, DjmdSongPlaylist.ContentID == DjmdContent.ID,
+                ).join(
+                    DjmdPlaylist, DjmdPlaylist.ID == DjmdSongPlaylist.PlaylistID,
+                ).filter(
+                    DjmdPlaylist.ID == playlist_id, DjmdContent.ID == track_id,
+                    DjmdPlaylist.rb_local_deleted == 0, DjmdContent.rb_local_deleted == 0,
+                    DjmdSongPlaylist.rb_local_deleted == 0,
+                ).first()
+                return [{"id": str(row.ID), "file_path": str(row.FolderPath or "")}] if row else []
+
+            return await run_database_operation(resolve)
+
     if not offline:
         @server.tool(annotations={"readOnlyHint": True})
         async def get_playlist_state(playlist_id: str) -> dict:
