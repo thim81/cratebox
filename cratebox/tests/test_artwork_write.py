@@ -174,37 +174,20 @@ def test_set_audio_rating_updates_mp3_and_preserves_audio_and_tags(tmp_path):
     assert not (tmp_path / "audio-backups").exists()
 
 
-def test_set_audio_rating_preserves_existing_id3v1_tag(tmp_path):
+@pytest.mark.parametrize("operation", ["rating", "cover"])
+@pytest.mark.parametrize(
+    ("legacy_title", "has_modern_tags"),
+    [(b"Test track", True), (b"Legacy title", True), (b"Legacy title", False)],
+    ids=["matching-title", "conflicting-title", "legacy-only"],
+)
+def test_mp3_tag_edit_preserves_id3v1_without_copying_fields(tmp_path, operation, legacy_title, has_modern_tags):
     source = tmp_path / "track.mp3"
     synthetic_mp3(source)
+    if not has_modern_tags:
+        source.write_bytes(mpeg_stream(source))
     legacy_tag = (
         b"TAG"
-        + b"Legacy title".ljust(30, b"\x00")
-        + b"Legacy artist".ljust(30, b"\x00")
-        + b"Legacy album".ljust(30, b"\x00")
-        + b"1999"
-        + b"Legacy comment".ljust(30, b"\x00")
-        + b"\x0f"
-    )
-    with source.open("ab") as audio_file:
-        audio_file.write(legacy_tag)
-
-    artwork_write.set_audio_rating(source, 4)
-
-    assert source.read_bytes()[-128:] == legacy_tag
-    migrated = ID3(source, load_v1=False)
-    assert str(migrated["TIT2"]) == "Test track"
-    assert str(migrated["TPE1"]) == "Legacy artist"
-    assert str(migrated["TALB"]) == "Legacy album"
-    assert any(frame.email == "cratebox" and frame.rating == 204 for frame in migrated.getall("POPM"))
-
-
-def test_set_audio_rating_migrates_nonconflicting_id3v1_data_to_id3v2(tmp_path):
-    source = tmp_path / "track.mp3"
-    synthetic_mp3(source)
-    legacy_tag = (
-        b"TAG"
-        + b"Test track".ljust(30, b"\x00")
+        + legacy_title.ljust(30, b"\x00")
         + b"Legacy artist".ljust(30, b"\x00")
         + b"Legacy album".ljust(30, b"\x00")
         + b"1999"
@@ -214,18 +197,24 @@ def test_set_audio_rating_migrates_nonconflicting_id3v1_data_to_id3v2(tmp_path):
     )
     with source.open("ab") as audio_file:
         audio_file.write(legacy_tag)
+    original_stream = mpeg_stream(source)
 
-    artwork_write.set_audio_rating(source, 4)
+    cover = png(b"\x00\xff\x00")
+    if operation == "rating":
+        artwork_write.set_audio_rating(source, 4)
+    else:
+        artwork_write.embed_cover_art(source, cover, "image/png")
 
     tags = ID3(source, load_v1=False, v2_version=3)
-    assert source.read_bytes()[-128:-125] != b"TAG"
-    assert str(tags["TIT2"]) == "Test track"
-    assert str(tags["TPE1"]) == "Legacy artist"
-    assert str(tags["TALB"]) == "Legacy album"
-    assert str(tags["TYER"]) == "1999"
-    assert str(tags["TRCK"]) == "7"
-    assert str(tags["TCON"]) == "Rock"
-    assert any(frame.desc == "ID3v1 Comment" and str(frame) == "Legacy comment" for frame in tags.getall("COMM"))
+    assert mpeg_stream(source) == original_stream
+    assert source.read_bytes()[-128:] == legacy_tag
+    assert str(tags.get("TIT2", "")) == ("Test track" if has_modern_tags else "")
+    assert not {"TPE1", "TALB", "TYER", "TRCK", "TCON"}.intersection(tags)
+    assert not tags.getall("COMM")
+    if operation == "rating":
+        assert tags["POPM:cratebox"].rating == 204
+    else:
+        assert [frame.data for frame in tags.getall("APIC") if frame.type == 3] == [cover]
 
 
 def test_set_audio_rating_updates_m4a_and_preserves_other_tags(tmp_path):

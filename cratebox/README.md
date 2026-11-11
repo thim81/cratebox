@@ -42,7 +42,7 @@ See [architecture.md](architecture.md) for the definition of a CrateBox crate an
 
 The Core exporter writes M3U8 playlists to the repository's `playlists/` folder and CrateBox JSON metadata to `.cratebox/crates/`. Existing JSON files in `output/` are left untouched and are not read. Replacement requires explicit confirmation. No export imports into Rekordbox.
 
-CrateBox may update embedded cover artwork on an MP3/M4A selected from one of its own crates or from a Rekordbox playlist. It stages and verifies the update before atomically replacing the selected audio file, without retaining a separate backup. Direct database changes are limited to playlist names, membership, order, creation, and required playlist companion updates. Collection metadata, cues, beatgrids, XML exports and analysis files remain outside this scope.
+CrateBox can update embedded cover artwork or the loaded track’s rating on an MP3/M4A selected from a local crate or resolved by its Rekordbox track ID. It stages and verifies the update before atomically replacing the selected audio file, without retaining a separate backup. Direct database changes are limited to playlist names, membership, order, creation, and required playlist companion updates. Collection metadata, cues, beatgrids, XML exports and analysis files remain outside this scope.
 
 ## Tests
 

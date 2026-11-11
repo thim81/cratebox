@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlsplit
 import zlib
 
 from mutagen import MutagenError
-from mutagen.id3 import APIC, ID3, POPM, ParseID3v1
+from mutagen.id3 import APIC, ID3, POPM
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 
@@ -28,31 +28,6 @@ class ArtworkWriteError(ValueError):
     """An artwork update was rejected or could not be completed safely."""
 
 
-def _mp3_audio_hash(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        header = stream.read(10)
-        if header[:3] == b"ID3" and len(header) == 10:
-            tag_size = sum((header[6 + offset] & 0x7F) << (7 * (3 - offset)) for offset in range(4))
-            start = 10 + tag_size
-        else:
-            start = 0
-        stream.seek(0, os.SEEK_END)
-        end = stream.tell()
-        if end >= 128:
-            stream.seek(-128, os.SEEK_END)
-            legacy_tag = stream.read(128)
-            if legacy_tag[:3] == b"TAG" and ParseID3v1(legacy_tag, v2_version=4) is not None:
-                end -= 128
-        stream.seek(start)
-        while stream.tell() < end:
-            block = stream.read(min(1024 * 1024, end - stream.tell()))
-            if not block:
-                break
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def _mp3_id3v2_end(path: Path) -> int:
     with path.open("rb") as stream:
         header = stream.read(10)
@@ -62,49 +37,38 @@ def _mp3_id3v2_end(path: Path) -> int:
     return 10 + tag_size
 
 
-def _mp3_bytes_after_id3v2(path: Path) -> bytes:
+def _save_mp3_tags(path: Path, tags: ID3, version: int) -> None:
+    tag_end = _mp3_id3v2_end(path)
+    payload_size = path.stat().st_size - tag_end
     with path.open("rb") as stream:
-        stream.seek(_mp3_id3v2_end(path))
-        return stream.read()
+        stream.seek(tag_end + max(0, payload_size - 128))
+        tail = stream.read(128)
+
+    # Mutagen either rewrites or removes ID3v1. Restore any removed suffix verbatim.
+    tags.save(path, v2_version=version, v1=0, v23_sep=None)
+    removed = _mp3_id3v2_end(path) + payload_size - path.stat().st_size
+    if 0 < removed <= len(tail):
+        with path.open("ab") as stream:
+            stream.write(tail[-removed:])
 
 
-def _restore_mp3_bytes_after_id3v2(path: Path, tail: bytes) -> None:
-    with path.open("r+b") as stream:
-        stream.seek(_mp3_id3v2_end(path))
-        stream.write(tail)
-        stream.truncate()
+def _is_cratebox_rating(frame) -> bool:
+    return isinstance(frame, POPM) and frame.email.casefold() == "cratebox"
 
 
-def _mp3_id3v1_tag(path: Path) -> bytes | None:
-    with path.open("rb") as stream:
-        stream.seek(0, os.SEEK_END)
-        if stream.tell() < 128:
-            return None
-        stream.seek(-128, os.SEEK_END)
-        tag = stream.read(128)
-    return tag if tag[:3] == b"TAG" and ParseID3v1(tag, v2_version=4) is not None else None
+def _is_front_cover(frame) -> bool:
+    return isinstance(frame, APIC) and frame.type == 3
 
 
-def _mp3_id3v1_conflicts_with_id3v2(path: Path, version: int) -> bool:
-    legacy_tag = _mp3_id3v1_tag(path)
-    if legacy_tag is None:
-        return False
-
-    legacy_frames = ParseID3v1(legacy_tag, v2_version=version) or {}
-    v2_tags = ID3(path, load_v1=False, v2_version=version)
-    for legacy in legacy_frames.values():
-        matches = [frame for frame in v2_tags.getall(legacy.FrameID) if frame.HashKey == legacy.HashKey]
-        if matches and not any(str(frame) == str(legacy) for frame in matches):
-            return True
-    return False
-
-
-def _mp3_non_cratebox_tags(tags: ID3):
-    return {
+def _mp3_tags_snapshot(tags: ID3 | None, *, exclude):
+    if tags is None:
+        return {}, ()
+    frames = {
         key: (type(frame), frame.__dict__)
         for key, frame in tags.items()
-        if not (isinstance(frame, POPM) and frame.email.casefold() == "cratebox")
+        if not exclude(frame)
     }
+    return frames, tuple(tags.unknown_frames)
 
 
 def _mp4_non_rating_tags(tags):
@@ -120,18 +84,16 @@ def set_audio_rating(source: Path, rating: int) -> None:
     temporary = None
     try:
         if source.suffix.lower() == ".mp3":
-            original = MP3(source)
+            fingerprint = _fingerprint(source)
+            original = MP3(source, load_v1=False, translate=False)
             if original.info is None:
                 raise ArtworkWriteError("The selected MP3 is not readable")
             duration = original.info.length
-            had_legacy_tag = _mp3_id3v1_tag(source) is not None
-            version = original.tags.version[1] if original.tags else 3
+            version = original.tags.version[1] if original.tags is not None else 3
             if version not in (3, 4):
                 raise ArtworkWriteError("Only MP3 files with ID3v2.3 or ID3v2.4 tags are supported")
-            audio_hash = _mp3_audio_hash(source)
-            tag_snapshot = _mp3_non_cratebox_tags(original.tags or ID3())
-            preserve_legacy_tag = _mp3_id3v1_conflicts_with_id3v2(source, version)
-            fingerprint = _fingerprint(source)
+            audio_hash = _sha256(source, start=_mp3_id3v2_end(source))
+            tag_snapshot = _mp3_tags_snapshot(original.tags, exclude=_is_cratebox_rating)
         else:
             original = MP4(source)
             if original.info is None:
@@ -149,29 +111,24 @@ def set_audio_rating(source: Path, rating: int) -> None:
         os.chmod(temporary, stat.S_IMODE(info.st_mode) | stat.S_IWUSR)
 
         if source.suffix.lower() == ".mp3":
-            staged = MP3(temporary)
-            if staged.tags is None:
-                staged.add_tags()
-            for key, frame in list(staged.tags.items()):
-                if isinstance(frame, POPM) and frame.email.casefold() == "cratebox":
-                    del staged.tags[key]
+            if original.tags is None:
+                original.add_tags()
+            for key, frame in list(original.tags.items()):
+                if _is_cratebox_rating(frame):
+                    del original.tags[key]
             raw_rating = (0, 51, 102, 153, 204, 255)[rating]
-            staged.tags.add(POPM(email="cratebox", rating=raw_rating, count=0))
-            original_tail = _mp3_bytes_after_id3v2(temporary) if preserve_legacy_tag else None
-            staged.tags.save(temporary, v2_version=version, v1=1 if preserve_legacy_tag else 0)
-            if original_tail is not None:
-                _restore_mp3_bytes_after_id3v2(temporary, original_tail)
-            verified = MP3(temporary)
+            original.tags.add(POPM(email="cratebox", rating=raw_rating, count=0))
+            _save_mp3_tags(temporary, original.tags, version)
+            verified = MP3(temporary, load_v1=False, translate=False)
             from core.audio_metadata import read_embedded_rating
 
             if (
                 verified.info is None
-                or (
-                    abs(verified.info.length - duration) > 1e-6
-                    and not (had_legacy_tag and not preserve_legacy_tag)
-                )
-                or _mp3_audio_hash(temporary) != audio_hash
-                or _mp3_non_cratebox_tags(verified.tags or ID3()) != tag_snapshot
+                or abs(verified.info.length - duration) > 1e-6
+                or _sha256(temporary, start=_mp3_id3v2_end(temporary)) != audio_hash
+                or verified.tags is None
+                or verified.tags.version[1] != version
+                or _mp3_tags_snapshot(verified.tags, exclude=_is_cratebox_rating) != tag_snapshot
                 or read_embedded_rating(temporary) != rating
             ):
                 raise ArtworkWriteError("The staged MP3 failed its audio or tag integrity check")
@@ -443,9 +400,10 @@ def download_cover_image(url: str) -> tuple[bytes, str]:
     return data, mime
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, *, start: int = 0) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
+        source.seek(start)
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
@@ -456,21 +414,21 @@ def _fingerprint(path: Path) -> tuple[int, int, int, int, str]:
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, _sha256(path)
 
 
-def _artwork_snapshot(tags: ID3 | None):
-    if tags is None:
-        return []
-    return [
-        (frame.type, frame.mime, frame.desc, frame.data)
-        for frame in tags.getall("APIC")
-        if frame.type != 3
-    ]
-
-
-def _validate_staged(staged: Path, duration: float, image_data: bytes, mime: str, version: int) -> None:
-    audio = MP3(staged)
-    if audio.info is None or abs(audio.info.length - duration) > 1e-6:
+def _validate_staged(
+    staged: Path, duration: float, image_data: bytes, mime: str, version: int, audio_hash: str, tag_snapshot,
+) -> None:
+    audio = MP3(staged, load_v1=False, translate=False)
+    if (
+        audio.info is None
+        or abs(audio.info.length - duration) > 1e-6
+        or _sha256(staged, start=_mp3_id3v2_end(staged)) != audio_hash
+    ):
         raise ArtworkWriteError("The staged MP3 failed its audio integrity check")
-    if audio.tags is None or audio.tags.version[1] != version:
+    if (
+        audio.tags is None
+        or audio.tags.version[1] != version
+        or _mp3_tags_snapshot(audio.tags, exclude=_is_front_cover) != tag_snapshot
+    ):
         raise ArtworkWriteError("The staged MP3 failed its ID3 tag integrity check")
     front_covers = [frame for frame in audio.tags.getall("APIC") if frame.type == 3]
     if len(front_covers) != 1 or front_covers[0].mime != mime or front_covers[0].data != image_data:
@@ -590,15 +548,16 @@ def embed_cover_art(source: Path, image_data: bytes, mime: str) -> None:
     if source.suffix.lower() == ".m4a":
         return _embed_m4a_cover(source, info, image_data, mime)
     try:
-        original_audio = MP3(source)
+        fingerprint = _fingerprint(source)
+        original_audio = MP3(source, load_v1=False, translate=False)
         if original_audio.info is None:
             raise ArtworkWriteError("The selected file is not a readable MP3")
         duration = original_audio.info.length
-        non_cover_art = _artwork_snapshot(original_audio.tags)
-        version = original_audio.tags.version[1] if original_audio.tags else 3
+        tag_snapshot = _mp3_tags_snapshot(original_audio.tags, exclude=_is_front_cover)
+        version = original_audio.tags.version[1] if original_audio.tags is not None else 3
         if version not in (3, 4):
             raise ArtworkWriteError("Only MP3 files with ID3v2.3 or ID3v2.4 tags are supported")
-        fingerprint = _fingerprint(source)
+        audio_hash = _sha256(source, start=_mp3_id3v2_end(source))
     except ArtworkWriteError:
         raise
     except (OSError, MutagenError, ValueError):
@@ -610,17 +569,14 @@ def embed_cover_art(source: Path, image_data: bytes, mime: str) -> None:
             temporary = Path(staged_file.name)
         shutil.copyfile(source, temporary)
         os.chmod(temporary, stat.S_IMODE(info.st_mode) | stat.S_IWUSR)
-        staged = MP3(temporary)
-        if staged.tags is None:
-            staged.add_tags()
-        for key, frame in list(staged.tags.items()):
-            if frame.FrameID == "APIC" and frame.type == 3:
-                del staged.tags[key]
-        staged.tags.add(APIC(encoding=3, mime=mime, type=3, desc="Front cover", data=image_data))
-        staged.save(v2_version=version)
-        if _artwork_snapshot(staged.tags) != non_cover_art:
-            raise ArtworkWriteError("The staged MP3 did not preserve its other artwork")
-        _validate_staged(temporary, duration, image_data, mime, version)
+        if original_audio.tags is None:
+            original_audio.add_tags()
+        for key, frame in list(original_audio.tags.items()):
+            if _is_front_cover(frame):
+                del original_audio.tags[key]
+        original_audio.tags.add(APIC(encoding=3, mime=mime, type=3, desc="Front cover", data=image_data))
+        _save_mp3_tags(temporary, original_audio.tags, version)
+        _validate_staged(temporary, duration, image_data, mime, version, audio_hash, tag_snapshot)
         if _fingerprint(source) != fingerprint:
             raise ArtworkWriteError("The source MP3 changed during the artwork update")
         shutil.copystat(source, temporary)
